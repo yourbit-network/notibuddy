@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an improvement to the CLI or MCP package.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the use case without private messages, credentials, or customer data.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested behavior and alternatives
+    validations:
+      required: true

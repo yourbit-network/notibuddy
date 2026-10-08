@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible CLI or MCP problem using sanitized examples.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use [private reporting](https://github.com/yourbit-network/notibuddy/security/advisories/new).
+        Never include real pairing bundles, tokens, private keys, `.notibuddy` files, private messages, or unredacted logs.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions and operating system
+      description: Package version, Node.js version, OS, and MCP client if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic inputs. Replace all secrets and private content before submitting.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized error output
+      description: Optional. Inspect the entire excerpt for credentials and private content first.
