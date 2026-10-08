@@ -8,3 +8,4 @@ dist/
 .npmrc
 *.tgz
 .notibuddy/
+.build/

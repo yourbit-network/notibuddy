@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: npm-publish
   cancel-in-progress: false
 
 jobs:
@@ -22,6 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -34,6 +35,7 @@ jobs:
 
       - name: Verify release tag and package
         run: |
+          git merge-base --is-ancestor HEAD origin/main
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
@@ -47,13 +49,25 @@ jobs:
           assert.equal(pkg.repository.url, 'git+https://github.com/yourbit-network/notibuddy.git');
           NODE
 
+      - name: Install pinned secret scanner
+        run: bash scripts/install-ci-gitleaks.sh
+      - name: Scan release history and tag messages
+        run: npm run scan:history
+      - name: Test pre-push enforcement
+        run: npm run test:hooks
       - name: Install dependencies
         run: npm ci
       - name: Build
         run: npm run build
       - name: Test
         run: npm test
-      - name: Check package contents
-        run: npm pack --dry-run
+      - name: Test release safeguards
+        run: npm run test:release
+      - name: Pack, scan, and install the exact release archive
+        run: npm run pack:check -- --scan
       - name: Publish with OIDC and provenance
-        run: npm publish --access public --provenance --tag latest
+        run: |
+          archive=$(node --input-type=module -e "import fs from 'node:fs'; console.log(JSON.parse(fs.readFileSync('.build/release/pack.json'))[0].filename)")
+          npm publish ".build/release/$archive" --ignore-scripts --access public --provenance --tag latest
+      - name: Verify public registry contents and integrity
+        run: npm run check:publication -- --wait

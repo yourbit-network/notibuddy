@@ -126,11 +126,11 @@ Releases use [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) 
 | Environment name | Leave blank |
 | Allowed actions | Enable `npm publish` |
 
-The workflow uses a GitHub-hosted runner, Node.js 24, and npm 11.21.0. It installs dependencies, builds, tests, checks package contents, and publishes with OIDC and provenance. No npm token secret is required.
+The workflow uses a GitHub-hosted runner, Node.js 24, and npm 11.21.0. It scans release history, builds, tests, checks the exact archive's allowed files, scans its contents, and installs it in a clean project. It publishes that same archive with OIDC and provenance, then verifies the publicly downloadable archive's integrity. No npm token secret is required.
 
-For a release, update `package.json` and `package-lock.json` to the next unpublished stable version, commit and push the reviewed changes to the public repository, then push a matching `v<version>` tag. For example, version `0.1.1` requires tag `v0.1.1`. Pushing the tag starts publishing to npm's `latest` channel; pushing `main` alone does not publish. Prerelease tags and mismatched package or lockfile versions are rejected.
+For a release, update `package.json`, `package-lock.json`, and the changelog to the next unpublished stable version in a pull request. After merging and completing the private app integration check, the owner pushes a signed matching `v<version>` tag from `main`. Pushing the tag starts publishing to npm's `latest` channel; pushing `main` alone does not publish. Prerelease tags, tags outside `main`, and mismatched package or lockfile versions are rejected. Release tags must not be moved or deleted.
 
-Make the same package changes in the private monorepo's `notibuddy-mcp/` mirror. npm requires a new trusted publisher to complete its first successful publish within two days; recreate the configuration if it expires. See [npm's trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
+This public repository is the source of truth for the package. Synchronize merged changes into the private monorepo's `notibuddy-mcp/` copy without copying Git history. See the [contributor and release guide](https://github.com/yourbit-network/notibuddy/blob/main/CONTRIBUTING.md), [security policy](https://github.com/yourbit-network/notibuddy/blob/main/SECURITY.md), and [changelog](https://github.com/yourbit-network/notibuddy/blob/main/CHANGELOG.md). npm requires a new trusted publisher to complete its first successful publish within two days; recreate the configuration if it expires. See [npm's trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
 
 ---
 
