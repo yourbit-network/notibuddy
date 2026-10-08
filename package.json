@@ -30,7 +30,12 @@
     "build": "tsc",
     "watch": "tsc --watch",
     "test": "tsx test/protocol.test.ts && tsx test/client.test.ts && tsx test/sender-registration.test.ts && tsx test/activity-dispatch.test.ts",
-    "prepublishOnly": "tsc"
+    "prepublishOnly": "tsc",
+    "test:release": "node --test test/package-contents.test.mjs test/publication.test.mjs",
+    "test:hooks": "node --test test/pre-push.test.mjs",
+    "scan:history": "node scripts/scan-history.mjs",
+    "pack:check": "node scripts/check-package.mjs",
+    "check:publication": "node scripts/check-publication.mjs"
   },
   "dependencies": {
     "@hpke/core": "^1.9.0",

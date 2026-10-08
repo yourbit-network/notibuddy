@@ -84,7 +84,8 @@ try {
   await assert.rejects(client().ask({title:'Invalid',waitSeconds:NaN}));
   for(const entry of fs.readdirSync(path.join(directory,'pending'),{recursive:true})) {
     const file=path.join(directory,'pending',String(entry));
-    if(fs.statSync(file).isFile()) assert.equal(fs.statSync(file).mode&0o777,0o600);
+    // Windows uses ACLs; Unix permission bits do not describe its access controls.
+    if(fs.statSync(file).isFile() && process.platform !== 'win32') assert.equal(fs.statSync(file).mode&0o777,0o600);
   }
   console.log('Client regressions passed: encryption, restart/resume, terminal polling, key retention, activity continuity/controls, auth propagation, private storage.');
 } finally {
