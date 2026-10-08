@@ -1,0 +1,59 @@
+title = "NotiBuddy public repository secret rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "notibuddy-token"
+description = "NotiBuddy sender/device credentials"
+regex = '''\bnb_[a-z]+_(?:live|test)_[A-Za-z0-9_-]{8,}\b'''
+
+[[rules]]
+id = "notibuddy-pairing-bundle"
+description = "Encoded NotiBuddy pairing credentials"
+regex = '''nbpair1\.[A-Za-z0-9_-]{50,}'''
+
+[[rules]]
+id = "private-jwk-material"
+description = "Private JWK scalar"
+regex = '''["']d["']\s*:\s*["']([A-Za-z0-9_-]{40,})["']'''
+secretGroup = 1
+
+# These exact values were audited as synthetic protocol fixtures. Both the
+# path AND value must match. Other secrets in test files are still rejected.
+# Regenerating fixtures requires reviewing and updating these exact exceptions.
+[[allowlists]]
+description = "Audited synthetic fixture values, including decoded bundle fields"
+targetRules = ["generic-api-key", "notibuddy-token"]
+condition = "AND"
+paths = ['''^(test-vectors/v1\.json|\.gitleaks\.toml)$''']
+regexTarget = "secret"
+regexes = [
+  '''^ewmXcPsFSfJx9oh1\-yfqAcsN\-wZTV1xuZX3284r2HyI$''',
+  '''^2blJvhKQLn36UCSJBS1JATOiy1cAc2sEVpjMGHd\-XhU$''',
+  '''^nb_snd_live_testtoken123$'''
+]
+
+[[allowlists]]
+description = "Explicit dummy token in the protocol test"
+targetRules = ["notibuddy-token", "generic-api-key"]
+condition = "AND"
+paths = ['''^test/protocol\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^nb_snd_live_testtoken123$''']
+
+[[allowlists]]
+description = "The single audited .test pairing fixture"
+targetRules = ["notibuddy-pairing-bundle"]
+condition = "AND"
+paths = ['''^test-vectors/v1\.json$''']
+regexTarget = "secret"
+regexes = ['''^nbpair1\.eyJ2IjoxLCJyZWxheSI6Imh0dHBzOi8vcmVsYXkubm90aWJ1ZGR5LnRlc3QiLCJ0b2tlbiI6Im5iX3NuZF9saXZlX3Rlc3R0b2tlbjEyMyIsImRldmljZSI6eyJpZCI6ImRldl8xZDAyOTgwZGRjMzJhYmQ2NjVkZDRmMjMiLCJlbmNQdWIiOiJCREd1QWhYZUJBWTJ1dWV4SmFsbHh0WTZRM2dhQnNWRWVoVGo0QU52QUlrRURlbEplSzNhNkh0T2tCV0V2V0FDMEhXT1hZMndtcTFxTk1OUGhsSHdmcWciLCJzaWdQdWIiOiJCTXp1VWphb3dKNW9YR2FxcUhTOWNKZ3hSekVQVG5jSnFVcnpXZFFWcC1ubGE5UWVJY3kwS1NYZHdWS0VRYjZwcTNlaGVrN29SRzlnZGdIOHJ4X2g5TkkiLCJuYW1lIjoiVGVzdCBpUGhvbmUifSwicGFpclNlY3JldCI6IjJibEp2aEtRTG4zNlVDU0pCUzFKQVRPaXkxY0FjMnNFVnBqTUdIZC1YaFUifQ$''']
+
+[[allowlists]]
+description = "Truncated README example; not a valid pairing bundle"
+targetRules = ["notibuddy-pairing-bundle"]
+condition = "AND"
+paths = ['''^README\.md$''']
+regexTarget = "secret"
+regexes = ['''^nbpair1\.eyJ2IjoxLCJyZWxheSI6Imh0dHBzOi8vcmVsYXkubm90aWJ1ZGR5LmFwcCIsInRv$''']

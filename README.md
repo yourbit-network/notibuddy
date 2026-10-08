@@ -98,6 +98,22 @@ Test vectors are located in [`test-vectors/v1.json`](./test-vectors/v1.json).
 
 Node.js 20 or newer is required. Tests use isolated local fixtures and do not need a phone, relay credentials, or access to another repository. Test-vector keys and pairing bundles are synthetic and are not usable production credentials.
 
+### Pre-push secret checks (contributors)
+
+Install [Gitleaks](https://github.com/gitleaks/gitleaks) 8.30.1 or newer (`brew install gitleaks` on macOS), then run this once in each standalone public checkout:
+
+```bash
+node scripts/install-hooks.mjs
+```
+
+The installer enables a local pre-push hook and preserves existing hooks, including commit signing/attestation hooks. It saves the scanner's location locally; rerun the installer if that location changes. `GITLEAKS_BIN=/absolute/path/to/gitleaks node scripts/install-hooks.mjs` selects a specific installation. Installation is explicit and never runs for npm package consumers or the private monorepo mirror.
+
+Every push scans the full history reachable from the branches/tags being sent, plus commit and tag messages. New branches, force pushes, merge changes, and secrets deleted by a later commit are covered. Pushes fail if a secret is detected, Gitleaks is missing, history is shallow, or scanning fails. Findings are redacted. Deletion-only pushes send no new objects and skip scanning; tags pointing to trees or blobs are refused.
+
+`.gitleaks.toml` extends the standard detectors with NotiBuddy token, encoded pairing bundle, and private JWK checks. Exceptions match only the exact audited fixture values at their known paths; test directories are not excluded. If a secret is found, remove it from every outgoing commit before retrying. Inline `gitleaks:allow` comments and `.gitleaksignore` cannot suppress this hook's checks.
+
+Run the hook integration tests with `node --test test/pre-push.test.mjs`. They use disposable local repositories and generated fake credentials. Git hooks are local to each checkout and can be bypassed with Git's `--no-verify`; they are not a server-side enforcement policy.
+
 ### Publishing (maintainers)
 
 Releases use [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) in the public repository. Configure the npm package's GitHub Actions trusted publisher with:
