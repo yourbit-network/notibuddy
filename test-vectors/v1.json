@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "description": "NotiBuddy Protocol v1 Test Vectors (TypeScript reference implementation)",
+  "keys": {
+    "device": {
+      "id": "dev_1d02980ddc32abd665dd4f23",
+      "encryptionPublicKey": "BDGuAhXeBAY2uuexJallxtY6Q3gaBsVEehTj4ANvAIkEDelJeK3a6HtOkBWEvWAC0HWOXY2wmq1qNMNPhlHwfqg",
+      "encryptionPrivateKeyForTesting": "ewmXcPsFSfJx9oh1-yfqAcsN-wZTV1xuZX3284r2HyI",
+      "signingPublicKey": "BMzuUjaowJ5oXGaqqHS9cJgxRzEPTncJqUrzWdQVp-nla9QeIcy0KSXdwVKEQb6pq3ehek7oRG9gdgH8rx_h9NI"
+    },
+    "sender": {
+      "id": "snd_e5fd925406cbb5db09b0a1d4",
+      "signingPublicKey": "BMieDkCE0z_1uSB0qVIwXF5ML-WCzRNb7VZoEVBCDW7RzxV-N4yviFB3gV3K1TxuuJqCqpdM38loufGwqMVjwPc"
+    },
+    "reply": {
+      "publicKey": "BM8TA5VwYd3f-uZPaUiaJwoaTXaniNTtH7yABIY3Bd7fWEk2x9iT8ky7mwu39WcFM5PpvbkA5dDCcyuAAWzihCg"
+    }
+  },
+  "pairing": {
+    "pairSecret": "2blJvhKQLn36UCSJBS1JATOiy1cAc2sEVpjMGHd-XhU",
+    "bundle": "nbpair1.eyJ2IjoxLCJyZWxheSI6Imh0dHBzOi8vcmVsYXkubm90aWJ1ZGR5LnRlc3QiLCJ0b2tlbiI6Im5iX3NuZF9saXZlX3Rlc3R0b2tlbjEyMyIsImRldmljZSI6eyJpZCI6ImRldl8xZDAyOTgwZGRjMzJhYmQ2NjVkZDRmMjMiLCJlbmNQdWIiOiJCREd1QWhYZUJBWTJ1dWV4SmFsbHh0WTZRM2dhQnNWRWVoVGo0QU52QUlrRURlbEplSzNhNkh0T2tCV0V2V0FDMEhXT1hZMndtcTFxTk1OUGhsSHdmcWciLCJzaWdQdWIiOiJCTXp1VWphb3dKNW9YR2FxcUhTOWNKZ3hSekVQVG5jSnFVcnpXZFFWcC1ubGE5UWVJY3kwS1NYZHdWS0VRYjZwcTNlaGVrN29SRzlnZGdIOHJ4X2g5TkkiLCJuYW1lIjoiVGVzdCBpUGhvbmUifSwicGFpclNlY3JldCI6IjJibEp2aEtRTG4zNlVDU0pCUzFKQVRPaXkxY0FjMnNFVnBqTUdIZC1YaFUifQ",
+    "mac": "Qh5q8ONVpvHg9SFxoeychDWb8Vw3Pp39v5GCcRXy31M"
+  },
+  "requestEnvelope": {
+    "v": 1,
+    "kind": "request",
+    "requestId": "req_0192837465",
+    "deviceId": "dev_1d02980ddc32abd665dd4f23",
+    "senderKeyId": "snd_e5fd925406cbb5db09b0a1d4",
+    "primitive": "approval",
+    "createdAt": 1791329371,
+    "expiresAt": 1791329671,
+    "enc": "BLTgt9OnENZaVgZjx_gHbHXjNRi81DKfKcp8kxXZXA6G6XBFvfpqwrkXLMjVdo4TQmQy54BlcDjmPEyjxLcbftk",
+    "ct": "yQUgQgUtehWwazGQibLkOQw9aluxpMyVKqXZSYBTlzqLFhmyWjRNjpBPNuVnUxJ_7nbHiAZP4yN1bpJeJxMvjgFOk8029TTH9t90C1sCiGCpD8Hj-eOd4hrFjNk9KF7jw13zvdiwuEugs0BZ9GSsnFtSLoPUt3f4CH1zhNqbSOQSKJFcZqwSzmp4j4OXPyA2rtRRtxhYBFpb4_OPr4BZPBnCaRBZ0XVI2URiroyO-lfBiBtPm2N0SllkGaZ8-Cl57oqgrqBPQwu10ffpv-NSLqlO4pwzu0O4lpgemRP5ucXaYE7hGhFqaG4K85e1y8j2gR3Y_evBBVWUVizdlsvUntEcxTEZD61bICQwKbSEV_G0u95r-g",
+    "sig": "CdB-KpILJn-oiGN6gOsSbXunkqWnluMX9Vf1WKAG3Jim1AVe0So0WaNp3uBCRSatXydLcM8F1QSTiJLw_K2uUQ"
+  },
+  "replyEnvelope": {
+    "v": 1,
+    "kind": "reply",
+    "requestId": "req_0192837465",
+    "deviceId": "dev_1d02980ddc32abd665dd4f23",
+    "createdAt": 1791329371,
+    "enc": "BOgDTIrDloAkAeV3IXFE8wQYgrV06_Zvxd7LiDV_toyRJiZmXriUMP1ndIAWplNpxNVxPjxZPKBgf5Vzpmiq17U",
+    "ct": "AV0Rbmdn3DIJaEsQiBZbGwGHi8UqtukD1d7slPHNGJcHu152cF6_2ZXBs74WYXLfVKLgwMNk8s7k",
+    "sig": "SJyHtK0eXvGzfbwfyyk8AU_t72YBn-zj8zi46_KE2-GCU4r8yzZSRlXAxwkLAetIMgGCNvc8v7vRqzAtVLFYXQ"
+  }
+}

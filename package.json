@@ -1,0 +1,51 @@
+{
+  "name": "notibuddy",
+  "version": "0.1.0",
+  "description": "Zero-knowledge end-to-end encrypted CLI and Model Context Protocol (MCP) server for NotiBuddy",
+  "license": "MIT",
+  "author": "Yourbit, LLC <contact@notibuddy.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourbit-network/notibuddy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourbit-network/notibuddy/issues"
+  },
+  "homepage": "https://github.com/yourbit-network/notibuddy#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "nb": "./dist/cli.js",
+    "notibuddy": "./dist/cli.js",
+    "notibuddy-mcp": "./dist/mcp-entry.js"
+  },
+  "files": [
+    "dist",
+    "PROTOCOL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "tsx test/protocol.test.ts && tsx test/client.test.ts && tsx test/sender-registration.test.ts && tsx test/activity-dispatch.test.ts",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "@hpke/core": "^1.9.0",
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
