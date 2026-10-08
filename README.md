@@ -94,6 +94,24 @@ Test vectors are located in [`test-vectors/v1.json`](./test-vectors/v1.json).
 
 Node.js 20 or newer is required. Tests use isolated local fixtures and do not need a phone, relay credentials, or access to another repository. Test-vector keys and pairing bundles are synthetic and are not usable production credentials.
 
+### Publishing (maintainers)
+
+Releases use [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) in the public repository. Configure the npm package's GitHub Actions trusted publisher with:
+
+| npm setting | Value |
+| --- | --- |
+| Organization or user | `yourbit-network` |
+| Repository | `notibuddy` |
+| Workflow filename | `publish.yml` |
+| Environment name | Leave blank |
+| Allowed actions | Enable `npm publish` |
+
+The workflow uses a GitHub-hosted runner, Node.js 24, and npm 11.21.0. It installs dependencies, builds, tests, checks package contents, and publishes with OIDC and provenance. No npm token secret is required.
+
+For a release, update `package.json` and `package-lock.json` to the next unpublished stable version, commit and push the reviewed changes to the public repository, then push a matching `v<version>` tag. For example, version `0.1.1` requires tag `v0.1.1`. Pushing the tag starts publishing to npm's `latest` channel; pushing `main` alone does not publish. Prerelease tags and mismatched package or lockfile versions are rejected.
+
+Make the same package changes in the private monorepo's `notibuddy-mcp/` mirror. npm requires a new trusted publisher to complete its first successful publish within two days; recreate the configuration if it expires. See [npm's trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
+
 ---
 
 ## 📜 License
