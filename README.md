@@ -34,6 +34,10 @@ npx notibuddy pair "nbpair1.eyJ2IjoxLCJyZWxheSI6Imh0dHBzOi8vcmVsYXkubm90aWJ1ZGR5
 
 This derives your device identity, registers your sender signing key, and stores credentials locally in `~/.notibuddy/`.
 
+Before sending a request, open **Connect** on your iPhone, compare the full **Sender Key ID** with the one shown in Terminal, and approve the computer. Keep the pairing bundle private. Pending registrations expire after 15 minutes; run pairing again if approval expires.
+
+Use `npx notibuddy status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+
 ### 2. Test via CLI
 
 ```bash
