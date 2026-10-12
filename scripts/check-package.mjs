@@ -61,13 +61,13 @@ try {
   const installed = path.join(consumer, 'node_modules/notibuddy');
   const cli = path.join(installed, 'dist/cli.js');
   assert.match(run(process.execPath, [cli, '--help'], { cwd: consumer, env }), /NotiBuddy CLI/);
-  assert.match(run(process.execPath, [cli, 'status'], { cwd: consumer, env }), /NOT paired/);
+  assert.match(run(process.execPath, [cli, 'status'], { cwd: consumer, env }), /No named destinations paired/);
   run(process.execPath, ['--input-type=module', '-e', "await import('notibuddy')"], { cwd: consumer, env });
   const mcp = spawnSync(process.execPath, [path.join(installed, 'dist/mcp-entry.js')], {
     cwd: consumer, env, input: '', encoding: 'utf8', timeout: 10_000,
   });
   assert.equal(mcp.status, 1, 'Unpaired MCP startup must fail without hanging.');
-  assert.match(mcp.stderr, /NotiBuddy is not paired/, 'MCP entry point must load and explain the missing pairing.');
+  assert.match(mcp.stderr, /Select a destination explicitly/, 'MCP entry point must load and explain the missing pairing.');
   // Write the manifest only after every check has passed.
   writeFileSync(path.join(output, 'pack.json'), JSON.stringify([packed], null, 2) + '\n');
   console.log(`Verified ${packed.filename}: ${packed.files.length} allowed files, clean installation, CLI and MCP entry points${process.argv.includes('--scan') ? ', secret scan' : ''}.`);

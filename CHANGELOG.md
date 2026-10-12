@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — Unreleased
+
+- Require explicit named destinations under `~/.notibuddy/destinations`; add list, rename, and explicit legacy migration preserving keys and pending replies.
+- Pin MCP to one destination or enforce an explicit allowlist with per-call selection and destination discovery. No implicit default, fallback, or broadcast.
+- Add optional encrypted sender labels, defaulting to hostname, independently of the approved connection identity.
+- Preserve destination-bound replies across renames/restarts and original source labels across activity updates.
+- Breaking: CLI sends and MCP startup now require destination flags. Update existing MCP entries after migration; low-level legacy config helper exports are replaced by `DestinationStore`.
+
 
 - Add independent CI secret scans and pre-push enforcement tests.
 - Test the CLI and packaged entry points on Linux, macOS, and Windows.

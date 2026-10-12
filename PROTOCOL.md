@@ -54,7 +54,7 @@ That rule keeps header strings unambiguous.
 |---|---|---|---|
 | Device encryption key `DE` | Device | P-256 key agreement | Usable without biometrics, so the notification service extension can decrypt in the background. SHOULD live in the Secure Enclave |
 | Device signing key `DS` | Device | P-256 ECDSA | SHOULD live in the Secure Enclave. SHOULD require user presence for approvals |
-| Sender signing key `SS` | Sender | P-256 ECDSA | Created by `nb pair`, stored at `~/.notibuddy/sender.json` (mode 0600) |
+| Sender signing key `SS` | Sender | P-256 ECDSA | Created per destination by `nb pair --to <name>`, stored in `~/.notibuddy/destinations/<name>.json` (mode 0600; legacy imports preserve the existing key) |
 | Reply key `R` | Sender | P-256 key agreement | Fresh per request. Kept until the request expires |
 
 Key IDs:
@@ -337,3 +337,12 @@ Rollout: deploy the relay endpoints before shipping the phone app, notification 
 ### Activity inactivity expiry
 
 Each activity snapshot expires one hour after its delivery is created. Send an update before that deadline to extend the active session; polling does not extend it. MCP polling reports `expired` after this deadline, and updates/end operations require a new start instead of reviving an expired activity. A fresh start gets a new stable wire ID even if the caller reuses its friendly activity name. The phone rejects a new revision for an expired verified snapshot whether or not its housekeeping pass has already marked the session terminal. Routing retention exists only for delayed acknowledgements of snapshots that were saved while valid.
+
+
+## Client configuration and descriptive source labels (package 0.2)
+
+Named destinations are local configuration and do not change the v1 cryptographic envelope. Each v2 destination record contains a stable UUID `connectionId`, the existing relay/token/device configuration, and that connection's sender key pair. Aliases are never authentication identities. CLI/MCP must explicitly select a destination; a server with an allowlist must enforce it before dispatch and polling. Request and activity reply state stays scoped to the original relay, account credential, phone identity and sender key. Renames do not change that scope; another pairing cannot resume those replies.
+
+Ask and activity plaintext MAY include `source: {"label":"Build monitor"}`. This object is encrypted and covered by the request signature. Its label is descriptive metadata supplied by the approved connection, not proof of an independently approved application. It MUST NOT override `senderKeyId`, the registered pairing label/MAC, device identity, or response keys. Labels are trimmed, 1–100 UTF-16 code units, and contain no Unicode control (Cc) or format (Cf) characters. Older phones may ignore the object; new phones should show it alongside the approved connection. Malformed labels should fall back to connection identity. Activity updates retain the label from the activity's start.
+
+The optional `source` object is extensible, but this version defines no return-channel field or phone-initiated message capability. A future channel requires a stable opaque ID, advertised receiving capability and appropriate encryption keys, bound to the approved connection. Neither a label nor a historical request constitutes a routable inbox or authorization to execute incoming instructions.

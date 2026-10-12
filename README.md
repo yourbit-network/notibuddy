@@ -26,29 +26,29 @@ Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md).
 
 ### 1. Pair with your iPhone
 
-In the NotiBuddy iOS app, tap **Connect → Share Setup** and AirDrop or copy the pairing string:
+In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and AirDrop or copy the pairing string:
 
 ```bash
-npx notibuddy pair "nbpair1.eyJ2IjoxLCJyZWxheSI6Imh0dHBzOi8vcmVsYXkubm90aWJ1ZGR5LmFwcCIsInRv..."
+npx notibuddy@^0.2.0 pair "<private pairing bundle from your phone>" --to personal
 ```
 
-This derives your device identity, registers your sender signing key, and stores credentials locally in `~/.notibuddy/`.
+This validates the phone identity, registers an independent connection key for this destination, and saves it in `~/.notibuddy/destinations/personal.json`. The destination name is a local alias.
 
-Before sending a request, open **Connect** on your iPhone, compare the full **Sender Key ID** with the one shown in Terminal, and approve the computer. Keep the pairing bundle private. Pending registrations expire after 15 minutes; run pairing again if approval expires.
+Before sending a request, open **Connect** on your iPhone, compare the full **Sender Key ID** with the one shown in Terminal, and approve the connection. Keep the pairing bundle private. Only one registration per pairing account can await approval: a newer request replaces the previous pending request. Existing approved connections remain paired. Pending registrations expire after 15 minutes; run pairing again if approval expires.
 
-Use `npx notibuddy status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+Use `npx notibuddy@^0.2.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
 
 ### 2. Test via CLI
 
 ```bash
 # Ask for approval:
-npx notibuddy ask "Deploy v1.2 to production?" --options "Approve,Deny"
+npx notibuddy@^0.2.0 ask "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
 
 # Ask with custom options and Face ID required:
-npx notibuddy ask "Execute database migration?" --options "Proceed,Abort" --requires-auth
+npx notibuddy@^0.2.0 ask "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
 
 # Start a countdown timer on the Dynamic Island:
-npx notibuddy activity "sprint-1" start --title "Sprint Timer" --timer 25
+npx notibuddy@^0.2.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```
 
 ---
@@ -64,7 +64,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy", "mcp"]
+      "args": ["-y", "notibuddy@^0.2.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -77,7 +77,7 @@ Run as a local stdio MCP server:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy", "mcp"]
+      "args": ["-y", "notibuddy@^0.2.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -139,7 +139,7 @@ MIT © NotiBuddy Authors
 
 ## Recovery and activity controls
 
-`nb ask --resume <requestId>` resumes a pending request after a CLI or MCP restart. Reply private keys are kept in owner-only files under `~/.notibuddy/pending`, scoped to the pairing, until completion or retention expiry. Missing and expired requests stop polling. Set `NOTIBUDDY_HOME` to use a separate configuration directory.
+`nb ask --resume <requestId> --to <original-destination>` resumes a pending request after a CLI or MCP restart. Reply private keys are kept in owner-only files under `~/.notibuddy/pending`, scoped to the pairing, until completion or retention expiry. Missing and expired requests stop polling. `NOTIBUDDY_HOME` relocates the entire store for testing or a custom installation; it does not select a profile. Use named destinations for multiple phones.
 
 Activity updates retain their original session and timer state. `nb activity <id> poll` returns user controls; start/update/end also collect unconsumed controls. Multiple pause/resume/extend/cancel events remain individually encrypted and device-signed.
 
@@ -148,8 +148,48 @@ The relay and phone reject legacy plaintext dispatch. Token-only setup must be r
 
 ### Phone approval and multiple phones
 
-After `notibuddy pair`, open **Connect** on the phone, compare the full Sender Key ID with Terminal, and approve the computer. Pending registrations expire after 15 minutes. A disconnected identity cannot be reused. For another phone or a fresh sender identity, set `NOTIBUDDY_HOME` to a separate private directory for both pairing and the MCP server, for example `$HOME/.notibuddy-work-phone`. Each profile targets one phone; messages are not broadcast to every phone on the account.
+After `notibuddy pair`, open **Connect** on the phone, compare the full Sender Key ID with Terminal, and approve the connection. Pending registrations expire after 15 minutes. A disconnected identity cannot be reused. For another phone, pair it with a different `--to` name. Each destination targets one verified phone and has an independent sender key; messages are never broadcast.
 
 On a new phone, create a fresh connection, use **Restore Purchases** with the purchasing Apple Account if applicable, and pair the computer again. Old keys and messages are not recovered; no recovery code is needed. **Settings → Phones using your purchase** manages paid slots. Computer pairing uses only `nbpair1.` bundles.
 
 Set `sensitive: true` in an ask or activity request when its content should appear only inside the app. Authentication-required asks are also private. Ordinary requests retain useful notification previews unless the user disables them.
+
+
+## Named destinations and sender labels (0.2)
+
+Version 0.2 requires explicit destination selection. These are local names, not remote device names or paths. Use 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter.
+
+```sh
+nb devices list
+nb pair "<work phone bundle>" --to work
+nb ask "Build finished" --to work --sender "Build monitor"
+nb devices rename work work-phone
+```
+
+`--sender` is optional free-form descriptive text, defaulting to the hostname. It travels inside the encrypted, signed payload. It never changes the approved connection key, registration label, reply address, or approval. The phone can show “Build monitor” with “via My Mac.” Applications sharing a connection share its permissions and revocation. A label does not authenticate a particular executable or AI provider. `pair --label` sets the separate, stable connection name approved on the phone.
+
+MCP must choose one of these modes at startup:
+
+```sh
+# One fixed destination; tools cannot choose another phone.
+nb mcp --to personal --sender "Coding assistant"
+
+# Explicitly expose these two destinations; each request must supply to.
+nb mcp --allow-to personal --allow-to work-phone --sender "Coding assistant"
+```
+
+Use `notibuddy_list_destinations` to discover only the destinations exposed by that server. A saved pairing is not an online/approval check. In selectable mode, call `notibuddy_ask` with `{"to":"work-phone","title":"Deploy?","options":["Approve","Cancel"]}`. Include `to` when resuming and when starting, updating, ending, or polling activities. Responses include `to` and a stable `connectionId`. Missing, unknown, or unexposed destinations fail before network activity. There is no active global destination, automatic fallback, or broadcast. Running MCP servers retain their original connection bindings until restarted.
+
+### Migrate an existing installation
+
+```sh
+npx notibuddy@^0.2.0 devices migrate --to personal
+```
+
+This imports the old `~/.notibuddy/config.json` and `sender.json` without re-pairing or changing keys. Pending replies retain their original cryptographic storage scope. Original files remain for rollback; keep them private. Update every MCP entry to include `--to personal`, then restart it. Old unqualified `mcp`, `ask`, and `activity` commands do not silently choose a destination. Unreadable credentials are reported, never replaced with new keys. Aliases cannot overwrite an existing pairing; a replacement phone gets a new alias (rename the previous alias first if needed).
+
+`nb unpair --to personal` removes that destination's local credentials; it does not revoke the phone's approval. Disconnect on the phone to revoke the key. Preserve credentials if you need to resume pending requests before their expiry. Named destination files are private credentials, not configuration to commit or share. Unix directories use mode 0700 and files 0600; Windows relies on the user's private-directory ACLs.
+
+### Replies and future inboxes
+
+Replies still use the original request ID, phone identity, and ephemeral reply key. Sender labels are never return addresses. Activity updates keep the source label from their start. No receiver daemon, inbound channel, or phone-initiated conversation is enabled in this release. The extensible encrypted `source` object leaves room for separately negotiated channel addresses in a future protocol; remembering a label must never grant an inbound messaging capability. MCP routing restrictions are not an OS sandbox against other processes running as the same user.

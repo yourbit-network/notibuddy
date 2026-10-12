@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import os from 'node:os';
 import { signSenderRegistration } from './sender-registration.js';
 import { z } from 'zod';
 import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType, SenderRegistrationPayload } from './types.js';
@@ -52,7 +53,8 @@ export class TerminalRequestError extends Error {
 export class NotiBuddyClient {
   private relay: string;
   private store: PendingStore;
-  constructor(private config: NotiBuddyConfig, private signingKey: CryptoKey, store?: PendingStore) {
+  constructor(private config: NotiBuddyConfig, private signingKey: CryptoKey, store?: PendingStore, private sender = os.hostname()) {
+    this.sender = z.string().trim().min(1).max(100).regex(/^[^\p{Cc}\p{Cf}]+$/u).parse(sender);
     this.relay = config.relay.replace(/\/$/,'');
     this.store = store ?? new PendingStore(config);
   }
@@ -110,7 +112,7 @@ export class NotiBuddyClient {
       id = 'req_'+randomUUID().replaceAll('-','');
       const pair = await generateReplyKeyPair(); key=pair.privateKey;
       const primitive: PrimitiveType = params.fields?.length ? 'form' : params.inputPlaceholder !== undefined ? 'text_input' : 'approval';
-      const payload: AskPayload = {type:'ask',replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
+      const payload: AskPayload = {type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
         options:params.options,inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,
         presentation:params.presentation};
       const envelope=await this.seal(id,primitive,payload,params.timeoutSeconds);
@@ -195,6 +197,7 @@ export class NotiBuddyClient {
       type:'activity',action:params.action,revision:(previous?.revision??0)+1,activityId:previous?.activityId??requestId,
       primitive:params.timerMinutes!==undefined?'timer':previous?.primitive??'stepper',
       title:params.title??previous?.title??'Agent Activity',
+      source:previous?.source ?? {label:this.sender},
       presentation:params.presentation??((params.title!==undefined || params.status!==undefined) ? undefined : previous?.presentation),
       status:params.status??previous?.status,step:params.step??previous?.step,totalSteps:params.totalSteps??previous?.totalSteps,
       timerEndsAt:params.timerMinutes!==undefined?Math.floor(Date.now()/1000)+Math.round(params.timerMinutes*60):previous?.timerEndsAt,
