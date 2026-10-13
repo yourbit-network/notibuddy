@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { answerSchema } from './answer-validation.js';
 import type { NotiBuddyConfig, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType } from './types.js';
 import { deriveDeviceId, ecdsaSign, ecdsaVerify, fromB64u, hpkeOpen, hpkeSeal, sha256, toB64u, toHex } from './crypto.js';
 import { companionGrantInput, validCompanionGrant, type CompanionGrant } from './companion-grant.js';
@@ -60,15 +60,17 @@ export function recipientCheckpoint(recipients:VerifiedRecipients):RecipientChec
 
 /** Pure protocol API. CLI/MCP stays on v1 until pairing negotiates v2 support. */
 export async function sealGroupRequest(params:{requestId:string;senderKeyId:string;signingKey:CryptoKey;recipients:VerifiedRecipients;
-  primitive:PrimitiveType;payload:AskPayload|ActivityPayload;timeoutSeconds?:number;sessionId?:string;revision?:number}):Promise<GroupRequest> {
+  primitive:PrimitiveType;payload:AskPayload|ActivityPayload;timeoutSeconds?:number;expiresAt?:number;sessionId?:string;revision?:number}):Promise<GroupRequest> {
   requireVerified(params.recipients);
   const timeout=params.timeoutSeconds ?? 300;
   if(!Number.isInteger(timeout) || timeout<1 || timeout>3600)throw Error('timeoutSeconds must be between 1 and 3600');
   const plaintext=JSON.stringify(params.payload);
   if(Buffer.byteLength(plaintext)>149984)throw Error('Encrypted group content exceeds the request limit');
   const now=Math.floor(Date.now()/1000);
+  const expiresAt=Math.min(now+timeout,params.expiresAt ?? Infinity);
+  if(!Number.isSafeInteger(expiresAt) || expiresAt<=now)throw Error('Request expired before encryption');
   const envelope:GroupRequest={v:2,kind:'request',requestId:params.requestId,deviceId:params.recipients.deviceId,senderKeyId:params.senderKeyId,
-    primitive:params.primitive,createdAt:now,expiresAt:now+timeout,generation:params.recipients.generation,
+    primitive:params.primitive,createdAt:now,expiresAt,generation:params.recipients.generation,
     sessionId:params.sessionId ?? params.requestId,revision:params.revision ?? 1,
     deliveries:params.recipients.recipients.map(recipient=>({deviceId:recipient.deviceId,enc:recipient.encPub,ct:toB64u(new Uint8Array(16)),sig:toB64u(new Uint8Array(64))}))};
   if(!validGroupRequest(envelope))throw Error('Invalid group request metadata');
@@ -80,9 +82,6 @@ export async function sealGroupRequest(params:{requestId:string;senderKeyId:stri
   }
   return envelope;
 }
-
-const answerSchema=z.object({action:z.string().min(1).max(200),text:z.string().max(50000).optional(),
-  values:z.record(z.unknown()).optional(),authenticated:z.boolean().optional()}).strict();
 
 /** Verifies against the recipient snapshot saved with this exact request,
  * never a display label or a freshly substituted Watch key. */

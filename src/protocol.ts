@@ -1,3 +1,5 @@
+import { answerSchema } from './answer-validation.js';
+import { normalizeRelay } from './relay-url.js';
 import {
   RequestEnvelope,
   ReplyEnvelope,
@@ -23,7 +25,7 @@ import {
 const encoder = new TextEncoder();
 
 export function validateIdentifier(id: string, name: string): void {
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+  if (typeof id!=='string' || /^[A-Za-z0-9_-]{1,64}$/.exec(id)?.[0]!==id) {
     throw new Error(`Invalid ${name}: must match ^[A-Za-z0-9_-]{1,64}$`);
   }
 }
@@ -76,6 +78,7 @@ export async function sealRequest(params: {
   );
 
   const payloadJson = JSON.stringify(params.payload);
+  if(encoder.encode(payloadJson).length>149984)throw Error('Encrypted content exceeds the request limit');
   const { enc, ct } = await hpkeSeal(
     params.deviceEncryptionPublicKey,
     'notibuddy/v1/request',
@@ -183,7 +186,9 @@ export async function openReply(params: {
   expectedDeviceId: string;
   deviceSigningPublicKey: string; // DS.pub in Base64url
 }): Promise<AnswerPayload> {
-  const { envelope, replyPrivateKey, expectedDeviceId, deviceSigningPublicKey } = params;
+  const { replyPrivateKey, expectedDeviceId, deviceSigningPublicKey } = params;
+  const envelope=structuredClone(params.envelope);
+  validateResponseWire(envelope);
 
   if (envelope.v !== 1 || envelope.kind !== 'reply') {
     throw new Error(`Unsupported envelope: v=${envelope.v}, kind=${envelope.kind}`);
@@ -220,7 +225,7 @@ export async function openReply(params: {
     envelope.ct
   );
 
-  return JSON.parse(answerJson) as AnswerPayload;
+  return answerSchema.parse(JSON.parse(answerJson));
 }
 
 /**
@@ -247,7 +252,9 @@ export async function openError(params: {
   expectedDeviceId: string;
   deviceSigningPublicKey: string;
 }): Promise<ErrorCode> {
-  const { envelope, expectedDeviceId, deviceSigningPublicKey } = params;
+  const { expectedDeviceId, deviceSigningPublicKey } = params;
+  const envelope=structuredClone(params.envelope);
+  validateResponseWire(envelope);
 
   if (envelope.v !== 1 || envelope.kind !== 'error') {
     throw new Error(`Unsupported envelope: v=${envelope.v}, kind=${envelope.kind}`);
@@ -291,6 +298,8 @@ export async function parsePairingBundle(bundleString: string): Promise<PairingB
   const jsonStr = new TextDecoder().decode(rawBytes);
   const bundle = JSON.parse(jsonStr) as PairingBundle;
 
+  validateRequestSettings(bundle);
+  bundle.relay=normalizeRelay(bundle.relay);
   const relay = new URL(bundle.relay);
   if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && ['localhost','127.0.0.1'].includes(relay.hostname))) throw new Error('Pairing requires an HTTPS relay');
   if (relay.username || relay.password || relay.search || relay.hash) throw new Error('Invalid relay URL');
@@ -320,4 +329,24 @@ export async function parsePairingBundle(bundleString: string): Promise<PairingB
   }
 
   return bundle;
+}
+
+/** Protocol upgrades are explicit pairing data; network failures never downgrade them. */
+export function validateRequestSettings(value:{requestProtocol?:unknown;minimumRecipientGeneration?:unknown}):void {
+  if(value.requestProtocol!==undefined && value.requestProtocol!==1 && value.requestProtocol!==2)throw Error('Unsupported request protocol; update the client before pairing');
+  if(value.minimumRecipientGeneration!==undefined && (value.requestProtocol!==2 || !Number.isSafeInteger(value.minimumRecipientGeneration) || (value.minimumRecipientGeneration as number)<0))throw Error('Invalid minimum recipient generation');
+}
+
+function validateResponseWire(value:ReplyEnvelope|ErrorEnvelope):void {
+  if(!value || typeof value!=='object')throw Error('Invalid response envelope');
+  const fields=value.kind==='reply'?'createdAt,ct,deviceId,enc,kind,requestId,sig,v':'code,createdAt,deviceId,kind,requestId,sig,v';
+  const binary=(v:unknown,min:number,max:number)=>typeof v==='string' && v.length<=200000 && /^[A-Za-z0-9_-]+$/.exec(v)?.[0]===v && fromB64u(v).length>=min && fromB64u(v).length<=max && toB64u(fromB64u(v))===v;
+  const sequence=(value as typeof value & {seq?:number}).seq;
+  if(sequence!==undefined && (!Number.isSafeInteger(sequence) || sequence<1))throw Error('Invalid response sequence');
+  if(Object.keys(value).filter(key=>key!=='seq').sort().join(',')!==fields || value.v!==1 || !['reply','error'].includes(value.kind) ||
+    !Number.isSafeInteger(value.createdAt) || value.createdAt<1 || !binary(value.sig,64,64))throw Error('Invalid response envelope');
+  validateIdentifier(value.requestId,'requestId');validateIdentifier(value.deviceId,'deviceId');
+  if(value.kind==='reply') {
+    if(!binary(value.enc,65,65) || fromB64u(value.enc)[0]!==4 || !binary(value.ct,16,150000))throw Error('Invalid response ciphertext');
+  }else if(!['undecryptable','bad_signature','unknown_sender','expired','replayed','unsupported','wrong_device'].includes(value.code))throw Error('Invalid response error code');
 }

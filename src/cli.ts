@@ -6,6 +6,14 @@ import { NotiBuddyClient } from './client.js';
 import { runMcpServer } from './mcp.js';
 import { createDestinationRouter, parseRoutingArgs } from './routing.js';
 
+async function withShutdown<T>(operation:(signal:AbortSignal)=>Promise<T>):Promise<T> {
+  const controller=new AbortController();
+  const interrupt=()=>{process.exitCode=130;controller.abort(new DOMException('Interrupted','AbortError'));};
+  const terminate=()=>{process.exitCode=143;controller.abort(new DOMException('Terminated','AbortError'));};
+  process.once('SIGINT',interrupt);process.once('SIGTERM',terminate);
+  try{return await operation(controller.signal);}finally{process.off('SIGINT',interrupt);process.off('SIGTERM',terminate);}
+}
+
 function printHelp(): void {
   console.log(`NotiBuddy CLI (nb) — Encrypted requests and replies
 
@@ -21,6 +29,7 @@ Usage:
   nb devices list
   nb devices migrate --to <name>     Import old pairing; retain keys and replies
   nb devices rename <old> <new>      Change a local alias, keeping its identity
+  nb doctor --to <name>             Verify relay, approval, and protocol compatibility
   nb status [--to <name>]
   nb unpair --to <name>              Forget locally; revoke separately on phone
 
@@ -100,7 +109,7 @@ async function main():Promise<void> {
     const {config,keys}=record;
     const mac=await computePairingMac(bundle.pairSecret,bundle.device.id,keys.senderKeyId,keys.publicKeyB64u,label,record.fileKey!.publicKeyB64u);
     const client=new NotiBuddyClient(config,signingKey);
-    const status=await client.registerSender({senderKeyId:keys.senderKeyId,senderPub:keys.publicKeyB64u,label,mac,fileEncPub:record.fileKey!.publicKeyB64u,fileDeviceId:config.device.id});
+    const status=await withShutdown(signal=>client.registerSender({senderKeyId:keys.senderKeyId,senderPub:keys.publicKeyB64u,label,mac,fileEncPub:record.fileKey!.publicKeyB64u,fileDeviceId:config.device.id},{signal}));
     console.log(`${status==='registered'?'Pairing confirmed':'Phone approval required'}
 Destination: ${routing.to}
 Phone: ${config.device.name || 'iPhone'}
@@ -124,24 +133,31 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y','notibuddy@^0.
     else throw new Error('Use nb files list --to <name> or nb files receive <file_id> --to <name>');
     console.log(JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2));return;
   }
+  if(command==='doctor') {
+    if(rest.length)throw Error('Use nb doctor --to <name>');
+    const route=(await createDestinationRouter(routing,store)).resolve();
+    const result=await withShutdown(signal=>route.client.doctor({signal}));
+    console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId,
+      fileReceiving:route.record.fileKey?'enabled':'pair_again_to_enable',receiveCommand:`nb files list --to ${route.name}`},null,2));return;
+  }
   if(command==='ask') {
     const args=argumentsFor(rest,['--message','--options','--placeholder','--wait','--resume'],['--requires-auth','--sensitive']);
     if(args.positional.length>1)throw new Error('Quote the request title as one argument');
     const route=(await createDestinationRouter(routing,store)).resolve();
-    const result=await route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
+    const result=await withShutdown(signal=>route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
       options:args.text('--options')?.split(',').map(s=>s.trim()),inputPlaceholder:args.text('--placeholder'),
-      waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive')});
+      waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive')},{signal}));
     console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
   }
   if(command==='activity') {
     const args=argumentsFor(rest,['--title','--status','--step','--total-steps','--timer'],['--sensitive']);
     if(args.positional.length!==2)throw new Error('Use nb activity <id> <start|update|end|poll> --to <name>');
     const route=(await createDestinationRouter(routing,store)).resolve();
-    const result=await route.client.activity({activityId:args.positional[0],action:args.positional[1] as 'start'|'update'|'end'|'poll',
+    const result=await withShutdown(signal=>route.client.activity({activityId:args.positional[0],action:args.positional[1] as 'start'|'update'|'end'|'poll',
       title:args.text('--title'),status:args.text('--status'),step:args.number('--step'),totalSteps:args.number('--total-steps'),
-      timerMinutes:args.number('--timer'),sensitive:args.flag('--sensitive')||undefined});
+      timerMinutes:args.number('--timer'),sensitive:args.flag('--sensitive')||undefined},{signal}));
     console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
   }
   throw new Error('Unknown command. Run nb help for usage.');
 }
-main().catch(err=>{console.error(`NotiBuddy: ${err.message}`);process.exitCode=1;});
+main().catch(err=>{console.error(`NotiBuddy: ${err.message}`);process.exitCode ??= 1;});

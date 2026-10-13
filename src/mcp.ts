@@ -177,7 +177,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
     };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
 
     try {
@@ -202,7 +202,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
           requiresAuth: args?.requires_auth as boolean | undefined,
           waitSeconds: args?.wait_seconds as number | undefined,
           resumeId: args?.resume_id as string | undefined,
-        });
+        }, {signal:extra.signal});
 
         const safeResult = {
           to: route.name,
@@ -236,7 +236,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
           totalSteps: args?.total_steps as number | undefined,
           timerMinutes: args?.timer_minutes as number | undefined,
           controls: args?.controls as ('pause'|'resume'|'cancel'|'add_5m')[] | undefined,
-        });
+        }, {signal:extra.signal});
 
         return {
           content: [

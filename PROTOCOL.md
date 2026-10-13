@@ -388,7 +388,7 @@ Terminal states cannot reopen on upload retries. Expired/cancelled/revoked files
 
 ## Experimental group delivery (v2)
 
-The package includes protocol helpers for a primary destination and its independently keyed companion. **CLI/MCP still uses v1.** V2 discovery, dispatch, durable resume, and pairing negotiation are not connected to the command flow yet. No published version or usable Watch app is implied by these source helpers.
+The package supports a primary destination and its independently keyed companion when the pairing document explicitly selects `requestProtocol: 2`. CLI/MCP defaults to v1 for existing pairings. V2 discovery, encryption, dispatch, replies, and durable resume are integrated; this source branch does not imply a published package or released Watch app. The relay rollout remains gated until native clients and push support are ready.
 
 `verifyRecipients` checks discovery against the phone identity pinned by pairing. It verifies the independent parent/child enrollment signatures, account binding, key-derived device IDs, generation, and companion capabilities. Enrollment expiry is a deadline to enroll, not a lifetime for approved membership. The relay remains authoritative for roster absence/revocation; a first-time client cannot independently detect an older valid roster. The API does not accept a different primary identity.
 
@@ -413,3 +413,24 @@ After UTF-8 header and a zero byte, append the sender ciphertext and each peer r
 `openGroupResponse` validates the exact wire shape, original request/parent/generation, addressed actor, permitted capability, signature over **all** ciphertexts, and the decrypted answer shape before returning an answer. A Watch cannot return a terminal form answer. It verifies the actor against the saved request's recipient snapshot. Request and response/control IDs are deduplication identities, not display labels.
 
 Fields use canonical unpadded base64url and integers within JavaScript's safe range. A request has one or two recipients; a response has at most one peer receipt. Ciphertexts are 16–150,000 bytes, total v2 mutation bodies are at most 512 KiB, and request lifetime is at most one hour. The public, relay, and Swift implementations share `test-vectors/group-delivery-v2.json` for signature compatibility. That fixture contains synthetic ciphertext; separate randomized tests exercise HPKE round trips and wrong-key/recipient rejection.
+
+
+### Negotiation, HTTP reads, and durable retries
+
+A version-one pairing bundle may include `requestProtocol: 2` and a nonnegative integer `minimumRecipientGeneration`. Unknown protocol values and invalid generation fields fail before pairing. Re-sharing setup for the same pinned identity can upgrade the destination without replacing sender keys. Older setup data cannot downgrade it. A discovery/transport failure never silently sends v1 content from a v2-configured destination. Existing pending requests and activity sessions retain their original protocol until completion.
+
+V2 discovery and reply reads require `X-Sender-Key-ID`, `X-Sender-Timestamp`, `X-Sender-Nonce`, and `X-Sender-Signature`. They use the relay's existing HTTP canonical bytes:
+
+```text
+nb1|http|METHOD|exactPathAndQuery|timestamp|nonce|sha256HexOfExactBody
+```
+
+The bearer token selects the account separately; enrollment proofs bind the child to that account and the pinned primary. Do not add a token hash to these existing signature bytes. For v2 the signed path keeps `/v2`; v1 routes sign the path after the relay removes `/v1`.
+
+Before dispatch, the client durably saves one record containing the response private key, exact encrypted request envelope, protocol, and original recipient proofs. The private record also retains the plaintext payload while dispatch is unconfirmed so an explicit `RECIPIENTS_CHANGED` rejection can be re-encrypted to freshly verified keys. Acknowledgement removes that retry payload. A membership rejection permits one bounded discovery/re-encryption retry using the same logical ID and original expiry. A lost acknowledgement retries the original envelope; it never substitutes newly discovered keys for an already accepted request.
+
+A positive `wait_seconds` bounds the whole ask operation, including discovery, dispatch, fetch headers, response bytes, and polling. Zero performs one bounded lookup without waiting for a future reply. Cancellation aborts active network reads and preserves persisted state. Invalid signatures, payloads, or sequences return a pending result with the original request ID and preserve the key. Only authenticated/decrypted answers or definitive terminal/rejection outcomes discard it.
+
+Activity operations serialize per activity across local processes. Ambiguous dispatch must settle before a later revision is sent. Polling checks the newest snapshot first, then rotates through bounded older history. Missing/corrupt old keys, invalid replies, or slow history yield warnings while other requests can progress. Sequence and signature checks occur before actions are returned; expired/ended sessions cannot be extended by polling.
+
+Pending files are atomic, fsynced, private on Unix, and scoped by canonical relay URL plus the cryptographic pairing. Known legacy trailing-slash scopes migrate without generating new keys. Records are retained through request expiry plus ten minutes; pruning runs when the store is opened. Stale temporary files older than 24 hours are removed on that same local maintenance path. These files contain sensitive local state; they are not a cloud backup or a claim of hardware-backed sender-key storage.

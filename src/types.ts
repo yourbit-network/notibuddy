@@ -140,6 +140,8 @@ export interface PairingBundle {
   token: string;
   device: DeviceInfo;
   pairSecret: string;
+  requestProtocol?: 1 | 2;
+  minimumRecipientGeneration?: number;
 }
 
 export interface SenderRegistrationPayload {
@@ -166,6 +168,8 @@ export interface NotiBuddyConfig {
   device: DeviceInfo;
   senderKeyId: string;
   senderLabel: string;
+  requestProtocol?: 1 | 2;
+  minimumRecipientGeneration?: number;
 }
 
 export interface SenderKeyPair {

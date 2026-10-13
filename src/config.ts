@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { normalizeRelay } from './relay-url.js';
+import { validateRequestSettings } from './protocol.js';
 import { acquireFileLock } from './file-lock.js';
 import path from 'node:path';
 import os from 'node:os';
@@ -17,6 +19,7 @@ const configSchema = z.object({
   relay: z.string().url(), token: z.string().min(1),
   device: z.object({id:z.string().min(1),encPub:z.string().min(1),sigPub:z.string().min(1),name:z.string().optional()}),
   senderKeyId:z.string().min(1), senderLabel:z.string().min(1),
+  requestProtocol:z.union([z.literal(1),z.literal(2)]).optional(),minimumRecipientGeneration:z.number().int().safe().nonnegative().optional(),
 });
 const keysSchema = z.object({senderKeyId:z.string(),publicKeyB64u:z.string(),privateKeyJwk:z.record(z.unknown())});
 const recordSchema = z.object({version:z.literal(2),connectionId:z.string().uuid(),config:configSchema,keys:keysSchema,fileKey:z.object({publicKeyB64u:z.string(),privateKeyJwk:z.record(z.unknown())}).optional()});
@@ -60,7 +63,7 @@ export class DestinationStore {
     });
   }
   async open(name: string): Promise<{record:DestinationRecord; signingKey:CryptoKey}> {
-    const record=this.read(name), {config,keys}=record;
+    const record=this.read(name), {config,keys}=record;validateRequestSettings(config);
     const signingKey=await importSenderPrivateKey(keys.privateKeyJwk);
     const challenge=new TextEncoder().encode('notibuddy/local-key-check');
     if (config.senderKeyId!==keys.senderKeyId || await deriveSenderKeyId(keys.publicKeyB64u)!==keys.senderKeyId ||
@@ -77,39 +80,39 @@ export class DestinationStore {
     return {record,signingKey};
   }
   async prepare(name:string,bundle:PairingBundle,label:string): Promise<{record:DestinationRecord;signingKey:CryptoKey}> {
-    destinationName(name); senderLabel(label);
+    destinationName(name); senderLabel(label);validateRequestSettings(bundle);
+    bundle={...bundle,relay:normalizeRelay(bundle.relay)};
     if (!fs.existsSync(this.file(name))) {
       const keys=await generateSenderSigningKeyPair();
       const record:DestinationRecord={version:2,connectionId:randomUUID(),config:{
         relay:bundle.relay,token:bundle.token,device:bundle.device,senderKeyId:keys.senderKeyId,senderLabel:label,
+        requestProtocol:bundle.requestProtocol,minimumRecipientGeneration:bundle.minimumRecipientGeneration,
       },keys:{senderKeyId:keys.senderKeyId,publicKeyB64u:keys.publicKeyB64u,privateKeyJwk:keys.privateKeyJwk}};
       try { this.create(name,record); }
       catch(error) { if ((error as NodeJS.ErrnoException).code!=='EEXIST') throw error; }
     }
     const opened=await this.open(name), config=opened.record.config;
-    if (config.relay!==bundle.relay || config.token!==bundle.token || config.device.id!==bundle.device.id || config.senderLabel!==label) {
+    if (normalizeRelay(config.relay)!==bundle.relay || config.token!==bundle.token || config.device.id!==bundle.device.id || config.device.encPub!==bundle.device.encPub || config.device.sigPub!==bundle.device.sigPub || config.senderLabel!==label) {
       throw new Error(`Destination '${name}' already names a different pairing or connection label. Use a new destination name; existing requests will not be redirected.`);
     }
-    if (!opened.record.fileKey) {
-      const generated=await generateReplyKeyPair();
-      const fileKey={publicKeyB64u:generated.publicKeyB64u,privateKeyJwk:await crypto.subtle.exportKey('jwk',generated.privateKey)};
-      // Only explicit pairing enables files. Keep the old signing identity and pending replies.
-      const lock=this.file(name)+'.lock';
-      const unlock=acquireFileLock(lock);
+    const generated=!opened.record.fileKey ? await generateReplyKeyPair() : undefined;
+    const fileKey=generated ? {publicKeyB64u:generated.publicKeyB64u,privateKeyJwk:await crypto.subtle.exportKey('jwk',generated.privateKey)} : opened.record.fileKey;
+    const unlock=acquireFileLock(this.file(name)+'.lock');
+    try {
+      const latest=this.read(name);
+      if(latest.connectionId!==opened.record.connectionId)throw Error('Destination changed during pairing. Retry.');
+      if((latest.config.requestProtocol ?? 1)>(bundle.requestProtocol ?? 1) ||
+        (latest.config.minimumRecipientGeneration ?? 0)>(bundle.minimumRecipientGeneration ?? 0))throw Error('Pairing data would downgrade the destination. Share fresh setup data from the phone.');
+      latest.fileKey ??= fileKey;latest.config.relay=bundle.relay;
+      latest.config.requestProtocol=bundle.requestProtocol;latest.config.minimumRecipientGeneration=bundle.minimumRecipientGeneration;
+      const temp=this.file(name)+'.'+randomUUID()+'.tmp';
       try {
-        const latest=this.read(name);
-        if (latest.connectionId!==opened.record.connectionId) throw new Error('Destination changed during pairing. Retry.');
-        if (!latest.fileKey) {
-          latest.fileKey=fileKey;
-          const temp=this.file(name)+'.'+randomUUID()+'.tmp';
-          try {
-            fs.writeFileSync(temp,JSON.stringify(latest,null,2)+'\n',{mode:0o600,flag:'wx'});
-            const fd=fs.openSync(temp,'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-            fs.renameSync(temp,this.file(name));
-          } finally { if(fs.existsSync(temp)) fs.unlinkSync(temp); }
-        }
-      } finally { unlock(); }
-    }
+        fs.writeFileSync(temp,JSON.stringify(latest,null,2)+'\n',{mode:0o600,flag:'wx'});
+        const fd=fs.openSync(temp,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+        fs.renameSync(temp,this.file(name));
+        if(process.platform!=='win32'){const directory=fs.openSync(path.dirname(this.file(name)),'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
+      }finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}
+    }finally{unlock();}
     return this.open(name);
   }
   async migrate(name: string): Promise<void> {

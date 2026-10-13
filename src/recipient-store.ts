@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { normalizeRelay } from './relay-url.js';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { acquireFileLock } from './file-lock.js';
@@ -12,14 +13,17 @@ export class RecipientStore {
   private readonly directory:string;
   private readonly file:string;
   private readonly deviceId:string;
+  private readonly legacyFiles:string[];
   constructor(config:NotiBuddyConfig,root=NOTIBUDDY_DIR) {
     this.directory=path.join(root,'recipients');
-    const scope=createHash('sha256').update(JSON.stringify([config.relay,config.token,config.device.id,config.device.encPub,config.device.sigPub])).digest('hex');
-    this.file=path.join(this.directory,scope+'.json');this.deviceId=config.device.id;
+    const scope=(relay:string)=>createHash('sha256').update(JSON.stringify([relay,config.token,config.device.id,config.device.encPub,config.device.sigPub])).digest('hex');
+    const normalized=normalizeRelay(config.relay);
+    this.file=path.join(this.directory,scope(normalized)+'.json');this.deviceId=config.device.id;
+    this.legacyFiles=[...new Set([config.relay,normalized+'/'].map(relay=>path.join(this.directory,scope(relay)+'.json')))].filter(file=>file!==this.file);
   }
-  read():RecipientCheckpoint|undefined {
+  private readFile(file:string):RecipientCheckpoint|undefined {
     let value:any;
-    try {value=JSON.parse(fs.readFileSync(this.file,'utf8'));}
+    try {value=JSON.parse(fs.readFileSync(file,'utf8'));}
     catch(error) {
       if((error as NodeJS.ErrnoException).code==='ENOENT')return;
       throw Error('Recipient checkpoint is unreadable; preserve it before repairing the destination');
@@ -27,6 +31,12 @@ export class RecipientStore {
     if(!value || Object.keys(value).sort().join(',')!=='fingerprint,generation' || !Number.isSafeInteger(value.generation) || value.generation<0 ||
       typeof value.fingerprint!=='string' || value.fingerprint.length!==64 || !/^[a-f0-9]{64}$/.test(value.fingerprint))throw Error('Invalid recipient checkpoint; it will not be reset automatically');
     return value;
+  }
+  read():RecipientCheckpoint|undefined {
+    const checkpoints=[this.file,...this.legacyFiles].map(file=>this.readFile(file)).filter((c):c is RecipientCheckpoint=>!!c).sort((a,b)=>b.generation-a.generation);
+    const latest=checkpoints[0];
+    if(latest && checkpoints.some(c=>c.generation===latest.generation && c.fingerprint!==latest.fingerprint))throw Error('Conflicting recipient checkpoints; preserve both records');
+    return latest;
   }
   remember(snapshot:VerifiedRecipients):void {
     const checkpoint=recipientCheckpoint(snapshot);

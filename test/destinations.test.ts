@@ -49,7 +49,7 @@ try {
     fetches++;
     if(init?.method==='POST') {const request=JSON.parse(String(init.body));requests.push(request);return Response.json({requestId:request.requestId,seq:requests.length},{status:202});}
     const requestId=new URL(String(input)).pathname.split('/').at(-1)!;
-    return replies.has(requestId)?Response.json(replies.get(requestId)):new Response(null,{status:204});
+    return replies.has(requestId)?Response.json({...replies.get(requestId),seq:requests.findIndex(r=>r.requestId===requestId)+1}):new Response(null,{status:204});
   };
   const payload=async(request:RequestEnvelope)=>{
     const target=request.deviceId===personal.bundle.device.id?personal:work;

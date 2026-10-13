@@ -38,6 +38,14 @@ Before sending a request, open **Connect** on your iPhone, compare the full **Se
 
 Use `npx notibuddy@^0.2.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
 
+### Check the connection
+
+Run `nb doctor --to personal` to check relay reachability, sender approval, request-protocol compatibility, and file-receive setup. Diagnostics omit credentials and private keys.
+
+If an ask returns `pending`, keep its request ID and resume it with `nb ask --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active CLI ask prints its resume ID when it has already been saved.
+
+This development branch supports explicitly negotiated phone/Watch group requests. Existing pairing documents continue to use v1. Native companion rollout and package publication remain separate release steps; changing configuration fields manually does not enable a Watch app.
+
 ### 2. Test via CLI
 
 ```bash
