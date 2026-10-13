@@ -20,6 +20,8 @@ The hook installer and hook integration tests use a POSIX shell. On Windows use 
 
 Tests need no phone or production credentials. Use the existing synthetic fixtures; do not paste a real pairing bundle. Test-vector regeneration requires the explicit `NOTIBUDDY_WRITE_TEST_VECTORS=1` opt-in and a review of fixture exceptions in `.gitleaks.toml`.
 
+`npm test` includes receiver write/flush fault injection and abrupt child-process termination. On macOS, `npm run test:disk-full` additionally creates and mounts a disposable 64 MiB HFS+ image with `hdiutil`, verifies it is a separate small filesystem, and tests actual `ENOSPC` and recovery. It never fills the host filesystem. Successful cleanup detaches and removes the image; a detach failure leaves it for inspection. This optional check does not establish APFS, Windows, network-volume or hardware power-loss behavior.
+
 The installer preserves existing signing and attestation hooks. Maintainers sign commits with their registered signing keys. Local hooks can be bypassed, so CI independently scans history, tests the hook, and scans the packed release. Never bypass a finding to publish; investigate it and revoke any exposed credential first.
 
 ## Pull requests

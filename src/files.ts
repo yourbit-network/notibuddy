@@ -9,7 +9,7 @@ import { ecdsaSign, ecdsaVerify, hpkeOpenBytes } from './crypto.js';
 
 export const MAX_FILE_BYTES=10_000_000;
 export const MAX_FILE_CIPHERTEXT=MAX_FILE_BYTES+4+4096+16;
-const idSchema=z.string().regex(/^file_[a-f0-9]{32}$/);
+const idSchema=z.string().length(37).regex(/^file_[a-f0-9]{32}$/);
 export const fileManifestSchema=z.object({
   v:z.literal(1),id:idSchema,deviceId:z.string().regex(/^dev_[a-f0-9]{24}$/),senderKeyId:z.string().regex(/^snd_[a-f0-9]{24}$/),
   fileEncPub:z.string().regex(/^[A-Za-z0-9_-]{87}$/),createdAt:z.number().int().nonnegative(),expiresAt:z.number().int().nonnegative(),
@@ -55,6 +55,67 @@ function syncDirectory(directory:string) { if(process.platform==='win32')return;
 function writePrivate(file:string, data:Uint8Array|string) {
   const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
 }
+const receiptSchema=z.object({id:idSchema,name:z.string().min(1).max(255),size:z.number().int().min(0).max(MAX_FILE_BYTES),
+  sha256:z.string().length(64).regex(/^[a-f0-9]{64}$/),plaintextHash:z.string().length(64).regex(/^[a-f0-9]{64}$/),delivered:z.boolean()});
+type SavedFile=z.infer<typeof receiptSchema>;
+const temporarySuffix=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.tmp$/;
+function cleanupStaging(directory:string,id:string) {
+  for(const entry of fs.readdirSync(directory,{withFileTypes:true})) {
+    if(entry.isDirectory() && entry.name.startsWith(id+'.') && temporarySuffix.test(entry.name.slice(id.length+1))) {
+      fs.rmSync(path.join(directory,entry.name),{recursive:true});
+    }
+  }
+}
+function cleanupReceipts(target:string,savedName:string) {
+  for(const entry of fs.readdirSync(target,{withFileTypes:true})) {
+    if(entry.isFile() && entry.name.toLowerCase()!==savedName.toLowerCase() && entry.name.startsWith('receipt.') && temporarySuffix.test(entry.name.slice(8))) {
+      fs.unlinkSync(path.join(target,entry.name));
+    }
+  }
+}
+function readReceipt(target:string,id:string):SavedFile {
+  if(!fs.lstatSync(target).isDirectory())throw new Error('Invalid saved file directory');
+  const file=path.join(target,'receipt.json');
+  if(!fs.lstatSync(file).isFile())throw new Error('Invalid saved file receipt');
+  const fd=fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW || 0));
+  try {
+    const stat=fs.fstatSync(fd);
+    if(!stat.isFile() || stat.size>8192)throw new Error('Invalid saved file receipt');
+    const bytes=Buffer.alloc(8193);let size=0,read=0;
+    while(size<bytes.length && (read=fs.readSync(fd,bytes,size,bytes.length-size,null))>0)size+=read;
+    if(size>8192)throw new Error('Invalid saved file receipt');
+    const saved=receiptSchema.parse(JSON.parse(bytes.subarray(0,size).toString('utf8')));
+    if(saved.id!==id || path.basename(saved.name)!==saved.name || saved.name==='.' || saved.name==='..' || saved.name.toLowerCase()==='receipt.json')throw new Error('Invalid saved file receipt');
+    return saved;
+  } finally {fs.closeSync(fd);}
+}
+function verifySavedFile(target:string,saved:SavedFile) {
+  const file=path.join(target,saved.name),changed=()=>new Error('Saved file changed; delivery will not be acknowledged.');
+  if(!fs.lstatSync(file).isFile())throw changed();
+  const fd=fs.openSync(file,(saved.delivered?fs.constants.O_RDONLY:fs.constants.O_RDWR)|(fs.constants.O_NOFOLLOW || 0));
+  try {
+    const stat=fs.fstatSync(fd);if(!stat.isFile() || stat.size!==saved.size)throw changed();
+    const digest=createHash('sha256'),chunk=Buffer.alloc(65536);let size=0,read=0;
+    while((read=fs.readSync(fd,chunk,0,Math.min(chunk.length,saved.size-size+1),null))>0) {
+      size+=read;if(size>saved.size)throw changed();digest.update(chunk.subarray(0,read));
+    }
+    if(size!==saved.size || digest.digest('hex')!==saved.plaintextHash || fs.fstatSync(fd).size!==saved.size)throw changed();
+    if(!saved.delivered)fs.fsyncSync(fd);
+  } finally {fs.closeSync(fd);}
+}
+function syncReceipt(target:string) {
+  const fd=fs.openSync(path.join(target,'receipt.json'),fs.constants.O_RDWR|(fs.constants.O_NOFOLLOW || 0));
+  try {fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+}
+function replaceReceipt(target:string,saved:SavedFile) {
+  const temporary=path.join(target,'receipt.'+randomUUID()+'.tmp');
+  // Only clean up a temporary file after this operation has created it exclusively.
+  const fd=fs.openSync(temporary,'wx',0o600);
+  try {
+    try {fs.writeFileSync(fd,JSON.stringify(saved));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    fs.renameSync(temporary,path.join(target,'receipt.json'));syncDirectory(target);
+  } finally {if(fs.existsSync(temporary))fs.unlinkSync(temporary);}
+}
 
 /** One authenticated inbox per pairing, independent of sender labels and destination aliases. */
 export class FileInbox {
@@ -85,12 +146,10 @@ export class FileInbox {
     const lock=path.join(this.directory,id+'.lock'),target=path.join(this.directory,id);
     const unlock=acquireFileLock(lock);
     try {
-      let saved:{id:string;name:string;size:number;sha256:string;plaintextHash:string;delivered:boolean};
+      cleanupStaging(this.directory,id);
+      let saved:SavedFile;
       if(fs.existsSync(target)) {
-        saved=z.object({id:idSchema,name:z.string(),size:z.number().int().max(MAX_FILE_BYTES),sha256:z.string().regex(/^[a-f0-9]{64}$/),plaintextHash:z.string(),delivered:z.boolean()}).parse(JSON.parse(fs.readFileSync(path.join(target,'receipt.json'),'utf8')));
-        if(saved.id!==id || path.basename(saved.name)!==saved.name || saved.name==='.' || saved.name==='..' || saved.name==='receipt.json')throw new Error('Invalid saved file receipt');
-        const local=fs.readFileSync(path.join(target,saved.name));
-        if(local.length!==saved.size || hash(local)!==saved.plaintextHash)throw new Error('Saved file changed; delivery will not be acknowledged.');
+        saved=readReceipt(target,id);
       } else {
         const response=await this.request('/files/'+id);
         const header=response.headers.get('X-File-Manifest'); if(!header || header.length>8192)throw new Error('Missing file authentication');
@@ -106,14 +165,19 @@ export class FileInbox {
           syncDirectory(temporary);fs.renameSync(temporary,target);syncDirectory(this.directory);
         } finally { if(fs.existsSync(temporary))fs.rmSync(temporary,{recursive:true}); }
       }
+      verifySavedFile(target,saved);
+      cleanupReceipts(target,saved.name);
       if(!saved.delivered) {
+        // A prior process may have renamed the files but failed before its flush completed.
+        // Repeat every durability boundary before allowing the relay to delete its copy.
+        syncReceipt(target);syncDirectory(target);syncDirectory(this.directory);
+        const inbox=path.dirname(this.directory);syncDirectory(inbox);syncDirectory(path.dirname(inbox));
         try {
           const response=await this.request('/files/'+id+'/ack','POST',{sha256:saved.sha256});
           const result=JSON.parse((await bounded(response,8192)).toString());
           if(result.status!=='delivered')throw new Error('Delivery could not be confirmed');
           saved.delivered=true;
-          const temp=path.join(target,'receipt.'+randomUUID()+'.tmp');writePrivate(temp,JSON.stringify(saved));
-          fs.renameSync(temp,path.join(target,'receipt.json'));syncDirectory(target);
+          replaceReceipt(target,saved);
         } catch {
           return {id,path:path.join(target,saved.name),size:saved.size,status:'saved_pending_receipt',message:'Saved and verified locally. Retry receive with this ID to confirm delivery.'};
         }

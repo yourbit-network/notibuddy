@@ -3,6 +3,7 @@
 ## 0.2.0 — Unreleased
 
 - Receive phone-shared files up to 10 MB through explicit CLI/MCP destination inboxes. Authenticate and decrypt locally, save privately, then acknowledge delivery; retry lost acknowledgements without downloading twice.
+- Recover interrupted file saves and receipt updates, repeat pending storage flushes before acknowledging, and bound verification of existing local files. Disk-full failures leave the transfer unacknowledged; retries clean up abandoned temporary files for that transfer.
 - Bind a separate receiving public key into pairing approval. Existing connections require explicit re-pairing and phone approval to enable files.
 - Keep filenames and content types encrypted; reject tampered files, unsafe paths, wrong recipients, and expired transfers.
 
