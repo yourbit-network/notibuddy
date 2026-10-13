@@ -6,3 +6,5 @@ export * from './config.js';
 export * from './mcp.js';
 export * from './routing.js';
 export * from './files.js';
+export * from './groups.js';
+export * from './recipient-store.js';

@@ -385,3 +385,31 @@ All `/v1/files` operations require the existing realm bearer token **and** a fre
 - `DELETE /v1/files/:id`: signed originating device cancels. The full signed manifest can be supplied as a JSON body to cancel an upload that has not reached the relay yet. Already delivered content cannot be recalled.
 
 Terminal states cannot reopen on upload retries. Expired/cancelled/revoked files cannot be downloaded, even if deletion is delayed. Alarm-driven cleanup retries object-store failures and retains an opaque deletion queue after account deletion. No public object URLs or CDN caching. Terminal routing receipts expire after the original deadline plus 24 hours, subject to completing deletion. Received local files belong to the user and are not automatically erased.
+
+## Experimental group delivery (v2)
+
+The package includes protocol helpers for a primary destination and its independently keyed companion. **CLI/MCP still uses v1.** V2 discovery, dispatch, durable resume, and pairing negotiation are not connected to the command flow yet. No published version or usable Watch app is implied by these source helpers.
+
+`verifyRecipients` checks discovery against the phone identity pinned by pairing. It verifies the independent parent/child enrollment signatures, account binding, key-derived device IDs, generation, and companion capabilities. Enrollment expiry is a deadline to enroll, not a lifetime for approved membership. The relay remains authoritative for roster absence/revocation; a first-time client cannot independently detect an older valid roster. The API does not accept a different primary identity.
+
+`RecipientStore` persists a non-expiring generation/fingerprint checkpoint under `~/.notibuddy/recipients`. Before sending, pass the saved checkpoint into verification and durably remember the verified result. A lower generation or different roster at the same generation fails. Storage errors preserve the previous checkpoint and stop progress; no silent reset. The scope follows the cryptographic destination through alias/label changes. To resume a pending request, retain its original discovery proofs and signed request alongside its existing response key; do not substitute newly enrolled keys for a saved request's recipients.
+
+`sealGroupRequest` encrypts separately for each verified recipient with HPKE info `notibuddy/v2/request`. The authenticated data is the exact per-recipient header:
+
+```text
+nb2|request|requestId|primaryDeviceId|recipientDeviceId|senderKeyId|primitive|createdAt|expiresAt|generation|sessionId|revision|sortedRecipientIdsCommaSeparated
+```
+
+Each delivery signs UTF-8 header, a zero byte, its 65-byte encapsulated point, and ciphertext. One request holds all deliveries, with one quota charge and terminal state at the relay. Initial sessions use the request ID and revision 1; activity updates/end use new request IDs, the original session ID, and increasing revisions. Existing v1 signature bytes are unchanged.
+
+A response or control signs this header:
+
+```text
+nb2|replyOrControl|requestId|parentDeviceId|respondingDeviceId|generation|responseId|createdAt|sortedPeerReceiptIdsCommaSeparated
+```
+
+After UTF-8 header and a zero byte, append the sender ciphertext and each peer receipt in order. Each contributes its 65-byte encapsulated point, a four-byte unsigned big-endian ciphertext length, and ciphertext. Encrypt the sender response with info `notibuddy/v2/reply` and authenticated data `header|sender`. Encrypt each peer receipt with info `notibuddy/v2/receipt` and authenticated data `header|receipt|peerDeviceId`.
+
+`openGroupResponse` validates the exact wire shape, original request/parent/generation, addressed actor, permitted capability, signature over **all** ciphertexts, and the decrypted answer shape before returning an answer. A Watch cannot return a terminal form answer. It verifies the actor against the saved request's recipient snapshot. Request and response/control IDs are deduplication identities, not display labels.
+
+Fields use canonical unpadded base64url and integers within JavaScript's safe range. A request has one or two recipients; a response has at most one peer receipt. Ciphertexts are 16–150,000 bytes, total v2 mutation bodies are at most 512 KiB, and request lifetime is at most one hour. The public, relay, and Swift implementations share `test-vectors/group-delivery-v2.json` for signature compatibility. That fixture contains synthetic ciphertext; separate randomized tests exercise HPKE round trips and wrong-key/recipient rejection.
