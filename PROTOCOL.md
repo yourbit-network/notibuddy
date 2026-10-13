@@ -202,6 +202,14 @@ The sender MUST encrypt a separate envelope for each target device.
 
 If any check fails, the device MUST NOT show the content. For an `ask`, it SHOULD send an error envelope (§7).
 
+### 5.3 Plaintext routing consistency
+
+Authenticated routing fields remain authoritative after decryption. Any plaintext `requestId`, `request_id`, or `relayRequestId` must match the outer delivery's `requestId`. Any plaintext `senderId`, `sender_id`, `senderKeyId`, or `sender_key_id` must match the authenticated sender. A supplied ordinary payload `primitive` must match the outer primitive; it cannot change an approval into a form or activity. Ordinary requests cannot introduce an `activityId`, and a supplied `sessionId` must equal their request ID.
+
+For activities, the outer `activity_start/update/end` is the operation and the inner `timer`/`stepper` is the display primitive. The start's `activityId` equals its outer request ID; updates/endings keep that stable activity ID and use a fresh outer delivery ID. A supplied `action` must agree with the outer operation. Activity IDs use the same 1–64 ASCII identifier rules as request IDs. In group delivery, the plaintext activity/session ID must also match the signed outer `sessionId`. Sender labels never change this routing or session ownership.
+
+Native compatibility parsing also accepts legacy flat content or an object-valued nested `payload`, including omitted legacy `type` fields. Present routing fields at either level must still agree; malformed or conflicting values fail instead of falling back. A nested activity's root `primitive`, when present, names the outer operation, while its payload names the display primitive. Provided authenticated timestamps take precedence over nested timestamps. This compatibility does not permit unauthenticated transport and does not require an extra plaintext `v`: current `AskPayload` and `ActivityPayload` have no such field.
+
 ## 6. Reply envelope (device → sender)
 
 ```json
