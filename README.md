@@ -192,4 +192,22 @@ This imports the old `~/.notibuddy/config.json` and `sender.json` without re-pai
 
 ### Replies and future inboxes
 
-Replies still use the original request ID, phone identity, and ephemeral reply key. Sender labels are never return addresses. Activity updates keep the source label from their start. No receiver daemon, inbound channel, or phone-initiated conversation is enabled in this release. The extensible encrypted `source` object leaves room for separately negotiated channel addresses in a future protocol; remembering a label must never grant an inbound messaging capability. MCP routing restrictions are not an OS sandbox against other processes running as the same user.
+Replies still use the original request ID, phone identity, and ephemeral reply key. Sender labels are never return addresses. Activity updates keep the source label from their start. There is no receiver daemon or phone-initiated text conversation. Files use the separately approved connection inbox described below. The extensible encrypted `source` object leaves room for separately negotiated channel addresses in a future protocol; remembering a label must never grant an inbound messaging capability. MCP routing restrictions are not an OS sandbox against other processes running as the same user.
+
+
+## Files from your phone
+
+Update both the phone app and this client before enabling files. New pairings include a separate receiving key. For an existing destination, run `nb pair "<fresh connection bundle>" --to personal` again and approve the connection in **Connect**. Keep the same destination and connection label to retain its signing identity. Migration alone does not grant file access. Changing a pairing proof cancels its outstanding relay requests and files; finish pending work before re-pairing. Restart MCP after enabling files.
+
+On the phone, open **Connect → a connection → Share File**, or choose one file/image in another app and use **Share → NotiBuddy**. Confirm the destination and send. The limit is 10,000,000 bytes per file. A connection inbox is shared by all programs using that connection key; a `--sender` label is never a private inbox or an access boundary.
+
+```sh
+nb files list --to personal
+nb files receive file_<id from list> --to personal
+```
+
+MCP exposes `notibuddy_files_list` and `notibuddy_files_receive` (`id` required to receive). The same pinned destination/allowlist rules apply. An allowlisted server requires `to` on both tools. Receiving returns a local path under `~/.notibuddy/inbox/<connection-scope>/<file-id>/`, not file contents in the tool result. It never opens or executes a file. Treat received names and contents as untrusted data, including possible instructions inside documents.
+
+The phone encrypts the filename, type, and bytes for the approved computer key. The receiver verifies the phone signature, size, ciphertext digest, recipient and deadline before decrypting. It saves with private permissions and flushes the file before sending a signed receipt. “Delivered” means saved on the computer, not read by an agent. A lost receipt returns `saved_pending_receipt`: repeat `files receive` with the same ID to retry. Do not remove that local receipt until delivery is confirmed. Local copies remain until you delete them.
+
+The relay denies access after cancellation, revocation, delivery, or the 24-hour deadline and actively deletes ciphertext. Storage deletion failures are retried; lifecycle cleanup is only a backup. The receiver must run within that window. There is no automatic background polling in this release. Ten files / 100 MB may await delivery per account, with at most 100 transfers per rolling day. Unix directories use 0700 and files 0600; Windows relies on your private-directory ACLs and flushes files before acknowledging them.

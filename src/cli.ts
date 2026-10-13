@@ -11,6 +11,8 @@ function printHelp(): void {
 
 Usage:
   nb pair <bundle> --to <name> [--label <connection-name>]
+  nb files list --to <name>
+  nb files receive <file_id> --to <name>
   nb ask "<title>" --to <name> [--sender <label>] [options]
   nb ask --resume <request-id> --to <name>
   nb activity <id> <start|update|end|poll> --to <name> [options]
@@ -96,9 +98,9 @@ async function main():Promise<void> {
     const label=args.text('--label')??store.list().find(d=>d.name===routing.to)?.connectionLabel??senderLabel();
     const {record,signingKey}=await store.prepare(routing.to,bundle,label);
     const {config,keys}=record;
-    const mac=await computePairingMac(bundle.pairSecret,bundle.device.id,keys.senderKeyId,keys.publicKeyB64u,label);
+    const mac=await computePairingMac(bundle.pairSecret,bundle.device.id,keys.senderKeyId,keys.publicKeyB64u,label,record.fileKey!.publicKeyB64u);
     const client=new NotiBuddyClient(config,signingKey);
-    const status=await client.registerSender({senderKeyId:keys.senderKeyId,senderPub:keys.publicKeyB64u,label,mac});
+    const status=await client.registerSender({senderKeyId:keys.senderKeyId,senderPub:keys.publicKeyB64u,label,mac,fileEncPub:record.fileKey!.publicKeyB64u,fileDeviceId:config.device.id});
     console.log(`${status==='registered'?'Pairing confirmed':'Phone approval required'}
 Destination: ${routing.to}
 Phone: ${config.device.name || 'iPhone'}
@@ -112,6 +114,15 @@ Pending approval expires after 15 minutes.
 MCP configuration:
 ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y','notibuddy@^0.2.0','mcp','--to',routing.to]}}})}`);
     return;
+  }
+  if(command==='files') {
+    const args=argumentsFor(rest,[]);
+    const route=(await createDestinationRouter(routing,store)).resolve();
+    let result;
+    if(args.positional[0]==='list' && args.positional.length===1)result=await route.files.list();
+    else if(args.positional[0]==='receive' && args.positional.length===2)result=await route.files.receive(args.positional[1]);
+    else throw new Error('Use nb files list --to <name> or nb files receive <file_id> --to <name>');
+    console.log(JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2));return;
   }
   if(command==='ask') {
     const args=argumentsFor(rest,['--message','--options','--placeholder','--wait','--resume'],['--requires-auth','--sensitive']);

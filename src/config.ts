@@ -1,10 +1,11 @@
 import fs from 'node:fs';
+import { acquireFileLock } from './file-lock.js';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { NotiBuddyConfig, SenderKeyPair, PairingBundle } from './types.js';
-import { deriveDeviceId, deriveSenderKeyId, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaSign, ecdsaVerify } from './crypto.js';
+import { deriveDeviceId, deriveSenderKeyId, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaSign, ecdsaVerify, generateReplyKeyPair, hpkeSealBytes, hpkeOpenBytes } from './crypto.js';
 
 // The override relocates the whole store (e.g. for tests); it is not profile selection.
 export const NOTIBUDDY_DIR = process.env.NOTIBUDDY_HOME || path.join(os.homedir(), '.notibuddy');
@@ -18,8 +19,8 @@ const configSchema = z.object({
   senderKeyId:z.string().min(1), senderLabel:z.string().min(1),
 });
 const keysSchema = z.object({senderKeyId:z.string(),publicKeyB64u:z.string(),privateKeyJwk:z.record(z.unknown())});
-const recordSchema = z.object({version:z.literal(2),connectionId:z.string().uuid(),config:configSchema,keys:keysSchema});
-export interface DestinationRecord { version: 2; connectionId: string; config: NotiBuddyConfig; keys: SenderKeyPair }
+const recordSchema = z.object({version:z.literal(2),connectionId:z.string().uuid(),config:configSchema,keys:keysSchema,fileKey:z.object({publicKeyB64u:z.string(),privateKeyJwk:z.record(z.unknown())}).optional()});
+export interface DestinationRecord { version: 2; connectionId: string; config: NotiBuddyConfig; keys: SenderKeyPair; fileKey?: {publicKeyB64u:string; privateKeyJwk:JsonWebKey} }
 export interface DestinationSummary { name: string; connectionId: string; deviceId: string; deviceName: string; connectionLabel: string }
 
 /** Named destinations contain one immutable pairing each. Aliases never determine reply storage. */
@@ -67,6 +68,12 @@ export class DestinationStore {
         await deriveDeviceId(config.device.encPub,config.device.sigPub)!==config.device.id) {
       throw new Error(`Destination '${name}' contains mismatched keys. Preserve it and restore the correct pairing.`);
     }
+    if (record.fileKey) {
+      const key=await crypto.subtle.importKey('jwk',record.fileKey.privateKeyJwk,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+      const sealed=await hpkeSealBytes(record.fileKey.publicKeyB64u,'notibuddy/key-check','',challenge);
+      const opened=await hpkeOpenBytes(key,sealed.enc,'notibuddy/key-check','',sealed.ct);
+      if (!Buffer.from(opened).equals(Buffer.from(challenge))) throw new Error('File receiving keys do not match');
+    }
     return {record,signingKey};
   }
   async prepare(name:string,bundle:PairingBundle,label:string): Promise<{record:DestinationRecord;signingKey:CryptoKey}> {
@@ -83,7 +90,27 @@ export class DestinationStore {
     if (config.relay!==bundle.relay || config.token!==bundle.token || config.device.id!==bundle.device.id || config.senderLabel!==label) {
       throw new Error(`Destination '${name}' already names a different pairing or connection label. Use a new destination name; existing requests will not be redirected.`);
     }
-    return opened;
+    if (!opened.record.fileKey) {
+      const generated=await generateReplyKeyPair();
+      const fileKey={publicKeyB64u:generated.publicKeyB64u,privateKeyJwk:await crypto.subtle.exportKey('jwk',generated.privateKey)};
+      // Only explicit pairing enables files. Keep the old signing identity and pending replies.
+      const lock=this.file(name)+'.lock';
+      const unlock=acquireFileLock(lock);
+      try {
+        const latest=this.read(name);
+        if (latest.connectionId!==opened.record.connectionId) throw new Error('Destination changed during pairing. Retry.');
+        if (!latest.fileKey) {
+          latest.fileKey=fileKey;
+          const temp=this.file(name)+'.'+randomUUID()+'.tmp';
+          try {
+            fs.writeFileSync(temp,JSON.stringify(latest,null,2)+'\n',{mode:0o600,flag:'wx'});
+            const fd=fs.openSync(temp,'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+            fs.renameSync(temp,this.file(name));
+          } finally { if(fs.existsSync(temp)) fs.unlinkSync(temp); }
+        }
+      } finally { unlock(); }
+    }
+    return this.open(name);
   }
   async migrate(name: string): Promise<void> {
     destinationName(name);

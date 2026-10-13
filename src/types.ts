@@ -143,6 +143,8 @@ export interface PairingBundle {
 }
 
 export interface SenderRegistrationPayload {
+  fileEncPub?: string;
+  fileDeviceId?: string;
   senderKeyId: string;
   senderPub: string;
   label: string;

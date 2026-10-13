@@ -346,3 +346,42 @@ Named destinations are local configuration and do not change the v1 cryptographi
 Ask and activity plaintext MAY include `source: {"label":"Build monitor"}`. This object is encrypted and covered by the request signature. Its label is descriptive metadata supplied by the approved connection, not proof of an independently approved application. It MUST NOT override `senderKeyId`, the registered pairing label/MAC, device identity, or response keys. Labels are trimmed, 1–100 UTF-16 code units, and contain no Unicode control (Cc) or format (Cf) characters. Older phones may ignore the object; new phones should show it alongside the approved connection. Malformed labels should fall back to connection identity. Activity updates retain the label from the activity's start.
 
 The optional `source` object is extensible, but this version defines no return-channel field or phone-initiated message capability. A future channel requires a stable opaque ID, advertised receiving capability and appropriate encryption keys, bound to the approved connection. Neither a label nor a historical request constitutes a routable inbox or authorization to execute incoming instructions.
+
+
+## File receiving capability and transfers (0.2)
+
+File-capable sender registrations add `fileEncPub` (uncompressed P-256 ECDH SEC1, base64url) and `fileDeviceId`. They use a versioned proof:
+
+```
+HMAC-SHA256(pairSecret,
+ UTF8("nb2|sender|" + deviceId + "|" + senderKeyId) || 0 || senderPubBytes || 0 || UTF8(label) || 0 || fileEncPubBytes)
+```
+
+The registration ownership signature covers compact JSON `['nb2','sender-registration',realm,senderKeyId,senderPub,label,mac,createdAt,nonce,fileDeviceId,fileEncPub]`. Both new fields must be present. The phone validates the MAC, key point, and matching device ID; approval submits the exact proof and both fields. Changing any proof field requires approval again and cancels waiting files. Legacy nb1 registrations still send requests but have no file permission. The receiving private key is persisted before registration; it is separate from ECDSA and ephemeral reply keys.
+
+Each phone-originated transfer has an immutable manifest:
+
+```
+{v:1,id:"file_<32 lowercase hex>",deviceId,senderKeyId,fileEncPub,
+ createdAt,expiresAt,size,cipherSize,enc,sha256,sig}
+```
+
+Times are Unix seconds. `expiresAt=createdAt+86400`; retries never extend it. The relay caps its effective deadline at its own receipt time plus 24 hours to tolerate small phone clock skew; status responses return that effective `expiresAt`. `size` is the original file byte count (0–10,000,000). Encrypted plaintext is a four-byte unsigned big-endian metadata length, UTF-8 JSON `{name,type}` (at most 4096 bytes), then the original bytes. `cipherSize` is at most `size+4116`. Filenames and MIME types never appear in the manifest or relay database.
+
+HPKE uses DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM, fresh encapsulation per file, info `notibuddy/file/v1`, and AAD:
+
+```
+nb1|file|id|deviceId|senderKeyId|fileEncPub|createdAt|expiresAt|size
+```
+
+`sha256` is lowercase hex SHA-256 of the raw HPKE ciphertext. `sig` is phone ECDSA P-256/SHA-256, raw P1363 base64url, over UTF-8 `AAD|enc|cipherSize|sha256`. The receiver authenticates the enrolled phone, exact recipient key, manifest fields, deadline, ciphertext length/digest and HPKE tag before exposing plaintext.
+
+All `/v1/files` operations require the existing realm bearer token **and** a fresh identity HTTP signature over the existing `nb1|http|METHOD|/files...|timestamp|nonce|bodySHA256` format. Device requests use the existing X-Device headers. Receivers use `X-Sender-ID`, `X-Sender-Timestamp`, `X-Sender-Nonce`, `X-Sender-Signature`; only currently approved file-capable senders may read their own inbox. A token alone grants no file access. Queries are not accepted.
+
+- `POST /v1/files`: signed device binary upload, base64url JSON manifest in `X-File-Manifest`. Server reserves immutable ID, quotas and deadline before writing private object storage. Stable retries return current state; an in-progress upload returns 409.
+- `GET /v1/files`: signed device sees its outgoing statuses; signed receiver sees its own inbox. No decrypted names or types.
+- `GET /v1/files/:id`: signed recipient receives raw ciphertext and `X-File-Manifest`, `Cache-Control: no-store`.
+- `POST /v1/files/:id/ack`: signed recipient sends `{sha256}` **only after** authentication, decryption and durable local save. The relay makes the transfer unreadable and immediately attempts deletion. Repeating a matching receipt is idempotent.
+- `DELETE /v1/files/:id`: signed originating device cancels. The full signed manifest can be supplied as a JSON body to cancel an upload that has not reached the relay yet. Already delivered content cannot be recalled.
+
+Terminal states cannot reopen on upload retries. Expired/cancelled/revoked files cannot be downloaded, even if deletion is delayed. Alarm-driven cleanup retries object-store failures and retains an opaque deletion queue after account deletion. No public object URLs or CDN caching. Terminal routing receipts expire after the original deadline plus 24 hours, subject to completing deletion. Received local files belong to the user and are not automatically erased.

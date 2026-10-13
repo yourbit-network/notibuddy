@@ -73,6 +73,9 @@ try {
   for(const args of [{title:'No destination',wait_seconds:0},{to:'race',title:'Hidden',wait_seconds:0},{to:5,title:'Bad',wait_seconds:0}]) {
     assert.equal((await call(mcp,'notibuddy_ask',args)).isError,true);
   }
+  assert.equal((await call(mcp,'notibuddy_files_list',{to:'race'})).isError,true);
+  assert.equal((await call(mcp,'notibuddy_files_receive',{id:'file_'+'a'.repeat(32)})).isError,true);
+  assert.ok(tools.tools.find(t=>t.name==='notibuddy_files_receive')!.inputSchema.required!.includes('to'));
   assert.equal(fetches,0,'Routing errors never dispatch or poll');
   const pending=json(await call(mcp,'notibuddy_ask',{to:'work',title:'Deploy?',wait_seconds:0}));
   assert.equal(pending.to,'work'); assert.equal(requests[0].deviceId,work.bundle.device.id);

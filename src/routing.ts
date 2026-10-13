@@ -1,5 +1,6 @@
 import { DestinationStore, destinationName, senderLabel } from './config.js';
 import { NotiBuddyClient } from './client.js';
+import { FileInbox } from './files.js';
 import { PendingStore } from './pending-store.js';
 
 export interface RoutingOptions { to?:string; allowTo?:string[]; sender?:string }
@@ -32,14 +33,14 @@ export async function createDestinationRouter(options:RoutingOptions,store=new D
   const label=senderLabel(options.sender);
   const entries=await Promise.all(names.map(async name=>{
     const {record,signingKey}=await store.open(name);
-    return {name,record,client:new NotiBuddyClient(record.config,signingKey,new PendingStore(record.config,store.root),label)};
+    return {name,record,files:new FileInbox(record,signingKey,store.root),client:new NotiBuddyClient(record.config,signingKey,new PendingStore(record.config,store.root),label)};
   }));
   return {
     selectable:!options.to,
     names,
     list:()=>entries.map(({name,record})=>({to:name,deviceName:record.config.device.name || 'iPhone',
       deviceId:record.config.device.id,connectionId:record.connectionId,connectionLabel:record.config.senderLabel,
-      sender:label,status:'saved_pairing',acceptsNewMessages:false})),
+      sender:label,status:'saved_pairing',acceptsNewMessages:false,acceptsFiles:!!record.fileKey})),
     resolve(to?:string) {
       if (options.to && to && to!==options.to) throw new Error(`This server is pinned to '${options.to}'`);
       const selected=to ?? options.to;

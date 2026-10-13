@@ -92,7 +92,8 @@ export async function computePairingMac(
   deviceId: string,
   senderKeyId: string,
   senderPubB64u: string,
-  label: string
+  label: string,
+  fileEncPub?: string
 ): Promise<string> {
   const pairSecret = fromB64u(pairSecretB64u);
   const key = await crypto.subtle.importKey(
@@ -103,7 +104,7 @@ export async function computePairingMac(
     ['sign']
   );
 
-  const prefix = encoder.encode(`nb1|sender|${deviceId}|${senderKeyId}`);
+  const prefix = encoder.encode(`${fileEncPub ? "nb2" : "nb1"}|sender|${deviceId}|${senderKeyId}`);
   const senderPub = fromB64u(senderPubB64u);
   const labelBytes = encoder.encode(label);
 
@@ -115,7 +116,8 @@ export async function computePairingMac(
   msg[offset] = 0x00; offset += 1;
   msg.set(labelBytes, offset);
 
-  const sig = await crypto.subtle.sign('HMAC', key, toBufferSource(msg));
+  const proof = fileEncPub ? new Uint8Array([...msg, 0, ...fromB64u(fileEncPub)]) : msg;
+  const sig = await crypto.subtle.sign('HMAC', key, toBufferSource(proof));
   return toB64u(new Uint8Array(sig));
 }
 
@@ -297,4 +299,15 @@ export async function ecdsaVerify(
   } catch {
     return false;
   }
+}
+
+/** Raw HPKE for bounded files; each sender context generates a fresh encapsulation. */
+export async function hpkeSealBytes(recipientPub:string, info:string, aad:string, plaintext:Uint8Array) {
+  const key=await crypto.subtle.importKey('raw',toBufferSource(fromB64u(recipientPub)),{name:'ECDH',namedCurve:'P-256'},true,[]);
+  const context=await hpkeSuite.createSenderContext({recipientPublicKey:key,info:encoder.encode(info)});
+  return {enc:toB64u(new Uint8Array(context.enc)),ct:new Uint8Array(await context.seal(toBufferSource(plaintext),encoder.encode(aad)))};
+}
+export async function hpkeOpenBytes(key:CryptoKey, enc:string, info:string, aad:string, ct:Uint8Array) {
+  const context=await hpkeSuite.createRecipientContext({recipientKey:key,enc:fromB64u(enc),info:encoder.encode(info)});
+  return new Uint8Array(await context.open(toBufferSource(ct),encoder.encode(aad)));
 }
