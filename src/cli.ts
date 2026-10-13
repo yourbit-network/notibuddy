@@ -5,6 +5,7 @@ import { DestinationStore, senderLabel } from './config.js';
 import { NotiBuddyClient } from './client.js';
 import { runMcpServer } from './mcp.js';
 import { createDestinationRouter, parseRoutingArgs } from './routing.js';
+import { resolveFileDestination } from './file-routing.js';
 
 async function withShutdown<T>(operation:(signal:AbortSignal)=>Promise<T>):Promise<T> {
   const controller=new AbortController();
@@ -21,6 +22,7 @@ Usage:
   nb pair <bundle> --to <name> [--label <connection-name>]
   nb files list --to <name>
   nb files receive <file_id> --to <name>
+  nb files receive <file_id> --pairing <device_id>:<sender_key_id>
   nb ask "<title>" --to <name> [--sender <label>] [options]
   nb ask --resume <request-id> --to <name>
   nb activity <id> <start|update|end|poll> --to <name> [options]
@@ -36,6 +38,7 @@ Usage:
 All destinations live under ~/.notibuddy. Sending requires an explicit destination.
 --sender is a free-form display label (default: hostname), not a new pairing.
 MCP with --allow-to requires 'to' on every request; no fallback or broadcast.
+File commands copied from the phone use --pairing to find the exact saved identities.
 
 Ask options:
   --message, -m <text>       Prompt details
@@ -94,6 +97,14 @@ async function main():Promise<void> {
     else console.log(destinations.length?JSON.stringify(destinations,null,2):'No named destinations paired. Run nb pair <bundle> --to <name>, or nb devices migrate --to <name> to import existing setup.');
     return;
   }
+  if(command==='files') {
+    const args=argumentsFor(rest,['--pairing']);
+    const action=args.positional[0];
+    if(!(action==='list' && args.positional.length===1) && !(action==='receive' && args.positional.length===2))throw new Error('Use nb files list --to <name>, or nb files receive <file_id> with --to <name> or --pairing <device_id>:<sender_key_id>.');
+    const route=await resolveFileDestination({to:routing.to,pairing:args.text('--pairing')},store);
+    const result=action==='list'?await route.files.list():await route.files.receive(args.positional[1]);
+    console.log(JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2));return;
+  }
   if(!routing.to) throw new Error('Choose a destination with --to <name>. Use nb devices list to see saved names.');
   if(command==='unpair') {
     if(rest.length)throw new Error('Unknown unpair arguments');
@@ -123,15 +134,6 @@ Pending approval expires after 15 minutes.
 MCP configuration:
 ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y','notibuddy@^0.2.0','mcp','--to',routing.to]}}})}`);
     return;
-  }
-  if(command==='files') {
-    const args=argumentsFor(rest,[]);
-    const route=(await createDestinationRouter(routing,store)).resolve();
-    let result;
-    if(args.positional[0]==='list' && args.positional.length===1)result=await route.files.list();
-    else if(args.positional[0]==='receive' && args.positional.length===2)result=await route.files.receive(args.positional[1]);
-    else throw new Error('Use nb files list --to <name> or nb files receive <file_id> --to <name>');
-    console.log(JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2));return;
   }
   if(command==='doctor') {
     if(rest.length)throw Error('Use nb doctor --to <name>');
