@@ -169,6 +169,7 @@ The sender MUST encrypt a separate envelope for each target device.
 | `approval` | `ask` | yes |
 | `text_input` | `ask` | yes |
 | `form` | `ask` | yes |
+| `diff` | `ask` | yes |
 | `activity_start`, `activity_update`, `activity_end` | `activity` | no |
 
 `ask` payload:
@@ -185,6 +186,10 @@ The sender MUST encrypt a separate envelope for each target device.
   "requiresAuth": true
 }
 ```
+
+For `diff`, the encrypted `ask` payload instead includes flat `filename`, optional `language`, `original`, and `modified` fields. These are not a nested `diff` object on the wire. `filename` is display-only; no recipient reads or writes that path. Default action IDs are `reject` (Discard) and `approve` (Apply). Approval is a decision, not execution or file mutation. An applying caller must still check that the current source matches the reviewed original.
+
+The 0.2.1 high-level client accepts these fields as `diff: {filename, language?, original, modified}` and excludes form fields, choices, text input and resume IDs from a new diff request. It requires valid Unicode source totaling at most 96,000 UTF-8 bytes and 20,000 lines (one initial line per text plus each LF). Filename is nonblank and at most 512 UTF-8 bytes; language is at most 40 UTF-8 bytes; neither label may contain control or format characters. The CLI reads a regular UTF-8 JSON file bounded to 150,000 bytes. The existing ciphertext limit still applies to the entire serialized request, including JSON escaping and authentication overhead. Resume uses the saved request ID and original ciphertext without resupplying the diff. These plaintext limits are enforced by the client, not by a relay that cannot decrypt it.
 
 `activity` payload:
 
@@ -235,7 +240,7 @@ Answer payload:
 { "action": "Approve", "text": "optional free text", "values": { "env": "stg" }, "authenticated": true }
 ```
 
-- `action` is one of the request's `options`, `"submit"` for forms, `"reply"` for text input, or `"dismiss"`.
+- `action` is one of the request's `options`, `"submit"` for forms, `"reply"` for text input, `"approve"`/`"reject"` for default diff actions, or `"dismiss"`.
 - Free text is only ever placed in `text`, never in `action`.
 - `authenticated` is true only if the user passed biometric or passcode authentication for this answer.
 
@@ -426,7 +431,7 @@ nb2|replyOrControl|requestId|parentDeviceId|respondingDeviceId|generation|respon
 
 After UTF-8 header and a zero byte, append the sender ciphertext and each peer receipt in order. Each contributes its 65-byte encapsulated point, a four-byte unsigned big-endian ciphertext length, and ciphertext. Encrypt the sender response with info `notibuddy/v2/reply` and authenticated data `header|sender`. Encrypt each peer receipt with info `notibuddy/v2/receipt` and authenticated data `header|receipt|peerDeviceId`.
 
-`openGroupResponse` validates the exact wire shape, original request/parent/generation, addressed actor, permitted capability, signature over **all** ciphertexts, and the decrypted answer shape before returning an answer. A Watch cannot return a terminal form answer. It verifies the actor against the saved request's recipient snapshot. Request and response/control IDs are deduplication identities, not display labels.
+`openGroupResponse` validates the exact wire shape, original request/parent/generation, addressed actor, permitted capability, signature over **all** ciphertexts, and the decrypted answer shape before returning an answer. A Watch cannot return a terminal form or diff answer; it hands these requests off to its paired iPhone. It verifies the actor against the saved request's recipient snapshot. Request and response/control IDs are deduplication identities, not display labels.
 
 Fields use canonical unpadded base64url and integers within JavaScript's safe range. A request has one or two recipients; a response has at most one peer receipt. Ciphertexts are 16–150,000 bytes, total v2 mutation bodies are at most 512 KiB, and request lifetime is at most one hour. The public, relay, and Swift implementations share `test-vectors/group-delivery-v2.json` for signature compatibility. That fixture contains synthetic ciphertext; separate randomized tests exercise HPKE round trips and wrong-key/recipient rejection.
 

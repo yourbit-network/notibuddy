@@ -18,7 +18,7 @@ function binary(value:unknown,min:number,max:number):value is string {
   catch{return false;}
 }
 const point=(value:unknown)=>binary(value,65,65) && fromB64(value)[0]===4;
-const primitives=['approval','text_input','form','activity_start','activity_update','activity_end'];
+const primitives=['approval','text_input','form','diff','activity_start','activity_update','activity_end'];
 
 export function validGroupRequest(value:unknown):value is GroupRequest {
   if(!fields(value,'createdAt,deliveries,deviceId,expiresAt,generation,kind,primitive,requestId,revision,senderKeyId,sessionId,v'))return false;

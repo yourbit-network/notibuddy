@@ -122,11 +122,15 @@ test('a failed atomic checkpoint replacement preserves the earlier trusted gener
   } finally {fs.renameSync=rename;fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('Watch cannot return a terminal reply for a form even with a valid signed encrypted response',async()=>{
-  const f=await fixture(),q=await sealGroupRequest({requestId:'form',senderKeyId:f.sender.senderKeyId,signingKey:f.sender.privateKey,
-    recipients:f.recipients,primitive:'form',payload:{...f.payload,fields:[{id:'a',type:'text',label:'Name'}]}});
-  await assert.rejects(openGroupResponse({input:await f.response(f.watch,q),request:q,recipients:f.recipients,replyKey:f.reply.privateKey}));
-  assert.equal((await openGroupResponse({input:await f.response(f.primary,q),request:q,recipients:f.recipients,replyKey:f.reply.privateKey})).action,'approve');
+test('Watch cannot return a terminal form or diff reply even with a valid signed encrypted response',async()=>{
+  for (const primitive of ['form','diff'] as const) {
+    const f=await fixture(),q=await sealGroupRequest({requestId:primitive,senderKeyId:f.sender.senderKeyId,signingKey:f.sender.privateKey,
+      recipients:f.recipients,primitive,payload:{...f.payload,...(primitive==='form'
+        ? {fields:[{id:'a',type:'text' as const,label:'Name'}]}
+        : {filename:'review.txt',original:'before',modified:'after'})}});
+    await assert.rejects(openGroupResponse({input:await f.response(f.watch,q),request:q,recipients:f.recipients,replyKey:f.reply.privateKey}));
+    assert.equal((await openGroupResponse({input:await f.response(f.primary,q),request:q,recipients:f.recipients,replyKey:f.reply.privateKey})).action,'approve');
+  }
 });
 
 test('checkpoint persistence survives aliases and process restarts and fails closed on damaged state',async()=>{

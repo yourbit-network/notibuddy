@@ -59,6 +59,31 @@ npx notibuddy@^0.2.0 ask "Execute database migration?" --to personal --options "
 npx notibuddy@^0.2.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```
 
+### Review a text change (0.2.1+)
+
+Save a UTF-8 JSON file named `changes.json`:
+
+```json
+{
+  "filename": "src/config.ts",
+  "language": "typescript",
+  "original": "const retries = 2;\n",
+  "modified": "const retries = 3;\n"
+}
+```
+
+```bash
+npx notibuddy@^0.2.1 ask "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
+```
+
+The filename and source text are encrypted for the destination. Review happens on iPhone or iPad; a paired Watch hands off to its iPhone. The response uses `approve` (Apply) or `reject` (Discard). These are decisions: NotiBuddy does not change files or execute code. The caller must verify the current file still matches the reviewed original before applying an approved change.
+
+For MCP, pass `diff: {"filename":"src/config.ts","language":"typescript","original":"const retries = 2;\n","modified":"const retries = 3;\n"}` to `notibuddy_ask`, together with `title`, `requires_auth: true`, `sensitive: true`, and the selected destination when needed. The library accepts the same `diff` object in `client.ask(...)`.
+
+`filename` is a display name, never a file to open on the recipient. `language` is optional. Empty original or modified text supports file creation or deletion. Source text is limited to a combined **96,000 UTF-8 bytes and 20,000 lines** (each text starts at one line; each newline adds one). The CLI JSON file must be a regular file no larger than 150,000 bytes. The full encrypted request must also fit the protocol limit; JSON escaping and other fields can make a smaller diff too large. Invalid inputs fail before sending.
+
+Do not combine a diff with choices, text input, forms, or a resume ID. If the result is pending, resume the returned ID without `--diff` or the MCP `diff` object. Source text may remain in the private pending-request store until dispatch is acknowledged, allowing the exact request to survive an interrupted send; the caller's input file remains their responsibility.
+
 ---
 
 ## 🛠️ Model Context Protocol (MCP) Setup

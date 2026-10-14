@@ -6,6 +6,7 @@ import { NotiBuddyClient } from './client.js';
 import { runMcpServer } from './mcp.js';
 import { createDestinationRouter, parseRoutingArgs } from './routing.js';
 import { resolveFileDestination } from './file-routing.js';
+import { readDiffFile } from './diff-file.js';
 
 async function withShutdown<T>(operation:(signal:AbortSignal)=>Promise<T>):Promise<T> {
   const controller=new AbortController();
@@ -44,6 +45,7 @@ Ask options:
   --message, -m <text>       Prompt details
   --options, -o <a,b,...>    Action buttons
   --placeholder, -p <text>  Free-text reply
+  --diff <json-file>        Review original/modified text; cannot combine with choices/input/resume
   --wait, -w <seconds>      Wait before returning pending (max 55)
   --requires-auth           Require phone biometrics
   --sensitive               Hide content in notification previews
@@ -143,12 +145,16 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y','notibuddy@^0.
       fileReceiving:route.record.fileKey?'enabled':'pair_again_to_enable',receiveCommand:`nb files list --to ${route.name}`},null,2));return;
   }
   if(command==='ask') {
-    const args=argumentsFor(rest,['--message','--options','--placeholder','--wait','--resume'],['--requires-auth','--sensitive']);
+    const args=argumentsFor(rest,['--message','--options','--placeholder','--wait','--resume','--diff'],['--requires-auth','--sensitive']);
     if(args.positional.length>1)throw new Error('Quote the request title as one argument');
+    const diffFile=args.text('--diff');
+    if(diffFile !== undefined && ['--options','--placeholder','--resume'].some(flag=>args.text(flag)!==undefined))
+      throw new Error('--diff cannot be combined with --options, --placeholder or --resume');
+    const diff=diffFile === undefined ? undefined : readDiffFile(diffFile);
     const route=(await createDestinationRouter(routing,store)).resolve();
     const result=await withShutdown(signal=>route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
       options:args.text('--options')?.split(',').map(s=>s.trim()),inputPlaceholder:args.text('--placeholder'),
-      waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive')},{signal}));
+      waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive'),diff},{signal}));
     console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
   }
   if(command==='activity') {

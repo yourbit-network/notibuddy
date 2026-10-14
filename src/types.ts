@@ -7,6 +7,7 @@ export type PrimitiveType =
   | 'approval'
   | 'text_input'
   | 'form'
+  | 'diff'
   | 'activity_start'
   | 'activity_update'
   | 'activity_end';
@@ -38,7 +39,14 @@ export interface PresentationHints {
  */
 export interface RequestSource { label: string }
 
-export interface AskPayload {
+export interface DiffInput {
+  filename: string;
+  language?: string;
+  original: string;
+  modified: string;
+}
+
+export interface AskPayload extends Partial<DiffInput> {
   source?: RequestSource;
   presentation?: PresentationHints;
   sensitive?: boolean;
