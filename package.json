@@ -3,7 +3,7 @@
   "version": "0.2.1",
   "description": "Zero-knowledge end-to-end encrypted CLI and Model Context Protocol (MCP) server for NotiBuddy",
   "license": "MIT",
-  "author": "Yourbit, LLC <contact@notibuddy.com>",
+  "author": "Yourbit, LLC <contact@notibuddy.app>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/yourbit-network/notibuddy.git"
@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/yourbit-network/notibuddy/issues"
   },
-  "homepage": "https://github.com/yourbit-network/notibuddy#readme",
+  "homepage": "https://notibuddy.app/setup",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

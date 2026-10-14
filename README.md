@@ -2,7 +2,7 @@
 
 Zero-knowledge, hardware-backed, end-to-end encrypted human-in-the-loop bridge between autonomous AI agents and your iPhone.
 
-The public CLI and MCP server from **Yourbit, LLC**, published on npm as [`notibuddy`](https://www.npmjs.com/package/notibuddy). This repository contains the computer client and protocol documentation. Support: **contact@notibuddy.com**.
+The public CLI and MCP server from **Yourbit, LLC**, published on npm as [`notibuddy`](https://www.npmjs.com/package/notibuddy). This repository contains the computer client and protocol documentation. Support: **contact@notibuddy.app**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Protocol: v1](https://img.shields.io/badge/Protocol-v1-emerald.svg)](./PROTOCOL.md)
