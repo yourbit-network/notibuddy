@@ -6,7 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { DestinationStore } from './config.js';
 import { createDestinationRouter, type RoutingOptions } from './routing.js';
-import type { PresentationHints } from './types.js';
+import type { PresentationHints, DiffInput } from './types.js';
 
 const presentationSchema = {
   type: 'object',
@@ -21,10 +21,22 @@ const presentationSchema = {
 export const ASK_TOOL_SCHEMA = {
   name: 'notibuddy_ask',
   description:
-    'Ask the user for human-in-the-loop input on their iPhone via zero-knowledge end-to-end encryption. Supports approvals, choices, inline text replies, and dynamic forms.',
+    'Ask the user for human-in-the-loop input via end-to-end encryption. Supports approvals, choices, text replies, forms, and original/modified diff review. Diff decisions never execute or apply changes on the computer.',
   inputSchema: {
     type: 'object',
     properties: {
+      diff: {
+        type: 'object',
+        description: 'Review original/modified text on iPhone or iPad; Watch hands off to iPhone. Do not combine with fields, options, input_placeholder or resume_id. Combined source text is limited to 96,000 UTF-8 bytes and 20,000 lines; the complete encrypted request must also fit the protocol size limit. Returns approve/reject; the caller decides whether to apply changes.',
+        properties: {
+          filename: { type: 'string', minLength: 1, maxLength: 512, description: 'Display name only, at most 512 UTF-8 bytes; never opened or executed by the receiver.' },
+          language: { type: 'string', maxLength: 40 },
+          original: { type: 'string', maxLength: 96000 },
+          modified: { type: 'string', maxLength: 96000 },
+        },
+        required: ['filename', 'original', 'modified'],
+        additionalProperties: false,
+      },
       presentation: presentationSchema,
       sensitive: { type: 'boolean', description: 'Hide all request content and choices on notifications and Live Activities; review privately in the app. Use for confidential, personal, or credential-related requests.' },
       title: {
@@ -155,7 +167,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
   const server = new Server(
     {
       name: 'notibuddy',
-      version: '0.2.0',
+      version: '0.2.1',
     },
     {
       capabilities: {
@@ -199,6 +211,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
           options: args?.options as string[] | undefined,
           inputPlaceholder: args?.input_placeholder as string | undefined,
           fields: args?.fields as any[] | undefined,
+          diff: args?.diff as DiffInput | undefined,
           requiresAuth: args?.requires_auth as boolean | undefined,
           waitSeconds: args?.wait_seconds as number | undefined,
           resumeId: args?.resume_id as string | undefined,

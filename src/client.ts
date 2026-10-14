@@ -12,6 +12,8 @@ import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, As
 import { sealRequest, openReply, openError, validateIdentifier } from './protocol.js';
 import { generateReplyKeyPair } from './crypto.js';
 import { PendingStore, PendingStorageError, type PendingReply, type ActivitySession } from './pending-store.js';
+import { parseDiff } from './diff.js';
+import type { DiffInput } from './types.js';
 
 const field = z.object({
   id:z.string().min(1).max(80), type:z.enum(['text','email','url','toggle','stepper','picker','date']),
@@ -26,13 +28,16 @@ const presentation = z.object({
 const askSchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
+  diff: z.unknown().optional(),
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
   options:z.array(z.string().min(1).max(200)).max(20).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
   timeoutSeconds:z.number().int().min(1).max(3600).default(300),
   waitSeconds:z.number().finite().min(0).max(55).default(25), resumeId:z.string().optional(),
 }).refine(p => p.resumeId || p.title, 'A title is required for a new request')
-  .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique');
+  .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
+  .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
+    'A new diff request cannot include form fields, choices, text input or a resume ID');
 const activitySchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
@@ -42,7 +47,7 @@ const activitySchema = z.object({
   timerMinutes:z.number().positive().max(60).optional(),
   controls:z.array(z.enum(['pause','resume','cancel','add_5m'])).max(4).optional(),
 });
-export type AskParams = z.input<typeof askSchema>;
+export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffInput };
 export type ActivityParams = z.input<typeof activitySchema>;
 export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
 export class DispatchRejectedError extends Error {
@@ -185,7 +190,8 @@ export class NotiBuddyClient {
     return {status:'resolved',requestId:envelope.requestId,answer:await openReply({...expected,envelope,replyPrivateKey:key})};
   }
   async ask(input:AskParams,options:CallOptions={}):Promise<AskResult> {
-    const params=askSchema.parse(input),id=params.resumeId ?? 'req_'+randomUUID().replaceAll('-','');validateIdentifier(id,'resumeId');
+    const params=askSchema.parse(input),diff=params.diff === undefined ? undefined : parseDiff(params.diff);
+    const id=params.resumeId ?? 'req_'+randomUUID().replaceAll('-','');validateIdentifier(id,'resumeId');
     // wait=0 means one lookup with a bounded network budget; positive waits are
     // one end-to-end deadline including discovery, dispatch and response bytes.
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+(params.waitSeconds===0?15000:params.waitSeconds*1000))};
@@ -193,9 +199,9 @@ export class NotiBuddyClient {
       let saved:PendingReply;
       if(params.resumeId) {saved=this.readPending(id);if(saved.envelope?.primitive.startsWith('activity_'))throw Error('Use activity poll to resume activity controls');}
       else {
-        const pair=await generateReplyKeyPair(),primitive:PrimitiveType=params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
+        const pair=await generateReplyKeyPair(),primitive:PrimitiveType=diff?'diff':params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
         const payload:AskPayload={type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
-          options:params.options,inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation};
+          options:params.options,inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
         saved=await this.prepare(id,primitive,payload,pair.privateKey,params.timeoutSeconds,call);
       }
       try {
