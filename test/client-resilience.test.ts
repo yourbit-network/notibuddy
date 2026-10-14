@@ -50,18 +50,30 @@ test('lost dispatch acknowledgement resumes the exact request and key after a pr
   assert.equal(f.store.read('reply:'+first.requestId),undefined);
 }));
 
-test('one end-to-end deadline bounds dispatch and a stalled reply body',()=>fixture(async(f)=>{
-  let bodyCancelled=false;
+test('one end-to-end deadline bounds dispatch and a stalled reply body',{timeout:5000},(t)=>fixture(async(f)=>{
+  // Crypto and disk work must not exhaust the budget before the body is read.
+  // Consume 40 ms during dispatch, then the remaining 80 ms inside that read.
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
+  let bodyCancelled=false,bodyRead=false;
   globalThis.fetch=async(_url,init)=>{
     if(init?.method==='POST') {
-      await new Promise(resolve=>setTimeout(resolve,40));
+      t.mock.timers.tick(40);
       const r=JSON.parse(String(init.body));f.requests.push(r);return Response.json({requestId:r.requestId,seq:1},{status:202});
     }
-    return new Response(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('{'));},cancel(){bodyCancelled=true;}}));
+    return new Response(new ReadableStream({
+      start(c){c.enqueue(new TextEncoder().encode('{'));},
+      pull(){
+        if(bodyRead)return;
+        bodyRead=true;
+        t.mock.timers.tick(79);assert.equal(init?.signal?.aborted,false);
+        t.mock.timers.tick(1);assert.equal(init?.signal?.aborted,true);
+      },
+      cancel(){bodyCancelled=true;}
+    }));
   };
-  const start=performance.now(),result=await f.client().ask({title:'Bounded',waitSeconds:0.12});
+  const start=Date.now(),result=await f.client().ask({title:'Bounded',waitSeconds:0.12});
   assert.equal(result.status,'pending');assert.equal(result.errorCode,'WAIT_DEADLINE');
-  assert(performance.now()-start<900);assert(bodyCancelled);assert(f.store.read('reply:'+result.requestId));
+  assert.equal(Date.now()-start,120);assert(bodyRead);assert(bodyCancelled);assert(f.store.read('reply:'+result.requestId));
 }));
 
 test('caller cancellation reaches fetch and retains a resumable identity',()=>fixture(async(f)=>{
