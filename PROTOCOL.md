@@ -190,17 +190,19 @@ The sender MUST encrypt a separate envelope for each target device.
 
 `requiresAuth` can only make the device stricter. Device policy MAY require biometrics for every answer regardless.
 
-### 5.2 Device verification (MUST, in this order)
+### 5.2 Device verification (MUST, before displaying content)
 
 1. `v == 1`, `kind == "request"`, all identifiers valid, and `deviceId` equals the device's own ID.
 2. `senderKeyId` is a pinned sender.
-3. `sig` verifies under that sender's key.
-4. Validity window: `expiresAt > now`, `createdAt <= now + 300`, and `expiresAt - createdAt <= 86400`.
+3. Binary fields use canonical unpadded Base64URL: decoding and re-encoding MUST reproduce the original value, including unused low bits. `enc` is a valid 65-byte uncompressed P-256 point, `sig` is 64 bytes, and `ct` is 16–150,000 decoded bytes (including the 16-byte GCM tag). Validate lengths before allocating decoded data. `sig` verifies under that sender's key.
+4. Timestamps are nonnegative safe integers (at most 9,007,199,254,740,991). Validity window: `expiresAt > now`, `createdAt <= now + 120`, and `0 < expiresAt - createdAt <= 3600`. A delayed fetch is allowed while the signed request remains unexpired; the device MUST NOT apply a fresh-arrival lower bound to `createdAt`.
 5. `requestId` has not been seen before. The device keeps seen IDs at least until `expiresAt`.
 6. HPKE opens.
 7. Payload `type` matches the primitive, per §5.1.
 
 If any check fails, the device MUST NOT show the content. For an `ask`, it SHOULD send an error envelope (§7).
+
+The relay applies an additional ingestion-time rule: `abs(createdAt - edgeNow) <= 120` and `expiresAt <= edgeNow + 3600`, alongside the same lifetime and encoding bounds. This does not impose a 120-second delivery deadline on requests already accepted. The maximum UTF-8 JSON plaintext is 149,984 bytes; count encoded bytes, not characters. Pairing proof inputs consumed by the device also require canonical Base64URL with a 32-byte secret/MAC and valid 65-byte public keys. These request rules do not replace the separate reply lifetime checks.
 
 ### 5.3 Plaintext routing consistency
 
