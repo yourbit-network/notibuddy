@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import { normalizeRelay } from './relay-url.js';
-import { validateRequestSettings } from './protocol.js';
+import { validatePairingBundle, validateRequestSettings } from './protocol.js';
 import { acquireFileLock } from './file-lock.js';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { NotiBuddyConfig, SenderKeyPair, PairingBundle } from './types.js';
-import { deriveDeviceId, deriveSenderKeyId, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaSign, ecdsaVerify, generateReplyKeyPair, hpkeSealBytes, hpkeOpenBytes } from './crypto.js';
+import { deriveDeviceId, deriveSenderKeyId, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaSign, ecdsaVerify, generateReplyKeyPair, hpkeSealBytes, hpkeOpenBytes, isValidP256PublicKey } from './crypto.js';
 
 // The override relocates the whole store (e.g. for tests); it is not profile selection.
 export const NOTIBUDDY_DIR = process.env.NOTIBUDDY_HOME || path.join(os.homedir(), '.notibuddy');
@@ -66,7 +66,8 @@ export class DestinationStore {
     const record=this.read(name), {config,keys}=record;validateRequestSettings(config);
     const signingKey=await importSenderPrivateKey(keys.privateKeyJwk);
     const challenge=new TextEncoder().encode('notibuddy/local-key-check');
-    if (config.senderKeyId!==keys.senderKeyId || await deriveSenderKeyId(keys.publicKeyB64u)!==keys.senderKeyId ||
+    if (!isValidP256PublicKey(config.device.encPub) || !isValidP256PublicKey(config.device.sigPub) ||
+        config.senderKeyId!==keys.senderKeyId || await deriveSenderKeyId(keys.publicKeyB64u)!==keys.senderKeyId ||
         !await ecdsaVerify(keys.publicKeyB64u,challenge,await ecdsaSign(signingKey,challenge)) ||
         await deriveDeviceId(config.device.encPub,config.device.sigPub)!==config.device.id) {
       throw new Error(`Destination '${name}' contains mismatched keys. Preserve it and restore the correct pairing.`);
@@ -80,8 +81,8 @@ export class DestinationStore {
     return {record,signingKey};
   }
   async prepare(name:string,bundle:PairingBundle,label:string): Promise<{record:DestinationRecord;signingKey:CryptoKey}> {
-    destinationName(name); senderLabel(label);validateRequestSettings(bundle);
-    bundle={...bundle,relay:normalizeRelay(bundle.relay)};
+    destinationName(name); senderLabel(label);
+    bundle=await validatePairingBundle(bundle);
     if (!fs.existsSync(this.file(name))) {
       const keys=await generateSenderSigningKeyPair();
       const record:DestinationRecord={version:2,connectionId:randomUUID(),config:{

@@ -1,4 +1,5 @@
 import { answerSchema } from './answer-validation.js';
+import { z } from 'zod';
 import { normalizeRelay } from './relay-url.js';
 import {
   RequestEnvelope,
@@ -298,44 +299,62 @@ export async function openError(params: {
  * Parses and verifies an out-of-band Pairing Bundle (nbpair1.<b64u>)
  */
 export async function parsePairingBundle(bundleString: string): Promise<PairingBundle> {
+  if (typeof bundleString !== 'string' || bundleString.length > 32768) throw new Error('Pairing data is too large or is not text');
   const trimmed = bundleString.trim();
   if (!trimmed.startsWith('nbpair1.')) {
     throw new Error('Invalid pairing bundle: must start with "nbpair1."');
   }
 
-  const payloadB64u = trimmed.slice('nbpair1.'.length);
-  const rawBytes = fromB64u(payloadB64u);
-  const jsonStr = new TextDecoder().decode(rawBytes);
-  const bundle = JSON.parse(jsonStr) as PairingBundle;
+  const rawBytes = pairingBytes(trimmed.slice('nbpair1.'.length), 1, 16384);
+  let json: string, value: unknown;
+  try { json = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes); }
+  catch { throw new Error('Pairing data must be valid UTF-8'); }
+  try { value = JSON.parse(json); }
+  catch { throw new Error('Pairing data must be valid JSON'); }
+  return validatePairingBundle(value);
+}
 
-  validateRequestSettings(bundle);
-  bundle.relay=normalizeRelay(bundle.relay);
-  const relay = new URL(bundle.relay);
-  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && ['localhost','127.0.0.1'].includes(relay.hostname))) throw new Error('Pairing requires an HTTPS relay');
-  if (relay.username || relay.password || relay.search || relay.hash) throw new Error('Invalid relay URL');
-  if (typeof bundle.pairSecret !== 'string' || fromB64u(bundle.pairSecret).length !== 32) throw new Error('Pairing secret must contain 32 bytes');
-  if (bundle.v !== 1) {
-    throw new Error(`Unsupported pairing bundle version: ${bundle.v}`);
-  }
+const pairingSchema = z.object({
+  v: z.literal(1), relay: z.string().min(1).max(2048).refine(value => !/[\u0000-\u001f\u007f]/u.test(value)),
+  token: z.string().max(263).refine(value => /^nb_snd_[A-Za-z0-9_-]{1,256}$/.exec(value)?.[0] === value),
+  pairSecret: z.string().max(43),
+  device: z.object({ id: z.string().max(64), encPub: z.string().max(87), sigPub: z.string().max(87),
+    name: z.string().max(256).refine(value => Buffer.byteLength(value) <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)).optional(),
+  }).strict(),
+  requestProtocol: z.union([z.literal(1), z.literal(2)]).optional(),
+  minimumRecipientGeneration: z.number().int().safe().nonnegative().optional(),
+}).strict();
 
-  if (!bundle.relay || !bundle.token || !bundle.device || !bundle.pairSecret) {
-    throw new Error('Malformed pairing bundle: missing required fields');
-  }
+function pairingBytes(value: string, min: number, max: number): Uint8Array {
+  if (value.length > Math.ceil(max * 4 / 3) || /^[A-Za-z0-9_-]+$/.exec(value)?.[0] !== value) throw new Error('Invalid pairing encoding or data too large');
+  const bytes = fromB64u(value);
+  if (bytes.length < min || bytes.length > max || toB64u(bytes) !== value) throw new Error('Invalid pairing encoding or data too large');
+  return bytes;
+}
+
+/** Validate and snapshot typed or decoded pairing data before any destination write. */
+export async function validatePairingBundle(value: unknown): Promise<PairingBundle> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Malformed pairing bundle');
+  validateRequestSettings(value as Record<string, unknown>);
+  const parsed = pairingSchema.safeParse(value);
+  if (!parsed.success) throw new Error('Malformed pairing bundle: share fresh setup data from NotiBuddy');
+  const bundle = parsed.data;
+  bundle.relay = normalizeRelay(bundle.relay);
+  if (bundle.relay.length > 2048) throw new Error('Pairing relay URL is too long');
+  pairingBytes(bundle.pairSecret, 32, 32);
 
   if (!isValidP256PublicKey(bundle.device.encPub)) {
-    throw new Error('Invalid device encryption public key: must be 65-byte uncompressed point');
+    throw new Error('Invalid device encryption public key: must be a canonical uncompressed P-256 point');
   }
 
   if (!isValidP256PublicKey(bundle.device.sigPub)) {
-    throw new Error('Invalid device signing public key: must be 65-byte uncompressed point');
+    throw new Error('Invalid device signing public key: must be a canonical uncompressed P-256 point');
   }
 
   // MUST verify deviceId == "dev_" + hex(SHA256(DE.pub || DS.pub))[0:24]
   const expectedDeviceId = await deriveDeviceId(bundle.device.encPub, bundle.device.sigPub);
   if (bundle.device.id !== expectedDeviceId) {
-    throw new Error(
-      `Pairing security failure: Device ID ${bundle.device.id} does not match derived ID ${expectedDeviceId}`
-    );
+    throw new Error('Pairing security failure: device ID does not match its public keys');
   }
 
   return bundle;

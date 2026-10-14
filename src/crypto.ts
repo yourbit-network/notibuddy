@@ -4,6 +4,7 @@ import {
   HkdfSha256,
   Aes256Gcm,
 } from '@hpke/core';
+import { ECDH } from 'node:crypto';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -49,12 +50,15 @@ export async function sha256(data: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
- * Validates uncompressed SEC1 P-256 point (65 bytes, leading 0x04)
+ * Validates a canonical Base64URL uncompressed SEC1 P-256 point using OpenSSL.
  */
 export function isValidP256PublicKey(b64uStr: string): boolean {
   try {
+    if (typeof b64uStr !== 'string' || b64uStr.length !== 87 || !/^[A-Za-z0-9_-]{87}$/.test(b64uStr)) return false;
     const bytes = fromB64u(b64uStr);
-    return bytes.length === 65 && bytes[0] === 0x04;
+    if (bytes.length !== 65 || bytes[0] !== 0x04) return false;
+    const point = ECDH.convertKey(bytes, 'prime256v1');
+    return typeof point !== 'string' && toB64u(point) === b64uStr;
   } catch {
     return false;
   }

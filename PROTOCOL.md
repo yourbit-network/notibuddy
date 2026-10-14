@@ -92,6 +92,10 @@ nbpair1.<b64u(UTF-8 JSON)>
 
 The sender MUST check that `device.id` matches the keys (§3) before saving the bundle.
 
+The client accepts at most 32,768 input characters (including surrounding copy/paste whitespace) and 16,384 decoded JSON bytes. The outer data and 32-byte pairing secret use canonical unpadded Base64URL; JSON must be valid UTF-8. Both public keys must be canonical 65-byte uncompressed points on P-256, not merely strings of the right length. The sender token has the form `nb_snd_` followed by 1–256 ASCII letters, digits, underscores or hyphens; device/user credentials are not pairing tokens. Relay URLs are limited to 2,048 characters before and after normalization. An optional device name is at most 256 UTF-8 bytes and contains no C0/C1 controls.
+
+Pairing accepts only the fields shown above plus negotiated `requestProtocol` (1 or 2) and `minimumRecipientGeneration` (a nonnegative safe integer, only for protocol 2). Unknown root/device fields fail closed so clients cannot silently ignore an unsupported setup contract. HTTPS is required except for local development on `localhost`, `127.0.0.1` or `[::1]`; credentials, queries and fragments are rejected. `parsePairingBundle` and direct `DestinationStore.prepare` calls share validation and snapshot the bundle before asynchronous key work. Invalid data must not create or overwrite a destination. Existing destination opens also check the stored public-key points, without deleting invalid records.
+
 ### 4.2 Sender registration (sender → relay → device)
 
 The sender creates `SS`, then calls `POST /v1/senders`:
