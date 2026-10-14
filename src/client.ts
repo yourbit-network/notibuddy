@@ -172,7 +172,7 @@ export class NotiBuddyClient {
     }
     return saved;
   }
-  private async open(envelope:WireResponse,saved:PendingReply):Promise<AskResult> {
+  private async open(id:string,envelope:WireResponse,saved:PendingReply):Promise<AskResult> {
     const key=await this.replyKey(saved);
     if(envelope.v===2) {
       if(!saved.envelope || !validGroupRequest(saved.envelope))throw new PendingStorageError('Missing original group request');
@@ -180,7 +180,7 @@ export class NotiBuddyClient {
       return {status:'resolved',requestId:envelope.requestId,answer:await openGroupResponse({input:envelope,request:saved.envelope,recipients,replyKey:key})};
     }
     if(envelope.createdAt>Math.floor(Date.now()/1000)+120 || envelope.createdAt>=saved.expiresAt || saved.envelope && envelope.createdAt<saved.envelope.createdAt-120)throw Error('Reply timestamp outside saved request lifetime');
-    const expected={expectedDeviceId:this.config.device.id,deviceSigningPublicKey:this.config.device.sigPub};
+    const expected={expectedRequestId:id,expectedDeviceId:this.config.device.id,deviceSigningPublicKey:this.config.device.sigPub};
     if(envelope.kind==='error')return {status:'error',requestId:envelope.requestId,errorCode:await openError({...expected,envelope})};
     return {status:'resolved',requestId:envelope.requestId,answer:await openReply({...expected,envelope,replyPrivateKey:key})};
   }
@@ -202,7 +202,7 @@ export class NotiBuddyClient {
         saved=await this.dispatchSaved(id,saved,call);
         do {
           const response=await this.getSavedReply(id,saved,0,call);
-          if(response){const result=await this.open(response.envelope,saved);this.store.remove('reply:'+id);return result;}
+          if(response){const result=await this.open(id,response.envelope,saved);this.store.remove('reply:'+id);return result;}
           if(params.waitSeconds===0 || Date.now()>=call.deadline)break;
           await pollPause(Math.min(1000,call.deadline-Date.now()),options.signal);
         }while(Date.now()<call.deadline);
@@ -238,7 +238,7 @@ export class NotiBuddyClient {
           if(Date.now()>=call.deadline)break;
           const response=await this.getSavedReply(pending.id,saved,pending.afterSeq,call);if(!response)break;
           if(pending.seenSignatures?.includes(response.envelope.sig)){warnings.push(`Repeated reply for ${pending.id} was ignored`);break;}
-          const result=await this.open(response.envelope,saved);
+          const result=await this.open(pending.id,response.envelope,saved);
           // Dedupe and validate sequence before returning any action to callers.
           pending.afterSeq=response.seq;(pending.seenSignatures ??= []).push(response.envelope.sig);
           if(result.answer)events.push({seq:response.seq,answer:result.answer});

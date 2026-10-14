@@ -179,16 +179,21 @@ export async function sealReply(params: {
 
 /**
  * Opens and verifies a Reply Envelope according to Section 6 of PROTOCOL.md
+ * The expected ID must come from saved request state, never from the response.
+ * Callers also enforce the original request lifetime and single-answer policy.
  */
 export async function openReply(params: {
   envelope: ReplyEnvelope;
   replyPrivateKey: CryptoKey;
+  expectedRequestId: string;
   expectedDeviceId: string;
   deviceSigningPublicKey: string; // DS.pub in Base64url
 }): Promise<AnswerPayload> {
-  const { replyPrivateKey, expectedDeviceId, deviceSigningPublicKey } = params;
+  const { replyPrivateKey, expectedRequestId, expectedDeviceId, deviceSigningPublicKey } = params;
   const envelope=structuredClone(params.envelope);
   validateResponseWire(envelope);
+  validateIdentifier(expectedRequestId, 'expectedRequestId');
+  if (envelope.requestId !== expectedRequestId) throw new Error('Request ID mismatch on reply envelope');
 
   if (envelope.v !== 1 || envelope.kind !== 'reply') {
     throw new Error(`Unsupported envelope: v=${envelope.v}, kind=${envelope.kind}`);
@@ -246,15 +251,20 @@ export function buildErrorHeader(
 
 /**
  * Opens and verifies an Error Envelope according to Section 7 of PROTOCOL.md
+ * The expected ID must come from saved request state, never from the response.
+ * Callers also enforce the original request lifetime and terminal-state policy.
  */
 export async function openError(params: {
   envelope: ErrorEnvelope;
+  expectedRequestId: string;
   expectedDeviceId: string;
   deviceSigningPublicKey: string;
 }): Promise<ErrorCode> {
-  const { expectedDeviceId, deviceSigningPublicKey } = params;
+  const { expectedRequestId, expectedDeviceId, deviceSigningPublicKey } = params;
   const envelope=structuredClone(params.envelope);
   validateResponseWire(envelope);
+  validateIdentifier(expectedRequestId, 'expectedRequestId');
+  if (envelope.requestId !== expectedRequestId) throw new Error('Request ID mismatch on error envelope');
 
   if (envelope.v !== 1 || envelope.kind !== 'error') {
     throw new Error(`Unsupported envelope: v=${envelope.v}, kind=${envelope.kind}`);

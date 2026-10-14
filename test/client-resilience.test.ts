@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { NotiBuddyClient, ResumableRequestError } from '../src/client.js';
 import { PendingStore, type PendingReply, type ActivitySession } from '../src/pending-store.js';
 import { DestinationStore } from '../src/config.js';
-import { parsePairingBundle, buildRequestHeader, sealReply } from '../src/protocol.js';
+import { parsePairingBundle, buildRequestHeader, buildErrorHeader, sealReply } from '../src/protocol.js';
 import { relayJSON, DeadlineError } from '../src/client-http.js';
 import { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, hpkeOpen, hpkeSeal, ecdsaSign, ecdsaVerify, sha256, toHex, toB64u } from '../src/crypto.js';
 import { companionGrantInput, type CompanionGrant } from '../src/companion-grant.js';
@@ -88,6 +88,49 @@ test('missing sequence or malformed authenticated answers cannot consume a saved
   assert.equal((await f.client().ask({resumeId:result.requestId,waitSeconds:0})).status,'pending');assert(f.store.read('reply:'+result.requestId));
   globalThis.fetch=async()=>Response.json(await f.reply(f.requests[0]));
   assert.equal((await f.client().ask({resumeId:result.requestId,waitSeconds:0})).status,'resolved');
+}));
+
+test('a signed reply or error for another request preserves resumable state until the correct response arrives',()=>fixture(async(f)=>{
+  for(const kind of ['reply','error']) {
+    let current:RequestEnvelope,wrong=true;
+    globalThis.fetch=async(_url,init)=>{
+      if(init?.method==='POST'){current=JSON.parse(String(init.body));return Response.json({requestId:current.requestId,seq:1},{status:202});}
+      const requestId=wrong?'request_other':current!.requestId;
+      if(kind==='reply')return Response.json({...await sealReply({requestId,deviceId:f.phone.id,deviceSigningPrivateKey:f.phone.sig.privateKey,
+        replyPublicKey:(await f.payload(current!)).replyPub,answer:{action:'Approve'}}),seq:2});
+      const createdAt=Math.floor(Date.now()/1000),code='unsupported';
+      const sig=await ecdsaSign(f.phone.sig.privateKey,Buffer.concat([Buffer.from(buildErrorHeader(requestId,f.phone.id,createdAt,code)),Buffer.from([0])]));
+      return Response.json({v:1,kind:'error',requestId,deviceId:f.phone.id,createdAt,code,sig,seq:2});
+    };
+    const first=await f.client().ask({title:'Bound response',waitSeconds:0});
+    assert.equal(first.status,'pending');assert.equal(first.errorCode,'RETRY_REQUIRED');assert(f.store.read('reply:'+first.requestId));
+    wrong=false;
+    const resumed=await f.client().ask({resumeId:first.requestId,waitSeconds:0});
+    assert.equal(resumed.status,kind==='reply'?'resolved':'error');assert.equal(f.store.read('reply:'+first.requestId),undefined);
+  }
+}));
+
+test('signed reply timestamps use the original lifetime and allow delayed collection',()=>fixture(async(f)=>{
+  const originalNow=Date.now,base=Math.floor(originalNow()/1000);let now=base,responseTime:number|undefined;
+  Date.now=()=>now*1000;
+  try {
+    globalThis.fetch=async(_url,init)=>{
+      if(init?.method==='POST'){const r=JSON.parse(String(init.body));f.requests.push(r);return Response.json({requestId:r.requestId,seq:1},{status:202});}
+      if(responseTime===undefined)return new Response(null,{status:204});
+      const fetchTime=now;now=responseTime;
+      try{return Response.json(await f.reply(f.requests[0]));}finally{now=fetchTime;}
+    };
+    const pending=await f.client().ask({title:'Delayed',timeoutSeconds:3600,waitSeconds:0});
+    assert.equal(pending.status,'pending');now=base+3400;
+    for(const invalid of [base-121,base+3600,now+121]) {
+      responseTime=invalid;
+      const result=await f.client().ask({resumeId:pending.requestId,waitSeconds:0});
+      assert.equal(result.status,'pending');assert(f.store.read('reply:'+pending.requestId));
+    }
+    now=base+3500;responseTime=base+10;
+    assert.equal((await f.client().ask({resumeId:pending.requestId,waitSeconds:0})).status,'resolved');
+    assert.equal(f.store.read('reply:'+pending.requestId),undefined);
+  }finally{Date.now=originalNow;}
 }));
 
 test('slow history is bounded and rotated while the newest controls are checked first',()=>fixture(async(f)=>{

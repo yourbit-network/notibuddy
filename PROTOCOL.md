@@ -238,6 +238,8 @@ Answer payload:
 **Sender verification (MUST).** The `deviceId` is the paired device. `requestId` is one of the sender's pending
 requests. `sig` verifies under the pinned `DS.pub`. HPKE opens with `R`. The sender accepts at most one answer per request.
 
+The exported `openReply` and `openError` helpers require `expectedRequestId` from the caller's saved request, alongside the pinned device ID/key. Do not derive the expected ID from the received envelope. This is a required argument for direct library users in 0.2.0; older calls that omit it fail closed. The helpers verify wire structure, binding and signatures (and decrypt/validate answers for replies). They do not own pending-request storage: direct callers must enforce the original request lifetime and single-answer/terminal-state policy. `NotiBuddyClient` supplies those checks for CLI/MCP callers and preserves resumable state on an invalid response.
+
 ## 7. Error envelope (device → sender)
 
 Used when the device cannot or will not show a request. Errors are signed but not encrypted.
