@@ -108,8 +108,8 @@ export class DestinationStore {
       latest.config.requestProtocol=bundle.requestProtocol;latest.config.minimumRecipientGeneration=bundle.minimumRecipientGeneration;
       const temp=this.file(name)+'.'+randomUUID()+'.tmp';
       try {
-        fs.writeFileSync(temp,JSON.stringify(latest,null,2)+'\n',{mode:0o600,flag:'wx'});
-        const fd=fs.openSync(temp,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+        const fd=fs.openSync(temp,'wx',0o600);
+        try {fs.writeFileSync(fd,JSON.stringify(latest,null,2)+'\n');fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
         fs.renameSync(temp,this.file(name));
         if(process.platform!=='win32'){const directory=fs.openSync(path.dirname(this.file(name)),'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
       }finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}

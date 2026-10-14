@@ -126,3 +126,37 @@ test('opening malformed stored device keys fails without deleting or rewriting t
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('pairing flush failure preserves the prior identity and negotiation until a successful retry', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy-pairing-flush-'));
+  const originalSync = fs.fsyncSync;
+  try {
+    const store = new DestinationStore(root), bundle = await fixture();
+    const original = (await store.prepare('phone', bundle, 'Fixture')).record;
+    const directory = path.join(root, 'destinations'), file = path.join(directory, 'phone.json');
+    const before = fs.readFileSync(file);
+    const upgrade = { ...bundle, requestProtocol: 2 as const, minimumRecipientGeneration: 0 };
+    let fileFlushes = 0;
+    fs.fsyncSync = fd => {
+      if (fs.fstatSync(fd).isFile()) {
+        fileFlushes++;
+        throw Object.assign(new Error('Synthetic file flush failure'), { code: 'EIO' });
+      }
+      originalSync(fd);
+    };
+    await assert.rejects(store.prepare('phone', upgrade, 'Fixture'), /Synthetic file flush failure/);
+    assert.equal(fileFlushes, 1);
+    assert.deepEqual(fs.readFileSync(file), before);
+    assert.deepEqual(fs.readdirSync(directory), ['phone.json']);
+    fs.fsyncSync = originalSync;
+    const retried = (await store.prepare('phone', upgrade, 'Fixture')).record;
+    assert.equal(retried.connectionId, original.connectionId);
+    assert.deepEqual(retried.keys, original.keys);
+    assert.deepEqual(retried.fileKey, original.fileKey);
+    assert.equal(retried.config.requestProtocol, 2);
+    assert.equal(retried.config.minimumRecipientGeneration, 0);
+  } finally {
+    fs.fsyncSync = originalSync;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

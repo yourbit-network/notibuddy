@@ -133,27 +133,38 @@ test('signed reply timestamps use the original lifetime and allow delayed collec
   }finally{Date.now=originalNow;}
 }));
 
-test('slow history is bounded and rotated while the newest controls are checked first',()=>fixture(async(f)=>{
+test('slow history is bounded and rotated while the newest controls are checked first',(t)=>fixture(async(f)=>{
   globalThis.fetch=async(_url,init)=>{
     if(init?.method==='POST'){const r=JSON.parse(String(init.body));f.requests.push(r);return Response.json({requestId:r.requestId,seq:f.requests.length},{status:202});}
     return new Response(null,{status:204});
   };
   await f.client().activity({activityId:'fair',action:'start',timerMinutes:10});
   await f.client().activity({activityId:'fair',action:'update'});await f.client().activity({activityId:'fair',action:'update'});
-  let phase=0;
+  // Crypto and disk work must not race a 120 ms wall-clock test budget on CI.
+  // Advance the actual deadline timer only when the simulated history stalls.
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
+  let phase=0,aborted=0;
+  const checked:string[]=[];
   globalThis.fetch=async(url,init)=>{
     const u=new URL(String(url)),seq=Number(u.searchParams.get('afterSeq'));
+    checked.push(u.pathname.split('/').at(-1)!);
     if(u.pathname.endsWith(f.requests[2].requestId))return seq<100?Response.json(await f.reply(f.requests[2],100)):new Response(null,{status:204});
     if(phase===1 && u.pathname.endsWith(f.requests[1].requestId))return seq<101?Response.json(await f.reply(f.requests[1],101)):new Response(null,{status:204});
-    return stalled(init?.signal);
+    const response=stalled(init?.signal);
+    init!.signal!.addEventListener('abort',()=>{aborted++;},{once:true});
+    t.mock.timers.tick(120);
+    return response;
   };
-  let start=performance.now();
+  let start=Date.now();
   const first=await f.client().activity({activityId:'fair',action:'poll'},{deadline:Date.now()+120});
-  assert.deepEqual(first.controls.map((a:any)=>a.action),['pause']);assert(performance.now()-start<900);
+  assert.deepEqual(first.controls.map((a:any)=>a.action),['pause']);assert.equal(Date.now()-start,120);
+  assert.deepEqual(checked,[f.requests[2].requestId,f.requests[2].requestId,f.requests[0].requestId]);
   assert.equal(f.store.read('activity:fair').pollOffset,1);
-  phase=1;start=performance.now();
+  phase=1;start=Date.now();checked.length=0;
   const next=await f.client().activity({activityId:'fair',action:'poll'},{deadline:Date.now()+120});
-  assert.deepEqual(next.controls.map((a:any)=>a.action),['pause']);assert(performance.now()-start<900);
+  assert.deepEqual(next.controls.map((a:any)=>a.action),['pause']);assert.equal(Date.now()-start,120);
+  assert.deepEqual(checked,[f.requests[2].requestId,f.requests[1].requestId,f.requests[1].requestId,f.requests[0].requestId]);
+  assert.equal(aborted,2);
 }));
 
 test('doctor exposes approval and compatibility without credentials or private keys',()=>fixture(async(f)=>{
