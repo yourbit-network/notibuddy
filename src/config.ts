@@ -21,8 +21,8 @@ const configSchema = z.object({
   senderKeyId:z.string().min(1), senderLabel:z.string().min(1),
   requestProtocol:z.union([z.literal(1),z.literal(2)]).optional(),minimumRecipientGeneration:z.number().int().safe().nonnegative().optional(),
 });
-const keysSchema = z.object({senderKeyId:z.string(),publicKeyB64u:z.string(),privateKeyJwk:z.record(z.unknown())});
-const recordSchema = z.object({version:z.literal(2),connectionId:z.string().uuid(),config:configSchema,keys:keysSchema,fileKey:z.object({publicKeyB64u:z.string(),privateKeyJwk:z.record(z.unknown())}).optional()});
+const keysSchema = z.object({senderKeyId:z.string(),publicKeyB64u:z.string(),privateKeyJwk:z.record(z.string(),z.unknown())});
+const recordSchema = z.object({version:z.literal(2),connectionId:z.string().uuid(),config:configSchema,keys:keysSchema,fileKey:z.object({publicKeyB64u:z.string(),privateKeyJwk:z.record(z.string(),z.unknown())}).optional()});
 export interface DestinationRecord { version: 2; connectionId: string; config: NotiBuddyConfig; keys: SenderKeyPair; fileKey?: {publicKeyB64u:string; privateKeyJwk:JsonWebKey} }
 export interface DestinationSummary { name: string; connectionId: string; deviceId: string; deviceName: string; connectionLabel: string }
 

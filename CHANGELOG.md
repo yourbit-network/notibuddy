@@ -2,22 +2,16 @@
 
 ## 0.2.0 — Unreleased
 
-- Receive phone-shared files up to 10 MB through explicit CLI/MCP destination inboxes. Authenticate and decrypt locally, save privately, then acknowledge delivery; retry lost acknowledgements without downloading twice.
-- Recover interrupted file saves and receipt updates, repeat pending storage flushes before acknowledging, and bound verification of existing local files. Disk-full failures leave the transfer unacknowledged; retries clean up abandoned temporary files for that transfer.
-- Bind a separate receiving public key into pairing approval. Existing connections require explicit re-pairing and phone approval to enable files.
-- Keep filenames and content types encrypted; reject tampered files, unsafe paths, wrong recipients, and expired transfers.
-
-- Require explicit named destinations under `~/.notibuddy/destinations`; add list, rename, and explicit legacy migration preserving keys and pending replies.
-- Pin MCP to one destination or enforce an explicit allowlist with per-call selection and destination discovery. No implicit default, fallback, or broadcast.
-- Add optional encrypted sender labels, defaulting to hostname, independently of the approved connection identity.
-- Preserve destination-bound replies across renames/restarts and original source labels across activity updates.
-- Breaking: CLI sends and MCP startup now require destination flags. Update existing MCP entries after migration; low-level legacy config helper exports are replaced by `DestinationStore`.
-
-
-- Add independent CI secret scans and pre-push enforcement tests.
-- Test the CLI and packaged entry points on Linux, macOS, and Windows.
-- Validate and scan the exact npm archive before publishing; verify its public registry integrity afterward.
-- Add grouped dependency updates, private security reporting guidance, and contribution templates.
+- Require explicit named destinations under `~/.notibuddy/destinations`; add destination discovery, rename, and explicit legacy migration preserving keys and pending replies. MCP can use one destination or an explicit allowlist with per-call selection; it never broadcasts or silently selects another destination.
+- Add optional encrypted sender labels, defaulting to hostname. Labels do not create a new approval identity; replies remain bound to their original request and destination.
+- Negotiate phone/Watch group delivery from compatible device pairing data. Verify membership and both enrollment proofs, reject rollback, and encrypt separately to each approved recipient. Existing v1 pairing stays single-device; saved v1 requests remain resumable after a v2 upgrade, with no failure-driven protocol fallback.
+- Preserve resumable requests and activity controls across timeouts, interrupted dispatch, restarts and destination renames. Bound network waits and rotate activity polling so an unavailable request does not block all other controls.
+- Receive phone-shared files up to 10 MB through explicit CLI/MCP inboxes. Approve a separate file-receiving public key during pairing; existing connections require re-pairing and phone approval to enable files. Resolve copied receive commands by exact pairing identities, even after a destination rename.
+- Authenticate and decrypt files locally, keep filenames/content types encrypted, and acknowledge delivery only after a private durable save. Recover interrupted saves, disk-full failures, receipt updates and lost acknowledgements without downloading twice or acknowledging partial files. Reject tampering, unsafe paths, wrong recipients and expired transfers.
+- Validate canonical, bounded UTF-8 pairing documents and real P-256 points before saving destination data. Preserve saved state after invalid replies and bind exported reply/error openers to a caller-supplied expected request ID.
+- **Migration:** CLI sends and MCP startup require destination flags; update existing MCP entries after explicit migration. `DestinationStore` replaces the legacy configuration helper exports. Direct callers of `openReply` and `openError` must supply `expectedRequestId` from their saved request.
+- Add independent CI secret scans, pre-push enforcement tests, Linux/macOS/Windows package checks, exact-archive installation/scanning and public registry integrity verification. Add dependency updates, private security reporting guidance, and contribution templates.
+- Keep the release candidate compatible with the Zod 4 dependency already adopted on `main`.
 
 ## 0.1.1 — 2026-10-07
 
