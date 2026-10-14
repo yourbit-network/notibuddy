@@ -138,7 +138,8 @@ test('checkpoint persistence survives aliases and process restarts and fails clo
     const next=await verifyRecipients({...f.manifest,generation:3,companions:[]},f.config,reopened.read());
     reopened.remember(next);assert.throws(()=>store.remember(f.recipients));
     const file=path.join(root,'recipients',fs.readdirSync(path.join(root,'recipients')).find(n=>n.endsWith('.json'))!);
-    assert.equal(fs.statSync(file).mode&0o777,0o600);
+    // Windows access is governed by inherited ACLs, not Unix permission bits.
+    if(process.platform!=='win32')assert.equal(fs.statSync(file).mode&0o777,0o600);
     fs.writeFileSync(file,'damaged');assert.throws(()=>reopened.read());assert.throws(()=>store.remember(next));assert.equal(fs.readFileSync(file,'utf8'),'damaged');
   } finally {fs.rmSync(root,{recursive:true,force:true});}
 });
