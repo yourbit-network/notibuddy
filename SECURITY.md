@@ -1,6 +1,6 @@
 # Security policy
 
-Report suspected vulnerabilities privately using [GitHub's private report form](https://github.com/yourbit-network/notibuddy/security/advisories/new), or email **contact@notibuddy.com**. Do not open a public issue for an unpatched vulnerability.
+Report suspected vulnerabilities privately using [GitHub's private report form](https://github.com/yourbit-network/notibuddy/security/advisories/new), or email **contact@notibuddy.app**. Do not open a public issue for an unpatched vulnerability.
 
 Include the affected package version, operating system, impact, and a minimal reproduction using synthetic credentials. Do not send live pairing bundles, tokens, private keys, your `.notibuddy` directory, private messages, or unrelated personal information. We will coordinate investigation and disclosure with you; response times are not guaranteed.
 

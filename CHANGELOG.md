@@ -1,7 +1,8 @@
 # Changelog
 
-## 0.2.1 — Unreleased
+## 0.2.1 — 2026-10-14
 
+- Align package setup and support links with `notibuddy.app`.
 - Add encrypted diff review through `ask --diff <json-file>` and the library/MCP `diff` input. Filenames and original/modified text stay inside the encrypted request; the returned approval or rejection never applies or executes the changes.
 - Validate diff size, line counts, labels and input modes before dispatch. Preserve durable request resume and negotiated group delivery, including the existing Watch answer restrictions.
 - Make the client deadline regression deterministic while retaining checks for the overall operation budget and response-body cancellation. Runtime timeout behavior is unchanged.

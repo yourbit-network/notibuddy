@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/yourbit-network/notibuddy/security/advisories/new
     about: Do not post unpatched vulnerabilities or credentials in public issues.
   - name: App and account support
-    url: mailto:contact@notibuddy.com
+    url: mailto:contact@notibuddy.app
     about: Contact Yourbit, LLC for app or account support. Do not email live credentials.
