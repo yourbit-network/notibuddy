@@ -9,6 +9,11 @@ description = "NotiBuddy sender/device credentials"
 regex = '''\bnb_[a-z]+_(?:live|test)_[A-Za-z0-9_-]{8,}\b'''
 
 [[rules]]
+id = "notibuddy-companion-credential"
+description = "Scoped NotiBuddy companion credential"
+regex = '''\bnb_cmp_[a-f0-9]{32}_[a-f0-9]{24}_[A-Za-z0-9_-]{43}\b'''
+
+[[rules]]
 id = "notibuddy-pairing-bundle"
 description = "Encoded NotiBuddy pairing credentials"
 regex = '''nbpair1\.[A-Za-z0-9_-]{50,}'''

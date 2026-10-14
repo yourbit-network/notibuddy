@@ -56,7 +56,8 @@ try {
   const protectedPending=await client().ask({title:'Another',waitSeconds:0});
   await reply(bodies[1],'approve');const authentic=answers.get(protectedPending.requestId)![0];
   answers.set(protectedPending.requestId,[{...authentic,sig:'A'.repeat(86)}]);
-  await assert.rejects(client().ask({resumeId:protectedPending.requestId,waitSeconds:0}),/signature verification failed/);
+  const unverified=await client().ask({resumeId:protectedPending.requestId,waitSeconds:0});
+  assert.equal(unverified.status,'pending');assert.equal(unverified.requestId,protectedPending.requestId);assert.equal(unverified.errorCode,'RETRY_REQUIRED');
   answers.set(protectedPending.requestId,[authentic]);
   assert.equal((await client().ask({resumeId:protectedPending.requestId,waitSeconds:0})).status,'resolved','authentication failures must preserve reply keys');
 

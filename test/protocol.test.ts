@@ -161,6 +161,7 @@ async function runTests() {
 
   // Sender opens reply
   const openedAnswer = await openReply({
+    expectedRequestId: reqEnvelope.requestId,
     envelope: replyEnvelope,
     replyPrivateKey: replyKp.privateKey,
     expectedDeviceId: deviceId,
@@ -177,6 +178,7 @@ async function runTests() {
   await assert.rejects(
     async () => {
       await openReply({
+        expectedRequestId: reqEnvelope.requestId,
         envelope: tamperedReply,
         replyPrivateKey: replyKp.privateKey,
         expectedDeviceId: deviceId,
@@ -191,6 +193,7 @@ async function runTests() {
   await assert.rejects(
     async () => {
       await openReply({
+        expectedRequestId: reqEnvelope.requestId,
         envelope: fakeSigReply,
         replyPrivateKey: replyKp.privateKey,
         expectedDeviceId: deviceId,
@@ -222,6 +225,7 @@ async function runTests() {
   };
 
   const errCode = await openError({
+    expectedRequestId: reqEnvelope.requestId,
     envelope: errorEnv,
     expectedDeviceId: deviceId,
     deviceSigningPublicKey: sigPubB64u,

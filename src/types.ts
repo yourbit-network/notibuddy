@@ -33,7 +33,13 @@ export interface PresentationHints {
   summary?: string;
 }
 
+/** Encrypted descriptive metadata, not a separately authenticated application identity.
+ * Future inbound channels must be explicitly negotiated; a historical label is never an address.
+ */
+export interface RequestSource { label: string }
+
 export interface AskPayload {
+  source?: RequestSource;
   presentation?: PresentationHints;
   sensitive?: boolean;
   type: 'ask';
@@ -47,6 +53,7 @@ export interface AskPayload {
 }
 
 export interface ActivityPayload {
+  source?: RequestSource;
   presentation?: PresentationHints;
   sensitive?: boolean;
   type: 'activity';
@@ -133,9 +140,13 @@ export interface PairingBundle {
   token: string;
   device: DeviceInfo;
   pairSecret: string;
+  requestProtocol?: 1 | 2;
+  minimumRecipientGeneration?: number;
 }
 
 export interface SenderRegistrationPayload {
+  fileEncPub?: string;
+  fileDeviceId?: string;
   senderKeyId: string;
   senderPub: string;
   label: string;
@@ -157,6 +168,8 @@ export interface NotiBuddyConfig {
   device: DeviceInfo;
   senderKeyId: string;
   senderLabel: string;
+  requestProtocol?: 1 | 2;
+  minimumRecipientGeneration?: number;
 }
 
 export interface SenderKeyPair {

@@ -1,3 +1,6 @@
+import { answerSchema } from './answer-validation.js';
+import { z } from 'zod';
+import { normalizeRelay } from './relay-url.js';
 import {
   RequestEnvelope,
   ReplyEnvelope,
@@ -23,7 +26,7 @@ import {
 const encoder = new TextEncoder();
 
 export function validateIdentifier(id: string, name: string): void {
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+  if (typeof id!=='string' || /^[A-Za-z0-9_-]{1,64}$/.exec(id)?.[0]!==id) {
     throw new Error(`Invalid ${name}: must match ^[A-Za-z0-9_-]{1,64}$`);
   }
 }
@@ -76,6 +79,7 @@ export async function sealRequest(params: {
   );
 
   const payloadJson = JSON.stringify(params.payload);
+  if(encoder.encode(payloadJson).length>149984)throw Error('Encrypted content exceeds the request limit');
   const { enc, ct } = await hpkeSeal(
     params.deviceEncryptionPublicKey,
     'notibuddy/v1/request',
@@ -176,14 +180,21 @@ export async function sealReply(params: {
 
 /**
  * Opens and verifies a Reply Envelope according to Section 6 of PROTOCOL.md
+ * The expected ID must come from saved request state, never from the response.
+ * Callers also enforce the original request lifetime and single-answer policy.
  */
 export async function openReply(params: {
   envelope: ReplyEnvelope;
   replyPrivateKey: CryptoKey;
+  expectedRequestId: string;
   expectedDeviceId: string;
   deviceSigningPublicKey: string; // DS.pub in Base64url
 }): Promise<AnswerPayload> {
-  const { envelope, replyPrivateKey, expectedDeviceId, deviceSigningPublicKey } = params;
+  const { replyPrivateKey, expectedRequestId, expectedDeviceId, deviceSigningPublicKey } = params;
+  const envelope=structuredClone(params.envelope);
+  validateResponseWire(envelope);
+  validateIdentifier(expectedRequestId, 'expectedRequestId');
+  if (envelope.requestId !== expectedRequestId) throw new Error('Request ID mismatch on reply envelope');
 
   if (envelope.v !== 1 || envelope.kind !== 'reply') {
     throw new Error(`Unsupported envelope: v=${envelope.v}, kind=${envelope.kind}`);
@@ -220,7 +231,7 @@ export async function openReply(params: {
     envelope.ct
   );
 
-  return JSON.parse(answerJson) as AnswerPayload;
+  return answerSchema.parse(JSON.parse(answerJson));
 }
 
 /**
@@ -241,13 +252,20 @@ export function buildErrorHeader(
 
 /**
  * Opens and verifies an Error Envelope according to Section 7 of PROTOCOL.md
+ * The expected ID must come from saved request state, never from the response.
+ * Callers also enforce the original request lifetime and terminal-state policy.
  */
 export async function openError(params: {
   envelope: ErrorEnvelope;
+  expectedRequestId: string;
   expectedDeviceId: string;
   deviceSigningPublicKey: string;
 }): Promise<ErrorCode> {
-  const { envelope, expectedDeviceId, deviceSigningPublicKey } = params;
+  const { expectedRequestId, expectedDeviceId, deviceSigningPublicKey } = params;
+  const envelope=structuredClone(params.envelope);
+  validateResponseWire(envelope);
+  validateIdentifier(expectedRequestId, 'expectedRequestId');
+  if (envelope.requestId !== expectedRequestId) throw new Error('Request ID mismatch on error envelope');
 
   if (envelope.v !== 1 || envelope.kind !== 'error') {
     throw new Error(`Unsupported envelope: v=${envelope.v}, kind=${envelope.kind}`);
@@ -281,43 +299,83 @@ export async function openError(params: {
  * Parses and verifies an out-of-band Pairing Bundle (nbpair1.<b64u>)
  */
 export async function parsePairingBundle(bundleString: string): Promise<PairingBundle> {
+  if (typeof bundleString !== 'string' || bundleString.length > 32768) throw new Error('Pairing data is too large or is not text');
   const trimmed = bundleString.trim();
   if (!trimmed.startsWith('nbpair1.')) {
     throw new Error('Invalid pairing bundle: must start with "nbpair1."');
   }
 
-  const payloadB64u = trimmed.slice('nbpair1.'.length);
-  const rawBytes = fromB64u(payloadB64u);
-  const jsonStr = new TextDecoder().decode(rawBytes);
-  const bundle = JSON.parse(jsonStr) as PairingBundle;
+  const rawBytes = pairingBytes(trimmed.slice('nbpair1.'.length), 1, 16384);
+  let json: string, value: unknown;
+  try { json = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes); }
+  catch { throw new Error('Pairing data must be valid UTF-8'); }
+  try { value = JSON.parse(json); }
+  catch { throw new Error('Pairing data must be valid JSON'); }
+  return validatePairingBundle(value);
+}
 
-  const relay = new URL(bundle.relay);
-  if (relay.protocol !== 'https:' && !(relay.protocol === 'http:' && ['localhost','127.0.0.1'].includes(relay.hostname))) throw new Error('Pairing requires an HTTPS relay');
-  if (relay.username || relay.password || relay.search || relay.hash) throw new Error('Invalid relay URL');
-  if (typeof bundle.pairSecret !== 'string' || fromB64u(bundle.pairSecret).length !== 32) throw new Error('Pairing secret must contain 32 bytes');
-  if (bundle.v !== 1) {
-    throw new Error(`Unsupported pairing bundle version: ${bundle.v}`);
-  }
+const pairingSchema = z.object({
+  v: z.literal(1), relay: z.string().min(1).max(2048).refine(value => !/[\u0000-\u001f\u007f]/u.test(value)),
+  token: z.string().max(263).refine(value => /^nb_snd_[A-Za-z0-9_-]{1,256}$/.exec(value)?.[0] === value),
+  pairSecret: z.string().max(43),
+  device: z.object({ id: z.string().max(64), encPub: z.string().max(87), sigPub: z.string().max(87),
+    name: z.string().max(256).refine(value => Buffer.byteLength(value) <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)).optional(),
+  }).strict(),
+  requestProtocol: z.union([z.literal(1), z.literal(2)]).optional(),
+  minimumRecipientGeneration: z.number().int().safe().nonnegative().optional(),
+}).strict();
 
-  if (!bundle.relay || !bundle.token || !bundle.device || !bundle.pairSecret) {
-    throw new Error('Malformed pairing bundle: missing required fields');
-  }
+function pairingBytes(value: string, min: number, max: number): Uint8Array {
+  if (value.length > Math.ceil(max * 4 / 3) || /^[A-Za-z0-9_-]+$/.exec(value)?.[0] !== value) throw new Error('Invalid pairing encoding or data too large');
+  const bytes = fromB64u(value);
+  if (bytes.length < min || bytes.length > max || toB64u(bytes) !== value) throw new Error('Invalid pairing encoding or data too large');
+  return bytes;
+}
+
+/** Validate and snapshot typed or decoded pairing data before any destination write. */
+export async function validatePairingBundle(value: unknown): Promise<PairingBundle> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Malformed pairing bundle');
+  validateRequestSettings(value as Record<string, unknown>);
+  const parsed = pairingSchema.safeParse(value);
+  if (!parsed.success) throw new Error('Malformed pairing bundle: share fresh setup data from NotiBuddy');
+  const bundle = parsed.data;
+  bundle.relay = normalizeRelay(bundle.relay);
+  if (bundle.relay.length > 2048) throw new Error('Pairing relay URL is too long');
+  pairingBytes(bundle.pairSecret, 32, 32);
 
   if (!isValidP256PublicKey(bundle.device.encPub)) {
-    throw new Error('Invalid device encryption public key: must be 65-byte uncompressed point');
+    throw new Error('Invalid device encryption public key: must be a canonical uncompressed P-256 point');
   }
 
   if (!isValidP256PublicKey(bundle.device.sigPub)) {
-    throw new Error('Invalid device signing public key: must be 65-byte uncompressed point');
+    throw new Error('Invalid device signing public key: must be a canonical uncompressed P-256 point');
   }
 
   // MUST verify deviceId == "dev_" + hex(SHA256(DE.pub || DS.pub))[0:24]
   const expectedDeviceId = await deriveDeviceId(bundle.device.encPub, bundle.device.sigPub);
   if (bundle.device.id !== expectedDeviceId) {
-    throw new Error(
-      `Pairing security failure: Device ID ${bundle.device.id} does not match derived ID ${expectedDeviceId}`
-    );
+    throw new Error('Pairing security failure: device ID does not match its public keys');
   }
 
   return bundle;
+}
+
+/** Protocol upgrades are explicit pairing data; network failures never downgrade them. */
+export function validateRequestSettings(value:{requestProtocol?:unknown;minimumRecipientGeneration?:unknown}):void {
+  if(value.requestProtocol!==undefined && value.requestProtocol!==1 && value.requestProtocol!==2)throw Error('Unsupported request protocol; update the client before pairing');
+  if(value.minimumRecipientGeneration!==undefined && (value.requestProtocol!==2 || !Number.isSafeInteger(value.minimumRecipientGeneration) || (value.minimumRecipientGeneration as number)<0))throw Error('Invalid minimum recipient generation');
+}
+
+function validateResponseWire(value:ReplyEnvelope|ErrorEnvelope):void {
+  if(!value || typeof value!=='object')throw Error('Invalid response envelope');
+  const fields=value.kind==='reply'?'createdAt,ct,deviceId,enc,kind,requestId,sig,v':'code,createdAt,deviceId,kind,requestId,sig,v';
+  const binary=(v:unknown,min:number,max:number)=>typeof v==='string' && v.length<=200000 && /^[A-Za-z0-9_-]+$/.exec(v)?.[0]===v && fromB64u(v).length>=min && fromB64u(v).length<=max && toB64u(fromB64u(v))===v;
+  const sequence=(value as typeof value & {seq?:number}).seq;
+  if(sequence!==undefined && (!Number.isSafeInteger(sequence) || sequence<1))throw Error('Invalid response sequence');
+  if(Object.keys(value).filter(key=>key!=='seq').sort().join(',')!==fields || value.v!==1 || !['reply','error'].includes(value.kind) ||
+    !Number.isSafeInteger(value.createdAt) || value.createdAt<1 || !binary(value.sig,64,64))throw Error('Invalid response envelope');
+  validateIdentifier(value.requestId,'requestId');validateIdentifier(value.deviceId,'deviceId');
+  if(value.kind==='reply') {
+    if(!binary(value.enc,65,65) || fromB64u(value.enc)[0]!==4 || !binary(value.ct,16,150000))throw Error('Invalid response ciphertext');
+  }else if(!['undecryptable','bad_signature','unknown_sender','expired','replayed','unsupported','wrong_device'].includes(value.code))throw Error('Invalid response error code');
 }
