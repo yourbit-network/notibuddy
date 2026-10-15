@@ -4,7 +4,17 @@ The agreement is an adaptation of **Harmony CAA 1.0**, with copyright assignment
 
 Use the maintained, hosted [CLA Assistant](https://cla-assistant.io/) to collect signatures and report PR status. Its [source and setup documentation](https://github.com/cla-assistant/cla-assistant) describe Gist-backed agreements, custom signing fields, versioned signatures, and exports. The separate `contributor-assistant/github-action` repository was archived on March 23, 2026; this setup does not depend on it or add a privileged `pull_request_target` workflow.
 
-**Activation status:** repository files alone do not activate the hosted bot or a required merge check. An administrator must connect the Gist and repository, then require the resulting status check. Do not describe the integration as enforced until the verification below passes.
+**Activation status:** the hosted CLA Assistant integration was linked to `yourbit-network/notibuddy` on October 15, 2026. The dashboard reports an active connection. Required-check enforcement is being verified separately; the repository files alone do not enable it.
+
+## Published agreement
+
+- Company-owned [agreement Gist](https://gist.github.com/yourbit-network/df6451ac687a25b1ae4a0c541f22807b).
+- Initial immutable revision: `036d26504dc85d2307e06cf460e478e9cc4256d0`.
+- `CLA.md` SHA-256: `f7f26a323f5f4287267514416618a1358d3bcc0c8be28b22e9f9209c1852fc7d`.
+- Gist `metadata` SHA-256: `202f210d46c86bbaf901a360689e2ac34832cf5646052613e9daa91c10b27235`.
+- Both published files were verified byte-for-byte against the reviewed repository sources.
+- Only this repository is linked. Gist sharing is disabled and no minimum contribution-size exemption is configured.
+- [Contributor signing page](https://cla-assistant.io/yourbit-network/notibuddy).
 
 ## Activate once
 
