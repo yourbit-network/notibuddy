@@ -2,6 +2,16 @@
 
 This repository is the source of truth for the public CLI and MCP package. Open a focused pull request against `main`; explain the behavior change and how you tested it. Report security issues through [the private reporting process](SECURITY.md).
 
+## Contributor assignment agreement
+
+Before a contribution can be merged, its rights holder must sign the [NotiBuddy Contributor Assignment Agreement](CLA.md). It is based on Harmony CAA 1.0 and assigns contribution copyright to **Yourbit, LLC**, with Delaware governing law. It retains a broad license for you to reuse your own contribution and permits Yourbit to use commercial or proprietary licenses while also making the contribution available under the project's existing license. The repository's software license remains MIT.
+
+Follow the CLA Assistant signing link on your pull request and sign using your own GitHub account. The agreement includes the full signing and third-party-work instructions. If the bot has not yet been connected or the signing link is unavailable, contact **contact@notibuddy.app**; opening a PR or checking a box does not constitute a signature. Maintainers must verify actual acceptance before merging.
+
+If your employer or another entity owns the work, obtain the necessary authorization and have an authorized representative sign for that entity. Identify all authors/co-authors and any third-party material and its license; you cannot assign rights you do not own. Do not post legal names, contact emails or completed agreements in public PR comments.
+
+Maintainers: see [bot activation and signature-record instructions](.github/cla/README.md). The hosted service and required branch check must be configured separately from these repository files.
+
 ## Local setup
 
 Use Node.js 20 or newer, Git, and npm. Install [Gitleaks](https://github.com/gitleaks/gitleaks) 8.30.1 or newer. On macOS, `brew install gitleaks` installs the scanner.

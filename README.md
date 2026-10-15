@@ -133,6 +133,8 @@ Node.js 20 or newer is required. Tests use isolated local fixtures and do not ne
 
 ### Pre-push secret checks (contributors)
 
+Contributions require the [NotiBuddy Contributor Assignment Agreement](https://github.com/yourbit-network/notibuddy/blob/main/CLA.md), based on Harmony CAA 1.0. It assigns contribution copyright to Yourbit, LLC and gives contributors a license to reuse their own work. Read [CONTRIBUTING.md](https://github.com/yourbit-network/notibuddy/blob/main/CONTRIBUTING.md) for signing and employer/third-party requirements.
+
 Install [Gitleaks](https://github.com/gitleaks/gitleaks) 8.30.1 or newer (`brew install gitleaks` on macOS), then run this once in each standalone public checkout:
 
 ```bash

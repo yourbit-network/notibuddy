@@ -1,0 +1,46 @@
+{
+  "name": {
+    "title": "Your full legal name (electronic signature)",
+    "type": "string",
+    "githubKey": "name",
+    "required": true
+  },
+  "email": {
+    "title": "Contact email for this agreement",
+    "type": "string",
+    "githubKey": "email",
+    "required": true
+  },
+  "capacity": {
+    "title": "I am signing as",
+    "type": {
+      "enum": [
+        "Individual — I own the contribution rights",
+        "Entity — I am authorized to bind the rights-owning entity"
+      ]
+    },
+    "required": true
+  },
+  "rightsHolder": {
+    "title": "Full legal name of the rights holder",
+    "description": "Individuals: repeat your legal name. Entity representatives: enter the entity's full legal name, not your own name.",
+    "type": "string",
+    "required": true
+  },
+  "title": {
+    "title": "Your capacity or title",
+    "description": "Individuals: enter Individual. Entity representatives: enter the title under which you have authority to bind the entity.",
+    "type": "string",
+    "required": true
+  },
+  "authority": {
+    "title": "I have the legal authority required by section 3, including authority to bind the named entity if signing for one",
+    "type": "boolean",
+    "required": true
+  },
+  "agreement": {
+    "title": "I have read and agree to the NotiBuddy Contributor Assignment Agreement, and intend my name and submission as my electronic signature",
+    "type": "boolean",
+    "required": true
+  }
+}
