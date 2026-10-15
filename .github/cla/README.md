@@ -4,7 +4,27 @@ The agreement is an adaptation of **Harmony CAA 1.0**, with copyright assignment
 
 Use the maintained, hosted [CLA Assistant](https://cla-assistant.io/) to collect signatures and report PR status. Its [source and setup documentation](https://github.com/cla-assistant/cla-assistant) describe Gist-backed agreements, custom signing fields, versioned signatures, and exports. The separate `contributor-assistant/github-action` repository was archived on March 23, 2026; this setup does not depend on it or add a privileged `pull_request_target` workflow.
 
-**Activation status:** repository files alone do not activate the hosted bot or a required merge check. An administrator must connect the Gist and repository, then require the resulting status check. Do not describe the integration as enforced until the verification below passes.
+**Activation status:** the hosted CLA Assistant integration and required merge check are active for `yourbit-network/notibuddy` as of October 15, 2026. The `Protect main` ruleset requires `license/cla` alongside the existing GitHub Actions `Required checks`, with branches required to be up to date. Its existing pull-request, deletion, force-push, and bypass settings were preserved.
+
+## Published agreement
+
+- Company-owned [agreement Gist](https://gist.github.com/yourbit-network/df6451ac687a25b1ae4a0c541f22807b).
+- Initial immutable revision: `036d26504dc85d2307e06cf460e478e9cc4256d0`.
+- `CLA.md` SHA-256: `f7f26a323f5f4287267514416618a1358d3bcc0c8be28b22e9f9209c1852fc7d`.
+- Gist `metadata` SHA-256: `202f210d46c86bbaf901a360689e2ac34832cf5646052613e9daa91c10b27235`.
+- Both published files were verified byte-for-byte against the reviewed repository sources.
+- Only this repository is linked. Gist sharing is disabled and no minimum contribution-size exemption is configured.
+- [Contributor signing page](https://cla-assistant.io/yourbit-network/notibuddy).
+
+## Activation verification
+
+- CLA Assistant created the repository webhook and posted its signing comment and `license/cla` status on [PR #13](https://github.com/yourbit-network/notibuddy/pull/13).
+- With the contributor unsigned, the status is **pending**, with the description `Contributor License Agreement is not signed yet.` It is not a failing check; requiring it prevents merging until it succeeds.
+- At commit `e54c780c517dfd49d10fb85b48ef9d0df2cf1c57`, all seven CI checks passed while `license/cla` remained pending and GitHub reported the PR merge state as `BLOCKED`.
+- After the contributor completed their own signature, `license/cla` succeeded at commit `1e9a36f77bccea7604fc22d8d64be2860c68d0d4` with the description `Contributor License Agreement is signed.` All seven CI checks also passed, and GitHub reported the PR merge state as `CLEAN`.
+- The live signing form displayed all seven required fields: legal name, email, individual/entity capacity, rights holder, title, authority, and explicit assent. Acceptance was disabled while required fields were incomplete.
+- The [active ruleset](https://github.com/yourbit-network/notibuddy/settings/rules/24690450) was verified through GitHub's branch-rules API. The only rule change was adding `license/cla`; the existing `Required checks` remains bound to GitHub Actions (integration ID `15368`). GitHub offers no dedicated expected source for this hosted OAuth integration, so `license/cla` uses `Any source`. Write access must remain limited to trusted maintainers who can report commit statuses.
+- No signatures were imported, no human exemption was added, and no contributor was signed automatically. A subsequent unsigned co-author blocking and fork-PR behavior still require onboarding verification; they have not been claimed as tested.
 
 ## Activate once
 
@@ -23,7 +43,7 @@ Use the maintained, hosted [CLA Assistant](https://cla-assistant.io/) to collect
    ```
 
 4. Sign in to CLA Assistant as an administrator of `yourbit-network/notibuddy`. Review its terms and requested GitHub access. Link **only this repository** to the new Gist. Do not enable organization-wide signature sharing: the agreement is scoped to this project. Do not import existing contributors as signed without an actual executed agreement. Do not add wildcard or human exemptions.
-5. Open a real PR and confirm that CLA Assistant posts its signing link and a failing status for an unsigned contributor. Inspect the form: legal name, email, capacity, rights holder, title, authority and explicit assent must all be present and required. The person must sign for themselves; never click acceptance on someone else's behalf to test it.
+5. Open a real PR and confirm that CLA Assistant posts its signing link and a non-success status for an unsigned contributor (the hosted service currently uses `pending`). Inspect the form: legal name, email, capacity, rights holder, title, authority and explicit assent must all be present and required. The person must sign for themselves; never click acceptance on someone else's behalf to test it.
 6. In the `main` branch protection/ruleset, add the **actual status context emitted by CLA Assistant** as a required check alongside `Required checks`. Preserve existing review, signed-commit, secret-scan and platform requirements. Select the expected status source where GitHub supports it. A comment, badge, optional workflow, or green package CI is not merge enforcement.
 7. Confirm an unsigned PR cannot merge, a legitimately signed contributor passes, and adding a new unsigned author makes the PR fail. Check a fork PR as well. Record the Gist URL, revision, check context and successful validation in this file once the integration is live.
 

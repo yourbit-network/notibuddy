@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add a Harmony-based contributor copyright assignment agreement for Yourbit, LLC, using Delaware law, plus hosted CLA Assistant signing-form metadata and activation instructions. Repository documentation alone does not enable the hosted bot or its required merge check.
+- Add a Harmony-based contributor copyright assignment agreement for Yourbit, LLC, using Delaware law, plus hosted CLA Assistant signing-form metadata and activation records. The hosted integration is active, and `main` requires its `license/cla` status alongside the existing CI checks.
 
 ## 0.2.1 — 2026-10-14
 
