@@ -21,8 +21,10 @@ Use the maintained, hosted [CLA Assistant](https://cla-assistant.io/) to collect
 - CLA Assistant created the repository webhook and posted its signing comment and `license/cla` status on [PR #13](https://github.com/yourbit-network/notibuddy/pull/13).
 - With the contributor unsigned, the status is **pending**, with the description `Contributor License Agreement is not signed yet.` It is not a failing check; requiring it prevents merging until it succeeds.
 - At commit `e54c780c517dfd49d10fb85b48ef9d0df2cf1c57`, all seven CI checks passed while `license/cla` remained pending and GitHub reported the PR merge state as `BLOCKED`.
+- After the contributor completed their own signature, `license/cla` succeeded at commit `1e9a36f77bccea7604fc22d8d64be2860c68d0d4` with the description `Contributor License Agreement is signed.` All seven CI checks also passed, and GitHub reported the PR merge state as `CLEAN`.
+- The live signing form displayed all seven required fields: legal name, email, individual/entity capacity, rights holder, title, authority, and explicit assent. Acceptance was disabled while required fields were incomplete.
 - The [active ruleset](https://github.com/yourbit-network/notibuddy/settings/rules/24690450) was verified through GitHub's branch-rules API. The only rule change was adding `license/cla`; the existing `Required checks` remains bound to GitHub Actions (integration ID `15368`). GitHub offers no dedicated expected source for this hosted OAuth integration, so `license/cla` uses `Any source`. Write access must remain limited to trusted maintainers who can report commit statuses.
-- No signatures were imported, no human exemption was added, and no contributor was signed automatically. A legitimately signed contributor passing, a subsequent unsigned co-author blocking, and fork-PR behavior still require onboarding verification; they have not been claimed as tested.
+- No signatures were imported, no human exemption was added, and no contributor was signed automatically. A subsequent unsigned co-author blocking and fork-PR behavior still require onboarding verification; they have not been claimed as tested.
 
 ## Activate once
 
