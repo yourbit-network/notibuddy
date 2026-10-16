@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2 — 2026-10-16
+
 - Authenticate sender diagnostics with a fresh proof from the selected signing key. Existing destinations derive the public identity without rewriting credentials or requiring re-pairing; library callers supply `senderPub` or register on the same client instance. Keep bounded old-relay compatibility, with no fallback after an authentication failure.
 
 - Make `doctor` check the selected sender directly on compatible relays, with bounded compatibility for older relays. Reject mismatched identities, invalid approval values and incomplete legacy lists; preserve the shared diagnostics timeout, cancellation and phone/Watch recipient verification.
