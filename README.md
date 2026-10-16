@@ -42,6 +42,8 @@ Use `npx notibuddy@^0.2.0 status` to inspect the locally saved configuration. Co
 
 Run `nb doctor --to personal` to check relay reachability, sender approval, request-protocol compatibility, and file-receive setup. Diagnostics omit credentials and private keys.
 
+On compatible relays, the approval check reads only the selected sender's record. Older relays use a size-limited complete list. An unavailable or invalid response reports the sender as `unverified`; it does not mean the connection was removed. All checks share a 15-second timeout, and negotiated phone/Watch delivery is never downgraded by a diagnostics failure.
+
 If an ask returns `pending`, keep its request ID and resume it with `nb ask --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active CLI ask prints its resume ID when it has already been saved.
 
 This development branch supports explicitly negotiated phone/Watch group requests. Existing pairing documents continue to use v1. Native companion rollout and package publication remain separate release steps; changing configuration fields manually does not enable a Watch app.

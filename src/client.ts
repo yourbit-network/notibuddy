@@ -7,6 +7,7 @@ import { validGroupRequest } from './group-wire.js';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { signSenderRegistration } from './sender-registration.js';
+import { senderStatus } from './sender-status.js';
 import { z } from 'zod';
 import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType, SenderRegistrationPayload } from './types.js';
 import { sealRequest, openReply, openError, validateIdentifier } from './protocol.js';
@@ -83,12 +84,9 @@ export class NotiBuddyClient {
     const report={relay:this.config.relay,reachable:false,requestProtocol:this.config.requestProtocol ?? 1,
       deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[]};
     try {
-      const health=await relayJSON(this.config,'/v1/health',{},call);
+      const health=await relayJSON(this.config,'/v1/health',{}, {...call,maxResponseBytes:65536});
       report.reachable=health.body?.status==='healthy';if(!report.reachable)report.issues.push('Relay health response was not recognized');
-      const result=await relayJSON(this.config,'/v1/senders',{},call);
-      if(!Array.isArray(result.body?.senders))throw Error('Invalid sender status response');
-      const sender=result.body.senders.find((s:any)=>s.senderKeyId===this.config.senderKeyId);
-      report.sender=sender?(sender.approved===1?'approved':'pending_approval'):'not_registered';
+      report.sender=await senderStatus(this.config,call);
       if(report.requestProtocol===2) {
         const {body}=await relayJSON(this.config,'/v2/recipients?deviceId='+this.config.device.id,{},call,this.signingKey);
         const recipients=await verifyRecipients(body,this.config,this.recipients.read());

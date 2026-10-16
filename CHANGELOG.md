@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Make `doctor` check the selected sender directly on compatible relays, with bounded compatibility for older relays. Reject mismatched identities, invalid approval values and incomplete legacy lists; preserve the shared diagnostics timeout, cancellation and phone/Watch recipient verification.
 - Add a Harmony-based contributor copyright assignment agreement for Yourbit, LLC, using Delaware law, plus hosted CLA Assistant signing-form metadata and activation records. The hosted integration is active, and `main` requires its `license/cla` status alongside the existing CI checks.
 
 ## 0.2.1 — 2026-10-14
