@@ -4,13 +4,16 @@ import { normalizeRelay } from './relay-url.js';
 import type { NotiBuddyConfig } from './types.js';
 
 export interface CallOptions {signal?:AbortSignal;deadline?:number}
+interface RelayCallOptions extends CallOptions {maxResponseBytes?:number}
 export class DeadlineError extends Error {constructor(){super('Request deadline reached; resume the saved request');}}
 export class RelayHTTPError extends Error {
-  constructor(readonly status:number,readonly code?:string){super(`Relay request failed (${status})${code?' '+code:''}`);}
+  constructor(readonly status:number,readonly code?:string,readonly hasCode=code!==undefined){super(`Relay request failed (${status})${code?' '+code:''}`);}
 }
 
 /** Bounds headers and response-body consumption with the same caller deadline. */
-export async function relayJSON(config:NotiBuddyConfig,route:string,init:RequestInit={},options:CallOptions={},signingKey?:CryptoKey):Promise<{status:number;body:any}> {
+export async function relayJSON(config:NotiBuddyConfig,route:string,init:RequestInit={},options:RelayCallOptions={},signingKey?:CryptoKey):Promise<{status:number;body:any}> {
+  const maxBytes=options.maxResponseBytes ?? 524288;
+  if(!Number.isSafeInteger(maxBytes) || maxBytes<1 || maxBytes>524288)throw Error('Invalid relay response limit');
   const remaining=Math.min(15000,(options.deadline ?? Date.now()+15000)-Date.now());
   if(remaining<=0)throw new DeadlineError();
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(new DeadlineError()),remaining);
@@ -37,16 +40,18 @@ export async function relayJSON(config:NotiBuddyConfig,route:string,init:Request
     const response=await Promise.race([fetch(normalizeRelay(config.relay)+route,{...init,headers,signal,redirect:'error'}),aborted]);
     if(response.status===204)return {status:204,body:null};
     reader=response.body?.getReader();
-    if(Number(response.headers.get('content-length'))>524288)throw Error('Relay response exceeds the size limit');
+    if(Number(response.headers.get('content-length'))>maxBytes)throw Error('Relay response exceeds the size limit');
     const chunks:Uint8Array[]=[];let size=0;
     if(reader)for(;;) {
       const {done,value}=await Promise.race([reader.read(),aborted]);if(done)break;
-      size+=value.length;if(size>524288)throw Error('Relay response exceeds the size limit');chunks.push(value);
+      size+=value.length;if(size>maxBytes)throw Error('Relay response exceeds the size limit');chunks.push(value);
     }
     const text=Buffer.concat(chunks,size).toString('utf8');
     let body:any=null;
     try{if(text)body=JSON.parse(text);}catch{if(response.ok)throw Error('Relay returned invalid JSON');}
-    if(!response.ok)throw new RelayHTTPError(response.status,typeof body?.code==='string' && /^[A-Z_]{1,80}$/.test(body.code)?body.code:undefined);
+    if(!response.ok)throw new RelayHTTPError(response.status,
+      typeof body?.code==='string' && /^[A-Z_]{1,80}$/.exec(body.code)?.[0]===body.code?body.code:undefined,
+      body!==null && typeof body==='object' && Object.hasOwn(body,'code'));
     return {status:response.status,body};
   }finally {
     clearTimeout(timer);signal.removeEventListener('abort',onAbort);

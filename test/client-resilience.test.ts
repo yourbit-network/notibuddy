@@ -180,7 +180,7 @@ test('slow history is bounded and rotated while the newest controls are checked 
 }));
 
 test('doctor exposes approval and compatibility without credentials or private keys',()=>fixture(async(f)=>{
-  globalThis.fetch=async(url)=>String(url).endsWith('/health')?Response.json({status:'healthy'}):Response.json({senders:[{senderKeyId:f.sender.senderKeyId,approved:1}]});
+  globalThis.fetch=async(url)=>String(url).endsWith('/health')?Response.json({status:'healthy'}):Response.json({sender:{senderKeyId:f.sender.senderKeyId,approved:1}});
   const report=await f.client().doctor();assert(report.reachable);assert.equal(report.sender,'approved');assert.equal(report.requestProtocol,1);
   assert(!JSON.stringify(report).includes(f.config.token));assert(!JSON.stringify(report).includes('privateKey'));
 }));
