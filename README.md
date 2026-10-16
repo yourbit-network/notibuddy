@@ -40,9 +40,11 @@ Use `npx notibuddy@^0.2.0 status` to inspect the locally saved configuration. Co
 
 ### Check the connection
 
-Run `nb doctor --to personal` to check relay reachability, sender approval, request-protocol compatibility, and file-receive setup. Diagnostics omit credentials and private keys.
+Run `nb doctor --to personal` to check relay reachability, sender approval, request-protocol compatibility, and file-receive setup. Diagnostics omit credentials and private keys. The client proves possession of the selected sender key and reads only that sender's approval state. Existing saved destinations supply their public key automatically; no re-pairing is needed. New clients can check older relays through a bounded compatibility path, but authentication failures never trigger that fallback.
 
-On compatible relays, the approval check reads only the selected sender's record. Older relays use a size-limited complete list. An unavailable or invalid response reports the sender as `unverified`; it does not mean the connection was removed. All checks share a 15-second timeout, and negotiated phone/Watch delivery is never downgraded by a diagnostics failure.
+Library callers that construct `NotiBuddyClient` directly should include `senderPub` (the public P-256 signing point) in `NotiBuddyConfig` when calling `doctor`. A successful `registerSender` also supplies that point to the same client instance. The private signing key can remain nonextractable. If public identity is missing or mismatched, diagnostics remain unverified instead of using an unsigned lookup.
+
+An unavailable or invalid response reports the sender as `unverified`; it does not mean the connection was removed. All checks share a 15-second timeout, including compatibility requests to older relays, and negotiated phone/Watch delivery is never downgraded by a diagnostics failure.
 
 If an ask returns `pending`, keep its request ID and resume it with `nb ask --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active CLI ask prints its resume ID when it has already been saved.
 

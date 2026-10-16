@@ -171,6 +171,8 @@ export interface DeviceRegistrationPayload {
 }
 
 export interface NotiBuddyConfig {
+  /** Public signing point for proof-bound diagnostics; supplied by DestinationStore.open. */
+  senderPub?: string;
   relay: string;
   token: string;
   device: DeviceInfo;
