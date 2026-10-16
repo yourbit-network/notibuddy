@@ -22,7 +22,7 @@ async function fixture(run:(f:any)=>Promise<void>) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'notibuddy-client-recovery-')),original=globalThis.fetch;
   try {
     const phone=await device(),sender=await generateSenderSigningKeyPair();
-    const config:NotiBuddyConfig={relay:'https://relay.test',token:'nb_snd_'+randomUUID(),device:{id:phone.id,encPub:phone.enc.publicKeyB64u,sigPub:phone.sig.publicKeyB64u},senderKeyId:sender.senderKeyId,senderLabel:'Fixture'};
+    const config:NotiBuddyConfig={relay:'https://relay.test',token:'nb_snd_'+randomUUID(),device:{id:phone.id,encPub:phone.enc.publicKeyB64u,sigPub:phone.sig.publicKeyB64u},senderKeyId:sender.senderKeyId,senderPub:sender.publicKeyB64u,senderLabel:'Fixture'};
     const store=new PendingStore(config,root),requests:RequestEnvelope[]=[];
     const client=(override:Partial<NotiBuddyConfig>={})=>new NotiBuddyClient({...config,...override},sender.privateKey,store);
     const payload=(r:RequestEnvelope)=>hpkeOpen(phone.enc.privateKey,r.enc,'notibuddy/v1/request',buildRequestHeader(r.requestId,r.deviceId,r.senderKeyId,r.primitive,r.createdAt,r.expiresAt),r.ct).then(JSON.parse);

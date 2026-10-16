@@ -86,7 +86,7 @@ export class NotiBuddyClient {
     try {
       const health=await relayJSON(this.config,'/v1/health',{}, {...call,maxResponseBytes:65536});
       report.reachable=health.body?.status==='healthy';if(!report.reachable)report.issues.push('Relay health response was not recognized');
-      report.sender=await senderStatus(this.config,call);
+      report.sender=await senderStatus(this.config,this.signingKey,call);
       if(report.requestProtocol===2) {
         const {body}=await relayJSON(this.config,'/v2/recipients?deviceId='+this.config.device.id,{},call,this.signingKey);
         const recipients=await verifyRecipients(body,this.config,this.recipients.read());
@@ -103,6 +103,7 @@ export class NotiBuddyClient {
     const registration=await signSenderRegistration(payload,this.config.token,this.signingKey);
     const {body}=await relayJSON(this.config,'/v1/senders',{method:'POST',body:JSON.stringify(registration)},options);
     if(body?.status!=='registered' && body?.status!=='pending_approval')throw Error('Invalid sender registration result');
+    if(payload.senderKeyId===this.config.senderKeyId)this.config.senderPub=payload.senderPub;
     return body.status;
   }
   async postRequest(envelope:WireRequest,options:CallOptions={}):Promise<{requestId:string;seq:number}> {

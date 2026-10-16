@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { deriveSenderKeyId, ecdsaSign, isValidP256PublicKey } from './crypto.js';
 import { relayJSON, RelayHTTPError, type CallOptions } from './client-http.js';
 import type { NotiBuddyConfig } from './types.js';
 
@@ -9,10 +11,28 @@ const row=(value:unknown):value is SenderRow=>object(value) && senderID(value.se
 const invalid=()=>new Error('Invalid sender status response');
 const status=(sender:SenderRow|undefined):SenderStatus=>sender ? sender.approved===1?'approved':'pending_approval' : 'not_registered';
 
-/** Read just this identity. Only an uncoded old-route 404 permits the legacy
- * complete list; errors, partial lists and malformed metadata cannot prove absence. */
-export async function senderStatus(config:NotiBuddyConfig,options:CallOptions):Promise<SenderStatus> {
-  if(!senderID(config.senderKeyId))throw invalid();
+/** Prove ownership and read only this identity. Uncoded missing routes permit
+ * bounded old-relay fallbacks; errors and partial lists cannot prove absence. */
+export async function senderStatus(config:NotiBuddyConfig,key:CryptoKey,options:CallOptions):Promise<SenderStatus> {
+  options.signal?.throwIfAborted();
+  if(!senderID(config.senderKeyId) || !config.senderPub || !isValidP256PublicKey(config.senderPub) ||
+    await deriveSenderKeyId(config.senderPub)!==config.senderKeyId)throw invalid();
+  const createdAt=Math.floor(Date.now()/1000),nonce=randomUUID();
+  const proof={senderKeyId:config.senderKeyId,senderPub:config.senderPub,createdAt,nonce};
+  const input=new TextEncoder().encode(JSON.stringify(['nb1','sender-status',config.token.replace(/^nb_(?:snd|dev|usr)_/,''),
+    proof.senderKeyId,proof.senderPub,createdAt,nonce]));
+  const sig=await ecdsaSign(key,input);
+  try {
+    const result=await relayJSON(config,'/v1/sender/status',{method:'POST',body:JSON.stringify({...proof,sig})},{...options,maxResponseBytes:65536});
+    if(result.status!==200 || !object(result.body) || !row(result.body.sender) || result.body.sender.senderKeyId!==config.senderKeyId)throw invalid();
+    return status(result.body.sender);
+  }catch(error) {
+    if(!(error instanceof RelayHTTPError) || error.status!==404)throw error;
+    if(error.code==='SENDER_NOT_FOUND')return 'not_registered';
+    if(error.hasCode)throw error;
+  }
+  // Only an uncoded missing endpoint permits the old-relay compatibility path.
+  // A coded absence/error or denied proof can never downgrade to bearer reads.
   try {
     const result=await relayJSON(config,'/v1/senders/'+config.senderKeyId,{}, {...options,maxResponseBytes:65536});
     if(result.status!==200 || !object(result.body) || !row(result.body.sender) || result.body.sender.senderKeyId!==config.senderKeyId)throw invalid();

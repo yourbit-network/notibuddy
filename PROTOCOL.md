@@ -455,3 +455,19 @@ A positive `wait_seconds` bounds the whole ask operation, including discovery, d
 Activity operations serialize per activity across local processes. Ambiguous dispatch must settle before a later revision is sent. Polling checks the newest snapshot first, then rotates through bounded older history. Missing/corrupt old keys, invalid replies, or slow history yield warnings while other requests can progress. Sequence and signature checks occur before actions are returned; expired/ended sessions cannot be extended by polling.
 
 Pending files are atomic, fsynced, private on Unix, and scoped by canonical relay URL plus the cryptographic pairing. Known legacy trailing-slash scopes migrate without generating new keys. Records are retained through request expiry plus ten minutes; pruning runs when the store is opened. Stale temporary files older than 24 hours are removed on that same local maintenance path. These files contain sensitive local state; they are not a cloud backup or a claim of hardware-backed sender-key storage.
+
+## Sender diagnostic ownership proof
+
+`POST /v1/sender/status` reads only the selected sender's approval state. It does not register a sender, approve it, allocate a device, send content, or refresh paid entitlements. The request uses the existing pairing bearer and a JSON body with `senderKeyId`, `senderPub`, integer-second `createdAt`, `nonce` (16–80 URL-safe characters), and `sig` (canonical unpadded base64url raw P-256 ECDSA signature). The supplied public key is a canonical 65-byte uncompressed P-256 point; its SHA-256 prefix must derive the supplied sender ID.
+
+The signature covers the UTF-8 encoding of this compact JSON array, in order:
+
+```text
+["nb1","sender-status",realm,senderKeyId,senderPub,createdAt,nonce]
+```
+
+`realm` is the bearer value after removing its `nb_snd_`, `nb_dev_`, or `nb_usr_` prefix. Prefixes do not confer device authority. The domain separator prevents reuse of a registration or HTTP signature as a diagnostic proof. The relay requires a timestamp within 120 seconds, rejects repeated proof nonces, and rechecks freshness after asynchronous work. This self-supplied public point permits the owner of a removed or never-registered identity to check its own absence without exposing another identity's status.
+
+A successful response is exactly `{"sender":{"senderKeyId":"snd_…","approved":0}}` or the same with `approved:1`. A valid proof of an absent, revoked or expired pending identity returns `404 SENDER_NOT_FOUND`. Invalid ownership returns `401 SENDER_SIGNATURE_REQUIRED`; replay returns `409 SENDER_PROOF_REPLAYED`. Responses are not cacheable. Full sender metadata and catalogs require a registered primary-device proof and are separate from this sender operation.
+
+The client uses one existing diagnostics deadline for health, proof generation, status, compatibility requests and recipient discovery. Only an uncoded 404 from an older relay permits the previous exact lookup, followed by the complete legacy list only if that lookup also returns an uncoded 404. Typed absence, authorization errors, malformed responses and partial/ambiguous lists never trigger a fallback or prove absence. The targeted response limit remains 64 KiB and the legacy list limit remains 512 KiB. Publish the proof-capable client before enforcing primary-only catalogs on the hosted relay; older clients' notification delivery is unchanged, but their unsigned diagnostic reads cannot satisfy the new catalog policy.

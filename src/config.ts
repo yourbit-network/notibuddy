@@ -78,6 +78,9 @@ export class DestinationStore {
       const opened=await hpkeOpenBytes(key,sealed.enc,'notibuddy/key-check','',sealed.ct);
       if (!Buffer.from(opened).equals(Buffer.from(challenge))) throw new Error('File receiving keys do not match');
     }
+    // Derive public diagnostic identity from the already-verified saved key pair.
+    // Existing destination files need no migration or new key material.
+    record.config.senderPub=keys.publicKeyB64u;
     return {record,signingKey};
   }
   async prepare(name:string,bundle:PairingBundle,label:string): Promise<{record:DestinationRecord;signingKey:CryptoKey}> {

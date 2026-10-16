@@ -9,7 +9,8 @@ import { NotiBuddyClient } from '../src/client.js';
 import { PendingStore } from '../src/pending-store.js';
 import { RecipientStore } from '../src/recipient-store.js';
 import { relayJSON } from '../src/client-http.js';
-import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, ecdsaVerify, sha256, toHex } from '../src/crypto.js';
+import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaVerify, sha256, toHex } from '../src/crypto.js';
+import { DestinationStore } from '../src/config.js';
 import type { NotiBuddyConfig } from '../src/types.js';
 
 async function fixture(run:(f:Awaited<ReturnType<typeof setup>>)=>Promise<void>) {
@@ -21,11 +22,11 @@ async function setup() {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'notibuddy-doctor-'));
   const config:NotiBuddyConfig={relay:'https://relay.test',token:'nb_snd_'+randomUUID(),
     device:{id:await deriveDeviceId(enc.publicKeyB64u,sig.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:sig.publicKeyB64u},
-    senderKeyId:sender.senderKeyId,senderLabel:'Fixture'};
+    senderKeyId:sender.senderKeyId,senderPub:sender.publicKeyB64u,senderLabel:'Fixture'};
   const client=(override:Partial<NotiBuddyConfig>={})=>{
     const selected={...config,...override};return new NotiBuddyClient(selected,sender.privateKey,new PendingStore(selected,root));
   };
-  return {root,config,sender,client,route:'/v1/senders/'+sender.senderKeyId,
+  return {root,config,sender,client,route:'/v1/sender/status',legacyRoute:'/v1/senders/'+sender.senderKeyId,
     row:(approved=1)=>({senderKeyId:sender.senderKeyId,approved})};
 }
 const health=()=>Response.json({status:'healthy'});
@@ -42,6 +43,12 @@ test('doctor reads only its own sender, distinguishes approval, and excludes pri
       assert.equal(init?.redirect,'error');assert.equal(new Headers(init?.headers).get('authorization'),'Bearer '+f.config.token);
       if(route==='/v1/health')return health();
       assert.equal(route,f.route,'No full sender catalog should be requested');
+      assert.equal(init?.method,'POST');
+      const proof=JSON.parse(String(init?.body));
+      assert.equal(proof.senderKeyId,f.sender.senderKeyId);assert.equal(proof.senderPub,f.sender.publicKeyB64u);
+      assert(Math.abs(proof.createdAt-Math.floor(Date.now()/1000))<=1);assert.match(proof.nonce,/^[A-Za-z0-9_-]{16,80}$/);
+      const input=new TextEncoder().encode(JSON.stringify(['nb1','sender-status',f.config.token.slice(7),proof.senderKeyId,proof.senderPub,proof.createdAt,proof.nonce]));
+      assert(await ecdsaVerify(f.sender.publicKeyB64u,input,proof.sig));
       return Response.json({sender:{...f.row(approved),label:'Private label',mac:'Private proof'}});
     };
     const report=await f.client().doctor();
@@ -64,11 +71,11 @@ test('only an uncoded old-route 404 uses the complete legacy sender list',()=>fi
       const routes:string[]=[];
       globalThis.fetch=async url=>{
         const route=new URL(String(url)).pathname;routes.push(route);
-        if(route==='/v1/health')return health();if(route===f.route)return missing();
+        if(route==='/v1/health')return health();if(route===f.route || route===f.legacyRoute)return missing();
         assert.equal(route,'/v1/senders');return Response.json({senders:approved===undefined?[]:[f.row(approved)]});
       };
       const report=await f.client().doctor();assert.equal(report.sender,approved===undefined?'not_registered':approved?'approved':'pending_approval');
-      assert.deepEqual(report.issues,[]);assert.deepEqual(routes,['/v1/health',f.route,'/v1/senders']);
+      assert.deepEqual(report.issues,[]);assert.deepEqual(routes,['/v1/health',f.route,f.legacyRoute,'/v1/senders']);
     }
   }
 }));
@@ -103,9 +110,9 @@ test('a legacy list must be complete, unambiguous and valid before reporting abs
     const routes:string[]=[];
     globalThis.fetch=async url=>{
       const route=new URL(String(url)).pathname;routes.push(route);
-      return route==='/v1/health'?health():route===f.route?new Response(null,{status:404}):Response.json(body);
+      return route==='/v1/health'?health():(route===f.route || route===f.legacyRoute)?new Response(null,{status:404}):Response.json(body);
     };
-    unavailable(await f.client().doctor());assert.deepEqual(routes,['/v1/health',f.route,'/v1/senders']);
+    unavailable(await f.client().doctor());assert.deepEqual(routes,['/v1/health',f.route,f.legacyRoute,'/v1/senders']);
   }
 }));
 
@@ -146,7 +153,7 @@ test('old-server fallback retains the existing 512 KiB total response bound',()=
     let cancelled=false;
     globalThis.fetch=async url=>{
       const route=new URL(String(url)).pathname;
-      if(route==='/v1/health')return health();if(route===f.route)return new Response(null,{status:404});
+      if(route==='/v1/health')return health();if(route===f.route || route===f.legacyRoute)return new Response(null,{status:404});
       const value=padding({senders:[f.row()]},size);
       return new Response(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode(value));if(size===524288)c.close();},cancel(){cancelled=true;}}));
     };
@@ -162,13 +169,13 @@ test('one deadline covers health, exact lookup and the legacy body, including th
     const routes:string[]=[];
     globalThis.fetch=async url=>{
       const route=new URL(String(url)).pathname;routes.push(route);
-      if(route==='/v1/health'){t.mock.timers.tick(budget/3);return health();}
-      if(route===f.route){t.mock.timers.tick(budget/3);return new Response(null,{status:404});}
-      return new Response(new ReadableStream({pull(){bodyRead=true;t.mock.timers.tick(budget/3);return new Promise(()=>{});},cancel(){cancelled=true;}}));
+      if(route==='/v1/health'){t.mock.timers.tick(budget/4);return health();}
+      if(route===f.route || route===f.legacyRoute){t.mock.timers.tick(budget/4);return new Response(null,{status:404});}
+      return new Response(new ReadableStream({pull(){bodyRead=true;t.mock.timers.tick(budget/4);return new Promise(()=>{});},cancel(){cancelled=true;}}));
     };
     const start=Date.now(),report=await f.client().doctor(budget===120?{deadline:start+budget}:{});
     unavailable(report);assert.equal(Date.now()-start,budget);assert(bodyRead);assert(cancelled);
-    assert.deepEqual(routes,['/v1/health',f.route,'/v1/senders']);
+    assert.deepEqual(routes,['/v1/health',f.route,f.legacyRoute,'/v1/senders']);
   }
 }));
 
@@ -178,14 +185,14 @@ test('cancellation propagates through exact and fallback headers/bodies without 
     const routes:string[]=[];
     globalThis.fetch=async(url,init)=>{
       const route=new URL(String(url)).pathname;routes.push(route);
-      if(route==='/v1/health')return health();if(target==='legacy' && route===f.route)return new Response(null,{status:404});
+      if(route==='/v1/health')return health();if(target==='legacy' && (route===f.route || route===f.legacyRoute))return new Response(null,{status:404});
       init!.signal!.addEventListener('abort',()=>{aborted=true;},{once:true});
       if(phase==='headers'){controller.abort(reason);return new Promise(()=>{});}
       return new Response(new ReadableStream({pull(){controller.abort(reason);return new Promise(()=>{});},cancel(){cancelled=true;}}));
     };
     await assert.rejects(f.client().doctor({signal:controller.signal}),error=>error===reason);assert(aborted);
     if(phase==='body')assert(cancelled);
-    assert.deepEqual(routes,['/v1/health',f.route,...(target==='legacy'?['/v1/senders']:[])]);
+    assert.deepEqual(routes,['/v1/health',f.route,...(target==='legacy'?[f.legacyRoute,'/v1/senders']:[])]);
   }
   let called=false;globalThis.fetch=async()=>{called=true;return health();};
   await assert.rejects(f.client().doctor({signal:AbortSignal.abort()}));assert(!called);
@@ -237,7 +244,7 @@ test('real localhost HTTP handles new and old relays and refuses redirects',{tim
     if(req.headers.authorization!=='Bearer '+f.config.token){unexpected++;res.writeHead(401).end();return;}
     res.setHeader('content-type','application/json');
     if(req.url==='/v1/health'){res.end(JSON.stringify({status:'healthy'}));return;}
-    if(req.url===f.route){
+    if(req.url===f.route || req.url===f.legacyRoute){
       if(mode==='legacy'){res.writeHead(404).end(JSON.stringify({error:'Not found'}));return;}
       if(mode==='redirect'){res.writeHead(302,{location:'/forbidden'}).end();return;}
       if(mode==='oversize'){const value=padding({sender:f.row()},65537);res.write(value.slice(0,32768));res.end(value.slice(32768));return;}
@@ -253,8 +260,66 @@ test('real localhost HTTP handles new and old relays and refuses redirects',{tim
     for(mode of ['direct','legacy','redirect','oversize']) {
       routes.length=0;const report=await client.doctor();
       if(['redirect','oversize'].includes(mode))unavailable(report);else {assert.equal(report.sender,'approved');assert.deepEqual(report.issues,[]);}
-      assert.deepEqual(routes,['/v1/health',f.route,...(mode==='legacy'?['/v1/senders']:[])]);
+      assert.deepEqual(routes,['/v1/health',f.route,...(mode==='legacy'?[f.legacyRoute,'/v1/senders']:[])]);
     }
     assert.equal(unexpected,0);
   }finally {server.closeAllConnections();await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+}));
+
+test('an old relay with targeted lookup needs no complete catalog fallback',()=>fixture(async f=>{
+  const routes:string[]=[];
+  globalThis.fetch=async url=>{
+    const route=new URL(String(url)).pathname;routes.push(route);
+    if(route==='/v1/health')return health();
+    if(route===f.route)return new Response('Not found',{status:404});
+    assert.equal(route,f.legacyRoute);return Response.json({sender:f.row()});
+  };
+  assert.equal((await f.client().doctor()).sender,'approved');
+  assert.deepEqual(routes,['/v1/health',f.route,f.legacyRoute]);
+}));
+
+test('missing or mismatched diagnostic public identity never downgrades to a bearer lookup',()=>fixture(async f=>{
+  const other=await generateSenderSigningKeyPair();
+  for(const senderPub of [undefined,'invalid',other.publicKeyB64u]) {
+    const routes:string[]=[];
+    globalThis.fetch=async url=>{routes.push(new URL(String(url)).pathname);return health();};
+    unavailable(await f.client({senderPub}).doctor());assert.deepEqual(routes,['/v1/health']);
+  }
+}));
+
+test('registration supplies the public point for library clients with nonextractable keys',()=>fixture(async f=>{
+  const config={...f.config,senderPub:undefined},key=await importSenderPrivateKey(f.sender.privateKeyJwk);
+  assert.equal(key.extractable,false);
+  const client=new NotiBuddyClient(config,key,new PendingStore(config,f.root));
+  globalThis.fetch=async(url,init)=>{
+    const route=new URL(String(url)).pathname;
+    if(route==='/v1/health')return health();
+    if(route==='/v1/senders')return Response.json({status:'pending_approval'});
+    assert.equal(route,f.route);
+    const proof=JSON.parse(String(init?.body));assert.equal(proof.senderPub,f.sender.publicKeyB64u);
+    const input=new TextEncoder().encode(JSON.stringify(['nb1','sender-status',f.config.token.slice(7),proof.senderKeyId,proof.senderPub,proof.createdAt,proof.nonce]));
+    assert(await ecdsaVerify(proof.senderPub,input,proof.sig));return Response.json({sender:f.row(0)});
+  };
+  await client.registerSender({senderKeyId:f.sender.senderKeyId,senderPub:f.sender.publicKeyB64u,label:'Fixture',mac:Buffer.alloc(32).toString('base64url')});
+  assert.equal((await client.doctor()).sender,'pending_approval');
+  assert.equal(config.senderPub,undefined,'The caller config is not mutated');
+}));
+
+test('opening an existing destination derives diagnostic identity without rewriting credentials',()=>fixture(async f=>{
+  const store=new DestinationStore(f.root),directory=path.join(f.root,'destinations');fs.mkdirSync(directory,{recursive:true});
+  const file=path.join(directory,'phone.json'),config={...f.config,senderPub:undefined};
+  const record={version:2,connectionId:randomUUID(),config,keys:{senderKeyId:f.sender.senderKeyId,publicKeyB64u:f.sender.publicKeyB64u,privateKeyJwk:f.sender.privateKeyJwk}};
+  fs.writeFileSync(file,JSON.stringify(record),{mode:0o600});const before=fs.readFileSync(file);
+  const opened=await store.open('phone');assert.equal(opened.record.config.senderPub,f.sender.publicKeyB64u);
+  assert.equal(opened.signingKey.extractable,false);assert.deepEqual(fs.readFileSync(file),before);
+}));
+
+test('a deadline expiring while signing cannot start the diagnostic request',{timeout:5000},t=>fixture(async f=>{
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.now()});
+  const original=crypto.subtle.sign.bind(crypto.subtle),routes:string[]=[];
+  t.mock.method(crypto.subtle,'sign',async(...args:Parameters<SubtleCrypto['sign']>)=>{
+    const result=await original(...args);t.mock.timers.tick(121);return result;
+  });
+  globalThis.fetch=async url=>{routes.push(new URL(String(url)).pathname);return health();};
+  unavailable(await f.client().doctor({deadline:Date.now()+120}));assert.deepEqual(routes,['/v1/health']);
 }));
