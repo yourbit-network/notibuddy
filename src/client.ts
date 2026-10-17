@@ -6,7 +6,7 @@ import { verifyRecipients, sealGroupRequest, openGroupResponse, type GroupReques
 import { validGroupRequest } from './group-wire.js';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { signSenderRegistration } from './sender-registration.js';
+import { registerSenderOnce } from './pairing.js';
 import { senderStatus } from './sender-status.js';
 import { z } from 'zod';
 import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType, SenderRegistrationPayload } from './types.js';
@@ -99,12 +99,11 @@ export class NotiBuddyClient {
     }
     return report;
   }
-  async registerSender(payload:SenderRegistrationPayload,options:CallOptions={}):Promise<'registered'|'pending_approval'> {
-    const registration=await signSenderRegistration(payload,this.config.token,this.signingKey);
-    const {body}=await relayJSON(this.config,'/v1/senders',{method:'POST',body:JSON.stringify(registration)},options);
-    if(body?.status!=='registered' && body?.status!=='pending_approval')throw Error('Invalid sender registration result');
+  async registerSender(payload:SenderRegistrationPayload,options:CallOptions={}):Promise<'registered'|'pending_approval'|'pending_automatic'> {
+    payload=structuredClone(payload);
+    const result=await registerSenderOnce(this.config,this.signingKey,payload,options);
     if(payload.senderKeyId===this.config.senderKeyId)this.config.senderPub=payload.senderPub;
-    return body.status;
+    return result.status;
   }
   async postRequest(envelope:WireRequest,options:CallOptions={}):Promise<{requestId:string;seq:number}> {
     try {

@@ -150,9 +150,19 @@ export interface PairingBundle {
   pairSecret: string;
   requestProtocol?: 1 | 2;
   minimumRecipientGeneration?: number;
+  firstUse?: FirstUsePairing;
 }
 
+export interface PairingInvitation {
+  v: 1; id: string; accountId: string; deviceId: string; devicePub: string;
+  relay: string; publicKey: string; createdAt: number; expiresAt: number;
+}
+/** Temporary bearer capability from private setup; never persist or log it. */
+export interface FirstUsePairing { invitation: PairingInvitation; privateKey: string }
+export interface PairingClaimProof { invitationId: string; signature: string }
+
 export interface SenderRegistrationPayload {
+  invitation?: PairingClaimProof;
   fileEncPub?: string;
   fileDeviceId?: string;
   senderKeyId: string;
