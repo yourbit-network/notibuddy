@@ -24,19 +24,21 @@ Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md).
 
 ## 🚀 Quick Start
 
+Use the versioned `npx` commands below without a global installation. In later examples, `nb` is shorthand for `npx -y notibuddy@^0.2.3`, or the executable from a global installation of that version or a compatible newer release.
+
 ### 1. Pair with your iPhone
 
 In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and AirDrop or copy the pairing string:
 
 ```bash
-npx notibuddy@^0.2.0 pair "<private pairing bundle from your phone>" --to personal
+npx notibuddy@^0.2.3 pair "<private pairing bundle from your phone>" --to personal
 ```
 
 This validates the phone identity, registers an independent connection key for this destination, and saves it in `~/.notibuddy/destinations/personal.json`. The destination name is a local alias.
 
 Before sending a request, open **Connect** on your iPhone, compare the full **Sender Key ID** with the one shown in Terminal, and approve the connection. Keep the pairing bundle private. Only one registration per pairing account can await approval: a newer request replaces the previous pending request. Existing approved connections remain paired. Pending registrations expire after 15 minutes; run pairing again if approval expires.
 
-Use `npx notibuddy@^0.2.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+Use `npx notibuddy@^0.2.3 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
 
 ### Check the connection
 
@@ -48,19 +50,19 @@ An unavailable or invalid response reports the sender as `unverified`; it does n
 
 If an ask returns `pending`, keep its request ID and resume it with `nb ask --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active CLI ask prints its resume ID when it has already been saved.
 
-This development branch supports explicitly negotiated phone/Watch group requests. Existing pairing documents continue to use v1. Native companion rollout and package publication remain separate release steps; changing configuration fields manually does not enable a Watch app.
+The client supports explicitly negotiated phone/Watch group requests with a compatible app and relay. Pairings without that negotiation continue to use v1. Set up the Watch through the iPhone app; changing configuration fields manually does not enable a Watch app.
 
 ### 2. Test via CLI
 
 ```bash
 # Ask for approval:
-npx notibuddy@^0.2.0 ask "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
+npx notibuddy@^0.2.3 ask "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
 
 # Ask with custom options and Face ID required:
-npx notibuddy@^0.2.0 ask "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
+npx notibuddy@^0.2.3 ask "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
 
 # Start a countdown timer on the Dynamic Island:
-npx notibuddy@^0.2.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
+npx notibuddy@^0.2.3 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```
 
 ### Review a text change (0.2.1+)
@@ -77,7 +79,7 @@ Save a UTF-8 JSON file named `changes.json`:
 ```
 
 ```bash
-npx notibuddy@^0.2.1 ask "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
+npx notibuddy@^0.2.3 ask "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
 ```
 
 The filename and source text are encrypted for the destination. Review happens on iPhone or iPad; a paired Watch hands off to its iPhone. The response uses `approve` (Apply) or `reject` (Discard). These are decisions: NotiBuddy does not change files or execute code. The caller must verify the current file still matches the reviewed original before applying an approved change.
@@ -92,7 +94,7 @@ Do not combine a diff with choices, text input, forms, or a resume ID. If the re
 
 ## 🛠️ Model Context Protocol (MCP) Setup
 
-You can connect NotiBuddy directly to your favorite agent tools:
+You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration requiring at least the installed package version. When updating an existing configuration, change its package version to `notibuddy@^0.2.3` and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
 
 ### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -101,7 +103,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@^0.2.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@^0.2.3", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -114,7 +116,7 @@ Run as a local stdio MCP server:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@^0.2.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@^0.2.3", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -222,7 +224,7 @@ Use `notibuddy_list_destinations` to discover only the destinations exposed by t
 ### Migrate an existing installation
 
 ```sh
-npx notibuddy@^0.2.0 devices migrate --to personal
+npx notibuddy@^0.2.3 devices migrate --to personal
 ```
 
 This imports the old `~/.notibuddy/config.json` and `sender.json` without re-pairing or changing keys. Pending replies retain their original cryptographic storage scope. Original files remain for rollback; keep them private. Update every MCP entry to include `--to personal`, then restart it. Old unqualified `mcp`, `ask`, and `activity` commands do not silently choose a destination. Unreadable credentials are reported, never replaced with new keys. Aliases cannot overwrite an existing pairing; a replacement phone gets a new alias (rename the previous alias first if needed).

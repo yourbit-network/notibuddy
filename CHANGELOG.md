@@ -6,6 +6,7 @@
 
 - Generate pairing's MCP configuration from the installed package version instead of the stale `^0.2.0` minimum. Keep its explicit destination and existing keys; no re-pairing is required to update an MCP configuration.
 - Verify the actual pairing output from the packed, installed CLI with a synthetic intercepted relay before publishing. The check rejects a package spec that allows older releases than the tested package.
+- Align the README pairing, MCP, migration and request examples with `^0.2.3`, and explain how to update existing MCP configurations without changing keys.
 
 ## 0.2.2 — 2026-10-16
 
