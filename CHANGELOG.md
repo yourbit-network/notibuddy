@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.4 — 2026-10-17
+
+- Support short-lived, one-use pairing invitations from compatible NotiBuddy apps and relays. The first eligible sender can connect after automatic phone verification; later new senders use manual approval, and unchanged approved identities reconnect without another approval.
+- Wait up to 45 seconds for automatic authorization, configurable with `pair --wait 0–60`. Report unfinished setup honestly, reuse the exact signed request while waiting, and preserve destination keys after timeouts or interruption.
+- Validate invitation scope, key material, lifetime and sender/file-key bindings before saving or sending. Keep the private invitation capability in memory only; it is never stored in destination records or sent to the relay.
+- Preserve legacy manual pairing and document the first-holder trust boundary, expiry and cancellation behavior. This package release does not itself enable invitations in an older app or relay.
+
 ## 0.2.3 — 2026-10-17
 
 - Generate pairing's MCP configuration from the installed package version instead of the stale `^0.2.0` minimum. Keep its explicit destination and existing keys; no re-pairing is required to update an MCP configuration.

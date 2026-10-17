@@ -8,6 +8,7 @@ import { runMcpServer } from './mcp.js';
 import { createDestinationRouter, parseRoutingArgs } from './routing.js';
 import { resolveFileDestination } from './file-routing.js';
 import { readDiffFile } from './diff-file.js';
+import { pairSender } from './pairing.js';
 
 async function withShutdown<T>(operation:(signal:AbortSignal)=>Promise<T>):Promise<T> {
   const controller=new AbortController();
@@ -21,7 +22,7 @@ function printHelp(): void {
   console.log(`NotiBuddy CLI (nb) — Encrypted requests and replies
 
 Usage:
-  nb pair <bundle> --to <name> [--label <connection-name>]
+  nb pair <bundle> --to <name> [--label <connection-name>] [--wait <seconds>]
   nb files list --to <name>
   nb files receive <file_id> --to <name>
   nb files receive <file_id> --pairing <device_id>:<sender_key_id>
@@ -41,6 +42,7 @@ All destinations live under ~/.notibuddy. Sending requires an explicit destinati
 --sender is a free-form display label (default: hostname), not a new pairing.
 MCP with --allow-to requires 'to' on every request; no fallback or broadcast.
 File commands copied from the phone use --pairing to find the exact saved identities.
+Pairing waits up to 45 seconds for a first-use code; --wait accepts 0–60 seconds.
 
 Ask options:
   --message, -m <text>       Prompt details
@@ -115,8 +117,10 @@ async function main():Promise<void> {
   }
   if(command==='pair') {
     if(routing.sender)throw new Error('Use --label for the approved connection name; --sender labels individual requests.');
-    const args=argumentsFor(rest,['--label']);
+    const args=argumentsFor(rest,['--label','--wait']);
     if(args.positional.length!==1)throw new Error('Use nb pair <bundle> --to <name>');
+    const waitSeconds=args.text('--wait')===undefined?45:Number(args.text('--wait'));
+    if(!Number.isFinite(waitSeconds) || waitSeconds<0 || waitSeconds>60)throw Error('Pairing wait must be between 0 and 60 seconds');
     // The installed, tested release is the minimum for its generated MCP setup.
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     const bundle=await parsePairingBundle(args.positional[0]);
@@ -124,17 +128,20 @@ async function main():Promise<void> {
     const {record,signingKey}=await store.prepare(routing.to,bundle,label);
     const {config,keys}=record;
     const mac=await computePairingMac(bundle.pairSecret,bundle.device.id,keys.senderKeyId,keys.publicKeyB64u,label,record.fileKey!.publicKeyB64u);
-    const client=new NotiBuddyClient(config,signingKey);
-    const status=await withShutdown(signal=>client.registerSender({senderKeyId:keys.senderKeyId,senderPub:keys.publicKeyB64u,label,mac,fileEncPub:record.fileKey!.publicKeyB64u,fileDeviceId:config.device.id},{signal}));
-    console.log(`${status==='registered'?'Pairing confirmed':'Phone approval required'}
+    const result=await withShutdown(signal=>pairSender(config,signingKey,{senderKeyId:keys.senderKeyId,senderPub:keys.publicKeyB64u,label,mac,fileEncPub:record.fileKey!.publicKeyB64u,fileDeviceId:config.device.id},bundle.firstUse,
+      {signal,waitSeconds,onWaiting:()=>console.log('First-use code claimed. Keep NotiBuddy open and online while it finishes connecting…')}));
+    const guidance=result.status==='registered'
+      ? 'This sender is connected. No approval is needed. Configure or restart its MCP server below.'
+      : result.status==='pending_automatic'
+        ? 'Connection is not confirmed yet. Keep NotiBuddy open and online. Run the same pairing command again with the same destination name; your saved sender keys will be reused. If the code expires, use fresh setup or the manual approval shown in Connect.'
+        : 'Open NotiBuddy → Connect. Compare the full Sender Key ID, then approve the connection.\nA new pairing request replaces an older pending approval; approved connections stay paired.\nPending approval expires after 15 minutes.';
+    console.log(`${result.status==='registered'?'Pairing confirmed':result.status==='pending_automatic'?'Waiting for NotiBuddy':'Phone approval required'}
 Destination: ${routing.to}
 Phone: ${config.device.name || 'iPhone'}
 Connection: ${label}
 Sender Key ID: ${keys.senderKeyId}
 
-Open NotiBuddy → Connect. Compare the full Sender Key ID, then approve the connection.
-A new pairing request replaces an older pending approval; approved connections stay paired.
-Pending approval expires after 15 minutes.
+${guidance}
 
 MCP configuration:
 ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${version}`,'mcp','--to',routing.to]}}})}`);
