@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateContents } from './package-contents.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -68,9 +68,44 @@ try {
   });
   assert.equal(mcp.status, 1, 'Unpaired MCP startup must fail without hanging.');
   assert.match(mcp.stderr, /Select a destination explicitly/, 'MCP entry point must load and explain the missing pairing.');
+  // Exercise the installed CLI's actual pairing output with temporary keys and
+  // an intercepted fixture relay. No phone or live service is contacted.
+  const { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, toB64u } =
+    await import(pathToFileURL(path.join(installed, 'dist/crypto.js')).href);
+  const deviceEncryption = await generateReplyKeyPair();
+  const deviceSigning = await generateSenderSigningKeyPair();
+  const bundle = {
+    v: 1, relay: 'https://pairing.fixture.invalid', token: 'nb_snd_package_fixture',
+    pairSecret: toB64u(new Uint8Array(32)),
+    device: { id: await deriveDeviceId(deviceEncryption.publicKeyB64u, deviceSigning.publicKeyB64u),
+      encPub: deviceEncryption.publicKeyB64u, sigPub: deviceSigning.publicKeyB64u, name: 'Package fixture' },
+  };
+  const fixtureFetch = path.join(temporary, 'fixture-fetch.mjs');
+  writeFileSync(fixtureFetch, `
+    import assert from 'node:assert/strict';
+    let calls = 0;
+    globalThis.fetch = async (url, options) => {
+      assert.equal(String(url), 'https://pairing.fixture.invalid/v1/senders');
+      assert.equal(options.method, 'POST');
+      calls++;
+      return Response.json({ status: 'pending_approval' });
+    };
+    process.on('exit', () => assert.equal(calls, 1, 'Expected one intercepted registration'));
+  `);
+  const pairing = run(process.execPath, ['--import', pathToFileURL(fixtureFetch).href, cli, 'pair',
+    'nbpair1.' + Buffer.from(JSON.stringify(bundle)).toString('base64url'),
+    '--to', 'package-check', '--label', 'Package fixture'], { cwd: consumer, env });
+  assert.match(pairing, /Phone approval required/);
+  const marker = 'MCP configuration:\n';
+  const markerAt = pairing.indexOf(marker);
+  assert.ok(markerAt >= 0, 'Pairing must print its MCP configuration.');
+  assert.deepEqual(JSON.parse(pairing.slice(markerAt + marker.length)), {
+    mcpServers: { notibuddy: { command: 'npx',
+      args: ['-y', `notibuddy@^${manifest.version}`, 'mcp', '--to', 'package-check'] } },
+  }, 'Generated MCP configuration must require the tested package version and explicit destination.');
   // Write the manifest only after every check has passed.
   writeFileSync(path.join(output, 'pack.json'), JSON.stringify([packed], null, 2) + '\n');
-  console.log(`Verified ${packed.filename}: ${packed.files.length} allowed files, clean installation, CLI and MCP entry points${process.argv.includes('--scan') ? ', secret scan' : ''}.`);
+  console.log(`Verified ${packed.filename}: ${packed.files.length} allowed files, clean installation, CLI/MCP entry points and pairing configuration${process.argv.includes('--scan') ? ', secret scan' : ''}.`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }
