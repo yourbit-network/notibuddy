@@ -1,6 +1,6 @@
 # NotiBuddy (notibuddy-mcp)
 
-Zero-knowledge, hardware-backed, end-to-end encrypted human-in-the-loop bridge between autonomous AI agents and your iPhone.
+End-to-end encrypted requests and signed replies between your agents, apps or scripts and your Apple devices.
 
 The public CLI and MCP server from **Yourbit, LLC**, published on npm as [`notibuddy`](https://www.npmjs.com/package/notibuddy). This repository contains the computer client and protocol documentation. Support: **contact@notibuddy.app**.
 
@@ -13,12 +13,14 @@ The public CLI and MCP server from **Yourbit, LLC**, published on npm as [`notib
 
 NotiBuddy is designed so that **neither the relay server nor Apple Push Notification service (APNs) can read prompts, choices, code, or user responses**.
 
-1. **HPKE (RFC 9180):** All agent requests are encrypted directly to your iPhone's keychain-protected encryption key using `DHKEM(P-256, HKDF-SHA256)` + `AES-256-GCM`.
-2. **Device ECDSA Signatures:** User answers (approvals, custom choices, text input) are signed with a NIST P-256 key inside the Apple **Secure Enclave**.
+1. **HPKE (RFC 9180):** Requests use `DHKEM(P-256, HKDF-SHA256)` + `AES-256-GCM` for the addressed device. The Apple app stores its separate encryption private key in Keychain; this is a software key, not a Secure Enclave key.
+2. **Device ECDSA signatures:** Replies use P-256 signing keys. The Apple app uses the Secure Enclave when available and a Keychain-protected software key otherwise. A valid signature proves possession of the paired key; it does not attest hardware storage or user authentication. Protected requests have separate authentication rules.
 3. **Out-of-Band Pairing:** Public keys and device fingerprints are exchanged via out-of-band bundles (`nbpair1...`) verified with HMAC-SHA256.
-4. **Relay Blindness:** The relay only sees opaque binary ciphertext blobs (`ct`, `enc`, `sig`) and routing metadata (`requestId`, expiration).
+4. **Content and metadata:** The relay transports encrypted message/file bodies, but it can read routing identities, primitive types, timestamps, sizes, delivery status and usage metadata. APNs tokens and connection IP addresses are also visible to the services handling them. Encryption does not make the service anonymous or hide all metadata.
 
-Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md).
+The CLI stores software signing, receiving and pending-reply keys under the private local `~/.notibuddy` store. Unix permissions and Windows account ACLs protect those files; the package does not use a hardware keystore. Paired endpoints can read the content addressed to them and may retain their own copies.
+
+Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md) and the [security policy](https://github.com/yourbit-network/notibuddy/blob/main/SECURITY.md).
 
 ---
 

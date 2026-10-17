@@ -57,6 +57,8 @@ That rule keeps header strings unambiguous.
 | Sender signing key `SS` | Sender | P-256 ECDSA | Created per destination by `nb pair --to <name>`, stored in `~/.notibuddy/destinations/<name>.json` (mode 0600; legacy imports preserve the existing key) |
 | Reply key `R` | Sender | P-256 key agreement | Fresh per request. Kept until the request expires |
 
+**Current implementation storage:** the Apple app uses a software P-256 key-agreement key for HPKE and persists it in a device-only Keychain identity record. Signing uses Secure Enclave when available, with a software-key implementation otherwise. The hardware-storage recommendations above are not guarantees about every key or device. The CLI uses software keys stored in its private local files. Wire keys and signatures do not attest storage hardware or user presence; protected-action authentication is a separate device policy. No wire format or cryptographic suite changes with these storage choices.
+
 Key IDs:
 
 ```
