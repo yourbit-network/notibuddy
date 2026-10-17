@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { parsePairingBundle } from './protocol.js';
 import { computePairingMac } from './crypto.js';
 import { DestinationStore, senderLabel } from './config.js';
@@ -116,6 +117,8 @@ async function main():Promise<void> {
     if(routing.sender)throw new Error('Use --label for the approved connection name; --sender labels individual requests.');
     const args=argumentsFor(rest,['--label']);
     if(args.positional.length!==1)throw new Error('Use nb pair <bundle> --to <name>');
+    // The installed, tested release is the minimum for its generated MCP setup.
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     const bundle=await parsePairingBundle(args.positional[0]);
     const label=args.text('--label')??store.list().find(d=>d.name===routing.to)?.connectionLabel??senderLabel();
     const {record,signingKey}=await store.prepare(routing.to,bundle,label);
@@ -134,7 +137,7 @@ A new pairing request replaces an older pending approval; approved connections s
 Pending approval expires after 15 minutes.
 
 MCP configuration:
-${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y','notibuddy@^0.2.0','mcp','--to',routing.to]}}})}`);
+${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${version}`,'mcp','--to',routing.to]}}})}`);
     return;
   }
   if(command==='doctor') {

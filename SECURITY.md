@@ -14,4 +14,6 @@ Removing a Git commit or issue does not invalidate a credential. Disconnect the 
 
 The public package contains the CLI, MCP server, protocol implementation, and synthetic tests. The iOS app and relay live in a separate private repository. Encryption does not protect messages from a compromised paired computer or phone. Notification visibility depends on the request's privacy settings and the user's iOS settings.
 
+The Apple app stores its software encryption key in Keychain and uses Secure Enclave signing where available, with a software-key implementation otherwise. The CLI stores software private keys in its local private files; it does not provide a hardware-keystore guarantee. Valid signatures establish the paired key identity, not hardware attestation or biometric authentication. The relay can read routing, timing, size and service-usage metadata even when content is encrypted.
+
 Local pre-push checks, CI secret scans, and GitHub push protection are complementary controls. Automated scanners cannot identify every secret. Never include live credentials in fixtures, reports, pull requests, or workflow logs.
