@@ -1,6 +1,7 @@
 import { answerSchema } from './answer-validation.js';
 import { z } from 'zod';
 import { normalizeRelay } from './relay-url.js';
+import { firstUseSchema, validateFirstUse } from './pairing-invitation.js';
 import {
   RequestEnvelope,
   ReplyEnvelope,
@@ -323,6 +324,7 @@ const pairingSchema = z.object({
   }).strict(),
   requestProtocol: z.union([z.literal(1), z.literal(2)]).optional(),
   minimumRecipientGeneration: z.number().int().safe().nonnegative().optional(),
+  firstUse: firstUseSchema.optional(),
 }).strict();
 
 function pairingBytes(value: string, min: number, max: number): Uint8Array {
@@ -355,6 +357,11 @@ export async function validatePairingBundle(value: unknown): Promise<PairingBund
   const expectedDeviceId = await deriveDeviceId(bundle.device.encPub, bundle.device.sigPub);
   if (bundle.device.id !== expectedDeviceId) {
     throw new Error('Pairing security failure: device ID does not match its public keys');
+  }
+
+  if (bundle.firstUse) {
+    if (bundle.requestProtocol !== 2) throw new Error('First-use pairing requires the current request protocol');
+    bundle.firstUse = validateFirstUse(bundle.firstUse, bundle);
   }
 
   return bundle;

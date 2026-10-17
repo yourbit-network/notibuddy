@@ -96,7 +96,7 @@ The sender MUST check that `device.id` matches the keys (§3) before saving the 
 
 The client accepts at most 32,768 input characters (including surrounding copy/paste whitespace) and 16,384 decoded JSON bytes. The outer data and 32-byte pairing secret use canonical unpadded Base64URL; JSON must be valid UTF-8. Both public keys must be canonical 65-byte uncompressed points on P-256, not merely strings of the right length. The sender token has the form `nb_snd_` followed by 1–256 ASCII letters, digits, underscores or hyphens; device/user credentials are not pairing tokens. Relay URLs are limited to 2,048 characters before and after normalization. An optional device name is at most 256 UTF-8 bytes and contains no C0/C1 controls.
 
-Pairing accepts only the fields shown above plus negotiated `requestProtocol` (1 or 2) and `minimumRecipientGeneration` (a nonnegative safe integer, only for protocol 2). Unknown root/device fields fail closed so clients cannot silently ignore an unsupported setup contract. HTTPS is required except for local development on `localhost`, `127.0.0.1` or `[::1]`; credentials, queries and fragments are rejected. `parsePairingBundle` and direct `DestinationStore.prepare` calls share validation and snapshot the bundle before asynchronous key work. Invalid data must not create or overwrite a destination. Existing destination opens also check the stored public-key points, without deleting invalid records.
+Pairing accepts only the fields shown above plus negotiated `requestProtocol` (1 or 2), `minimumRecipientGeneration` (a nonnegative safe integer, only for protocol 2), and optional `firstUse` for protocol 2 (§4.3). Unknown root/device fields fail closed so clients cannot silently ignore an unsupported setup contract. HTTPS is required except for local development on `localhost`, `127.0.0.1` or `[::1]`; credentials, queries and fragments are rejected. `parsePairingBundle` and direct `DestinationStore.prepare` calls share validation and snapshot the bundle before asynchronous key work. Invalid data must not create or overwrite a destination. Existing destination opens also check the stored public-key points, without deleting invalid records.
 
 ### 4.2 Sender registration (sender → relay → device)
 
@@ -113,17 +113,46 @@ mac = HMAC-SHA256(pairSecret,
 
 The relay also requires a sender-key ownership signature for both initial registration and updates. Sign the UTF-8 JSON array (compact `JSON.stringify` encoding) `['nb1', 'sender-registration', realm, senderKeyId, senderPub, label, mac, createdAt, nonce]` with SS using ECDSA P-256/SHA-256. `realm` is the bearer token after removing its `nb_snd_`, `nb_dev_`, or `nb_usr_` prefix. `createdAt` is integer Unix seconds within 120 seconds of the relay; `nonce` is a fresh 16–80 character identifier. The relay retains nonces for 240 seconds. An exact retry returns success while that registration remains current; a superseded retry cannot roll it back. Upgrade sender clients before requiring this proof on the relay. Existing request signatures and stored registrations are unchanged.
 
-`label` MUST be 1–64 bytes of UTF-8 and MUST NOT contain control characters.
+The registration label is bounded to 200 UTF-16 code units by the relay. The CLI uses a stricter trimmed 1–100 code-unit label without Unicode control/format characters. Signed label bytes must not be changed for display sanitization.
 
 The device fetches `GET /v1/senders`. For each entry it MUST:
 - recompute and check the MAC in constant time;
 - check that `senderKeyId` matches `senderPub`;
 - only then pin the sender, showing the label to the user.
 
-After pinning one sender, the device MUST rotate `pairSecret`, so a bundle pairs exactly one sender.
-The sender MUST delete `pairSecret` from disk once registration succeeds.
+The current pairing secret remains scoped to the phone/account so later sender identities can request manual review. It is replaced when the connection is replaced or explicitly rotated, not after every sender approval. The CLI does not save `pairSecret` in destination files. Sender identities and file keys remain stable when the same named destination is paired again.
 
 The relay never sees `pairSecret`, so it cannot register its own sender key.
+
+### 4.3 Optional first-use invitation
+
+`firstUse` contains exactly `{invitation, privateKey}`. `invitation` contains exactly `v:1`, `id`, `accountId`, `deviceId`, `devicePub`, `relay`, `publicKey`, `createdAt`, `expiresAt`. The private key is a canonical unpadded Base64URL 32-byte P-256 scalar that derives `publicKey`; public keys are canonical 65-byte uncompressed curve points. `id` is `pin_` plus the first 32 hex characters of SHA-256 of that public point. `accountId` is the first 32 hex characters of SHA-256 of the sender token's realm. Device ID/signing key and relay must match the enclosing bundle. The invitation relay must equal its canonical origin: HTTPS, or loopback HTTP on `127.0.0.1`/`[::1]`, with no path, credentials, query or fragment. Times are positive safe-integer Unix milliseconds; lifetime is at most 600,000 ms. Reject an issue more than 120 seconds in the future. Expired codes can still accompany normal manual pairing, but confer no automatic authority.
+
+The phone explicitly issues the code. It stores the private scalar securely and shares it only in the private setup document; the relay gets only public metadata. The sender binds its file destination/key, ID, public key, label and pairing MAC into:
+
+```text
+registrationHash = hex(SHA256(
+  UTF8("nb2|sender-registration|" + senderKeyId + "|" + fileDeviceId) || 0x00 ||
+  raw(senderPub) || raw(mac) || raw(fileEncPub) || 0x00 || UTF8(label)))
+claimInput = JSON.stringify(["nb2", "pairing-invitation-claim", accountId,
+  deviceId, devicePub, relay, id, publicKey, createdAt, expiresAt, registrationHash])
+```
+
+Sign `claimInput` with the temporary invitation key using ECDSA P-256/SHA-256 (64-byte P1363, Base64URL). Add only `invitation:{invitationId:id,signature}` to the sender registration. Its sender-ownership transcript becomes:
+
+```text
+JSON.stringify(["nb3", "sender-registration", realm, senderKeyId, senderPub,
+  label, mac, createdAt, nonce, fileDeviceId, fileEncPub,
+  invitation.invitationId, invitation.signature])
+```
+
+This signature binds invitation presence and proof; attaching or stripping the code invalidates it. Registration `createdAt` remains Unix seconds, distinct from invitation metadata milliseconds. File-receiving keys are required for this flow. Legacy `nb1` and file-capable `nb2` registration transcripts without invitations remain unchanged.
+
+The first eligible new sender receives `{status:"pending_automatic",senderKeyId,expiresAt}`; this is a reservation, not a grant. The phone verifies the original pairing MAC and invitation proof, durably saves the consumed sender/hash before acceptance, and authorizes that exact registration. The client waits with the byte-identical signed request/nonce for at most 60 extra seconds, so polling cannot create a new manual request or supersede another one. `registered` confirms the matching registration; `pending_approval` requires the existing manual review. A timeout remains pending. Authorization, stale-claim or malformed-response errors never cause unsigned or proof-free fallback.
+
+Later eligible new identities use manual approval, while unchanged approved senders are idempotent and do not consume a fresh code. Known changed bindings and revoked identities cannot silently gain trust. A canceled/expired/replaced code cannot grant access; valid ordinary credentials may still request manual approval with a fresh signed request. An exact replay of a canceled reservation can instead receive 409. Cancellation of the code does not revoke an approved sender.
+
+The CLI never persists the invitation private scalar or pairing secret. Keep the setup document itself private: possession allows racing the intended first sender, and single use/expiry do not establish the intended recipient. A capability holder with an invalid pairing MAC can reserve a slot, but the phone must reject it without reopening the code. Shared synthetic transcript vectors are in `test-vectors/pairing-invitation-v1.json`.
 
 ## 5. Request envelope (sender → device)
 
