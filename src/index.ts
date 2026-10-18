@@ -9,3 +9,4 @@ export * from './files.js';
 export * from './groups.js';
 export * from './recipient-store.js';
 export * from './pairing.js';
+export * from './request-timeout.js';

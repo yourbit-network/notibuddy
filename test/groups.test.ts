@@ -150,7 +150,7 @@ test('checkpoint persistence survives aliases and process restarts and fails clo
 
 test('size, time and identifier validation fails before creating an oversized or ambiguous request',async()=>{
   const f=await fixture(),params={requestId:'id',senderKeyId:f.sender.senderKeyId,signingKey:f.sender.privateKey,recipients:f.recipients,primitive:'approval' as const,payload:f.payload};
-  await assert.rejects(sealGroupRequest({...params,timeoutSeconds:3601}));
+  await assert.rejects(sealGroupRequest({...params,timeoutSeconds:10801}));
   await assert.rejects(sealGroupRequest({...params,requestId:'id\n'}));
   await assert.rejects(sealGroupRequest({...params,payload:{...f.payload,message:'a'.repeat(150000)}}));
 });

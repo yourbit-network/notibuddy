@@ -1,3 +1,4 @@
+import { MAX_ACTIVITY_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, requestTimeoutSeconds } from './request-timeout.js';
 import { answerSchema } from './answer-validation.js';
 import type { NotiBuddyConfig, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType } from './types.js';
 import { deriveDeviceId, ecdsaSign, ecdsaVerify, fromB64u, hpkeOpen, hpkeSeal, sha256, toB64u, toHex } from './crypto.js';
@@ -62,8 +63,10 @@ export function recipientCheckpoint(recipients:VerifiedRecipients):RecipientChec
 export async function sealGroupRequest(params:{requestId:string;senderKeyId:string;signingKey:CryptoKey;recipients:VerifiedRecipients;
   primitive:PrimitiveType;payload:AskPayload|ActivityPayload;timeoutSeconds?:number;expiresAt?:number;sessionId?:string;revision?:number}):Promise<GroupRequest> {
   requireVerified(params.recipients);
-  const timeout=params.timeoutSeconds ?? 300;
-  if(!Number.isInteger(timeout) || timeout<1 || timeout>3600)throw Error('timeoutSeconds must be between 1 and 3600');
+  // Low-level activity calls retain their existing default; client.activity supplies one hour.
+  const activity = params.primitive.startsWith('activity_');
+  const timeout = requestTimeoutSeconds(params.timeoutSeconds, activity ? 300 : undefined,
+    activity ? MAX_ACTIVITY_TIMEOUT_SECONDS : MAX_REQUEST_TIMEOUT_SECONDS);
   const plaintext=JSON.stringify(params.payload);
   if(Buffer.byteLength(plaintext)>149984)throw Error('Encrypted group content exceeds the request limit');
   const now=Math.floor(Date.now()/1000);

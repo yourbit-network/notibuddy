@@ -1,3 +1,4 @@
+import { MAX_ACTIVITY_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, requestTimeoutSeconds } from './request-timeout.js';
 import { answerSchema } from './answer-validation.js';
 import { z } from 'zod';
 import { normalizeRelay } from './relay-url.js';
@@ -65,8 +66,10 @@ export async function sealRequest(params: {
   timeoutSeconds?: number;
 }): Promise<RequestEnvelope> {
   const now = Math.floor(Date.now() / 1000);
-  const timeout = params.timeoutSeconds ?? 300;
-  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 3600) throw new Error('timeoutSeconds must be between 1 and 3600');
+  // Low-level activity calls retain their existing default; client.activity supplies one hour.
+  const activity = params.primitive.startsWith('activity_');
+  const timeout = requestTimeoutSeconds(params.timeoutSeconds, activity ? 300 : undefined,
+    activity ? MAX_ACTIVITY_TIMEOUT_SECONDS : MAX_REQUEST_TIMEOUT_SECONDS);
   const createdAt = now;
   const expiresAt = now + timeout;
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.5 — 2026-10-17
+
+- Keep ordinary approval, text, form and diff requests answerable for three hours by default. Configure a shorter lifetime with CLI `--timeout`, MCP `timeout_seconds`, or library `timeoutSeconds`; polling still waits at most 55 seconds per call.
+- Preserve the original signed deadline and saved reply keys when resuming or retrying. Existing requests keep their original expiration. Live Activity requests retain their one-hour maximum.
+- **Compatibility:** three-hour requests require updated NotiBuddy app and relay support. For an older installation, explicitly select a lifetime of 3600 seconds or less; the client does not silently extend or renegotiate an existing request.
+
 ## 0.2.4 — 2026-10-17
 
 - Support short-lived, one-use pairing invitations from compatible NotiBuddy apps and relays. The first eligible sender can connect after automatic phone verification; later new senders use manual approval, and unchanged approved identities reconnect without another approval.
