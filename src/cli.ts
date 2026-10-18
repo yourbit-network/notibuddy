@@ -9,6 +9,7 @@ import { createDestinationRouter, parseRoutingArgs } from './routing.js';
 import { resolveFileDestination } from './file-routing.js';
 import { readDiffFile } from './diff-file.js';
 import { pairSender } from './pairing.js';
+import { DEFAULT_REQUEST_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, MAX_REPLY_WAIT_SECONDS } from './request-timeout.js';
 
 async function withShutdown<T>(operation:(signal:AbortSignal)=>Promise<T>):Promise<T> {
   const controller=new AbortController();
@@ -49,9 +50,12 @@ Ask options:
   --options, -o <a,b,...>    Action buttons
   --placeholder, -p <text>  Free-text reply
   --diff <json-file>        Review original/modified text; cannot combine with choices/input/resume
-  --wait, -w <seconds>      Wait before returning pending (max 55)
+  --timeout <seconds>      New request lifetime (default ${DEFAULT_REQUEST_TIMEOUT_SECONDS}, max ${MAX_REQUEST_TIMEOUT_SECONDS}; three hours)
+  --wait, -w <seconds>      Wait before returning pending (default 45, max ${MAX_REPLY_WAIT_SECONDS}); does not change expiry
   --requires-auth           Require phone biometrics
   --sensitive               Hide content in notification previews
+
+Resuming keeps the original signed expiry; --timeout only applies to new requests.
 
 Activity options:
   --title, -t <text>         Display title
@@ -155,7 +159,7 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${
       fileReceiving:route.record.fileKey?'enabled':'pair_again_to_enable',receiveCommand:`nb files list --to ${route.name}`},null,2));return;
   }
   if(command==='ask') {
-    const args=argumentsFor(rest,['--message','--options','--placeholder','--wait','--resume','--diff'],['--requires-auth','--sensitive']);
+    const args=argumentsFor(rest,['--message','--options','--placeholder','--timeout','--wait','--resume','--diff'],['--requires-auth','--sensitive']);
     if(args.positional.length>1)throw new Error('Quote the request title as one argument');
     const diffFile=args.text('--diff');
     if(diffFile !== undefined && ['--options','--placeholder','--resume'].some(flag=>args.text(flag)!==undefined))
@@ -164,7 +168,7 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${
     const route=(await createDestinationRouter(routing,store)).resolve();
     const result=await withShutdown(signal=>route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
       options:args.text('--options')?.split(',').map(s=>s.trim()),inputPlaceholder:args.text('--placeholder'),
-      waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive'),diff},{signal}));
+      timeoutSeconds:args.number('--timeout'),waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive'),diff},{signal}));
     console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
   }
   if(command==='activity') {

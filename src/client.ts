@@ -1,3 +1,4 @@
+import { DEFAULT_REQUEST_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, MAX_ACTIVITY_TIMEOUT_SECONDS, MAX_REPLY_WAIT_SECONDS } from './request-timeout.js';
 import { normalizeRelay } from './relay-url.js';
 import { validateRequestSettings } from './protocol.js';
 import { relayJSON, pollPause, RelayHTTPError, DeadlineError, type CallOptions } from './client-http.js';
@@ -33,8 +34,8 @@ const askSchema = z.object({
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
   options:z.array(z.string().min(1).max(200)).max(20).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
-  timeoutSeconds:z.number().int().min(1).max(3600).default(300),
-  waitSeconds:z.number().finite().min(0).max(55).default(25), resumeId:z.string().optional(),
+  timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
+  waitSeconds:z.number().finite().min(0).max(MAX_REPLY_WAIT_SECONDS).default(25), resumeId:z.string().optional(),
 }).refine(p => p.resumeId || p.title, 'A title is required for a new request')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
@@ -318,7 +319,7 @@ export class NotiBuddyClient {
       };
       const primitive:PrimitiveType=params.action==='start'?'activity_start':params.action==='end'?'activity_end':'activity_update';
       const version=params.action==='start'?(this.config.requestProtocol ?? 1):(session?.protocol ?? 1);
-      const saved=await this.prepare(requestId,primitive,payload,pair.privateKey,3600,call,version);
+      const saved=await this.prepare(requestId,primitive,payload,pair.privateKey,MAX_ACTIVITY_TIMEOUT_SECONDS,call,version);
       const previousSession=session;
       session={payload,requests:[...(previous?session!.requests:[]),{id:requestId,afterSeq:0,expiresAt:saved.expiresAt}],
         ended:params.action==='end',expiresAt:saved.expiresAt,protocol:version,pendingDispatch:requestId,previous:previousSession,

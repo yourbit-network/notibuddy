@@ -14,11 +14,14 @@ import type { FirstUsePairing, PairingBundle, SenderRegistrationPayload } from '
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const encode = (value: unknown) => 'nbpair1.' + Buffer.from(JSON.stringify(value)).toString('base64url');
-async function fixture(offset = 0) {
+async function fixture(offset = 0, privateScalar?: Buffer) {
   const enc = await generateReplyKeyPair(), sig = await generateSenderSigningKeyPair(), now = Date.now() + offset;
-  const key = createECDH('prime256v1'); key.generateKeys();
+  const key = createECDH('prime256v1');
+  if (privateScalar) key.setPrivateKey(privateScalar); else key.generateKeys();
   const token = 'nb_snd_synthetic_pairing', device = { id: await deriveDeviceId(enc.publicKeyB64u, sig.publicKeyB64u), encPub: enc.publicKeyB64u, sigPub: sig.publicKeyB64u };
-  const firstUse: FirstUsePairing = { privateKey: key.getPrivateKey().toString('base64url'), invitation: {
+  // Node exports the minimal scalar; the pairing protocol requires all 32 bytes.
+  const scalar = key.getPrivateKey(), privateKey = Buffer.concat([Buffer.alloc(32 - scalar.length), scalar]).toString('base64url');
+  const firstUse: FirstUsePairing = { privateKey, invitation: {
     v: 1, id: 'pin_' + hash(key.getPublicKey()).slice(0, 32), accountId: hash(token.slice(7)).slice(0, 32),
     deviceId: device.id, devicePub: device.sigPub, relay: 'https://relay.example.test', publicKey: key.getPublicKey().toString('base64url'),
     createdAt: now, expiresAt: now + 600_000,
@@ -179,4 +182,26 @@ test('invalid waits or mismatched destinations fail before any network request',
     await assert.rejects(pairSender(f.config, f.sender.privateKey, { ...f.registration, fileDeviceId: 'dev_' + 'a'.repeat(24) }, f.firstUse));
     assert.throws(() => validateFirstUse(f.firstUse, { ...f.config, token: 'nb_snd_other' }));
   } finally { globalThis.fetch = original; }
+});
+
+
+test('fixture serializes short P-256 scalars as full-width private keys accepted by real pairing', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy-leading-zero-'));
+  try {
+    const store = new DestinationStore(root);
+    for (const scalar of [Buffer.from([1]), Buffer.alloc(31, 1)]) {
+      const f = await fixture(0, scalar), name = 'key_' + scalar.length;
+      // Real pairing requires the canonical 32-byte scalar, including leading zeros.
+      await store.prepare(name, f.bundle, 'Fixture agent');
+      const encoded = Buffer.from(f.firstUse.privateKey, 'base64url');
+      assert.equal(encoded.length, 32);
+      assert.deepEqual(encoded, Buffer.concat([Buffer.alloc(32 - scalar.length), scalar]));
+      assert.deepEqual((await parsePairingBundle(encode(f.bundle))).firstUse, f.firstUse);
+      const claim = createPairingClaim(f.firstUse, f.config, f.registration);
+      assert(verify('sha256', pairingClaimInput(f.firstUse.invitation, pairingRegistrationHash(f.registration)),
+        { key: publicKey(f.firstUse.invitation.publicKey), dsaEncoding: 'ieee-p1363' }, Buffer.from(claim.signature, 'base64url')));
+      const saved = fs.readFileSync(path.join(root, 'destinations', name + '.json'), 'utf8');
+      assert(!saved.includes('firstUse')); assert(!saved.includes(f.firstUse.privateKey));
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -235,14 +235,14 @@ The 0.2.1 high-level client accepts these fields as `diff: {filename, language?,
 1. `v == 1`, `kind == "request"`, all identifiers valid, and `deviceId` equals the device's own ID.
 2. `senderKeyId` is a pinned sender.
 3. Binary fields use canonical unpadded Base64URL: decoding and re-encoding MUST reproduce the original value, including unused low bits. `enc` is a valid 65-byte uncompressed P-256 point, `sig` is 64 bytes, and `ct` is 16–150,000 decoded bytes (including the 16-byte GCM tag). Validate lengths before allocating decoded data. `sig` verifies under that sender's key.
-4. Timestamps are nonnegative safe integers (at most 9,007,199,254,740,991). Validity window: `expiresAt > now`, `createdAt <= now + 120`, and `0 < expiresAt - createdAt <= 3600`. A delayed fetch is allowed while the signed request remains unexpired; the device MUST NOT apply a fresh-arrival lower bound to `createdAt`.
+4. Timestamps are nonnegative safe integers (at most 9,007,199,254,740,991). Validity window: `expiresAt > now`, `createdAt <= now + 120`, and `0 < expiresAt - createdAt <= 10800` for ordinary requests (the maximum remains `3600` for `activity_start`, `activity_update`, and `activity_end`). A delayed fetch is allowed while the signed request remains unexpired; the device MUST NOT apply a fresh-arrival lower bound to `createdAt`.
 5. `requestId` has not been seen before. The device keeps seen IDs at least until `expiresAt`.
 6. HPKE opens.
 7. Payload `type` matches the primitive, per §5.1.
 
 If any check fails, the device MUST NOT show the content. For an `ask`, it SHOULD send an error envelope (§7).
 
-The relay applies an additional ingestion-time rule: `abs(createdAt - edgeNow) <= 120` and `expiresAt <= edgeNow + 3600`, alongside the same lifetime and encoding bounds. This does not impose a 120-second delivery deadline on requests already accepted. The maximum UTF-8 JSON plaintext is 149,984 bytes; count encoded bytes, not characters. Pairing proof inputs consumed by the device also require canonical Base64URL with a 32-byte secret/MAC and valid 65-byte public keys. These request rules do not replace the separate reply lifetime checks.
+The relay applies separate ingestion-time freshness and expiry checks: `abs(createdAt - edgeNow) <= 120` and `expiresAt > edgeNow`, alongside the signed lifetime and encoding bounds above. The maximum lifetime is measured from signed `createdAt`, so a permitted slightly fast sender clock can still use the full lifetime. This does not impose a 120-second delivery deadline on requests already accepted. The maximum UTF-8 JSON plaintext is 149,984 bytes; count encoded bytes, not characters. Pairing proof inputs consumed by the device also require canonical Base64URL with a 32-byte secret/MAC and valid 65-byte public keys. These request rules do not replace the separate reply lifetime checks. Ordinary client requests default to 10,800 seconds; activity calls retain their existing one-hour lifetime. The caller’s short response polling budget never changes a saved request’s signed expiry.
 
 ### 5.3 Plaintext routing consistency
 
@@ -305,10 +305,12 @@ All calls use `Authorization: Bearer <token>`. Tokens in query strings MUST be r
 | `POST` | `/v1/devices` | device | Register `{deviceId, encPub, sigPub, apnsToken?, pushToStartToken?, pushEnvironment}` |
 | `POST` | `/v1/senders` | sender | Register a sender (§4.2) |
 | `GET`  | `/v1/senders` | device | List sender registrations to verify and pin |
-| `POST` | `/v1/requests` | sender | Submit a request envelope. Responses: `202 {requestId, seq}`, `400`, `402` quota, `404` unknown device, `409` duplicate |
+| `POST` | `/v1/requests` | sender | Submit a request envelope. Responses: `202 {requestId, seq}`, `400`, `402` quota, `404` unknown device, `409` conflicting/reused ID, `410` expired retry |
 | `GET`  | `/v1/requests/{id}` | device | Fetch a request envelope |
 | `POST` | `/v1/replies` | device | Submit a reply or error envelope |
 | `GET`  | `/v1/replies/{id}?wait=0..25` | sender | Long-poll for the answer. Responses: `200` envelope, `204` not yet, `404`, `410` expired |
+
+On compatible relays, an exact retry of a stored, unexpired v1 request returns its original sequence without another charge or push, even after the initial 120-second freshness window. The complete signed envelope must match, including its signature and ciphertext; re-signing or changing any field is a conflict. Current sender approval and destination authorization still apply. The original expiration never changes; an expired retry is terminal, and a purged ID cannot create a new request.
 
 ### 8.1 Relay checks
 
@@ -464,7 +466,7 @@ After UTF-8 header and a zero byte, append the sender ciphertext and each peer r
 
 `openGroupResponse` validates the exact wire shape, original request/parent/generation, addressed actor, permitted capability, signature over **all** ciphertexts, and the decrypted answer shape before returning an answer. A Watch cannot return a terminal form or diff answer; it hands these requests off to its paired iPhone. It verifies the actor against the saved request's recipient snapshot. Request and response/control IDs are deduplication identities, not display labels.
 
-Fields use canonical unpadded base64url and integers within JavaScript's safe range. A request has one or two recipients; a response has at most one peer receipt. Ciphertexts are 16–150,000 bytes, total v2 mutation bodies are at most 512 KiB, and request lifetime is at most one hour. The public, relay, and Swift implementations share `test-vectors/group-delivery-v2.json` for signature compatibility. That fixture contains synthetic ciphertext; separate randomized tests exercise HPKE round trips and wrong-key/recipient rejection.
+Fields use canonical unpadded base64url and integers within JavaScript's safe range. A request has one or two recipients; a response has at most one peer receipt. Ciphertexts are 16–150,000 bytes and total v2 mutation bodies are at most 512 KiB. Approval, text, form, and diff requests have a maximum signed lifetime of three hours (10,800 seconds); activity requests retain the one-hour (3,600-second) maximum. The public, relay, and Swift implementations share `test-vectors/group-delivery-v2.json` for signature compatibility. That fixture contains synthetic ciphertext; separate randomized tests exercise HPKE round trips and wrong-key/recipient rejection.
 
 
 ### Negotiation, HTTP reads, and durable retries

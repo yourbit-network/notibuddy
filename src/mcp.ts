@@ -1,3 +1,4 @@
+import { DEFAULT_REQUEST_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, MAX_REPLY_WAIT_SECONDS } from './request-timeout.js';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -95,10 +96,19 @@ export const ASK_TOOL_SCHEMA = {
         type: 'boolean',
         description: 'Require Face ID / Touch ID authentication to approve this action',
       },
+      timeout_seconds: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MAX_REQUEST_TIMEOUT_SECONDS,
+        default: DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        description: 'Seconds a new request remains answerable (default/max: 10800, three hours). Independent of wait_seconds. Resuming preserves the original signed expiry.',
+      },
       wait_seconds: {
         type: 'number',
         description:
-          'Maximum seconds to wait for a human response before returning a pending handle (default: 25, max: 55)',
+          'Seconds this call waits before returning pending (default: 25, max: 55); does not shorten or extend the request lifetime.',
+        minimum: 0,
+        maximum: MAX_REPLY_WAIT_SECONDS,
         default: 25,
       },
       resume_id: {
@@ -213,6 +223,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
           fields: args?.fields as any[] | undefined,
           diff: args?.diff as DiffInput | undefined,
           requiresAuth: args?.requires_auth as boolean | undefined,
+          timeoutSeconds: args?.timeout_seconds as number | undefined,
           waitSeconds: args?.wait_seconds as number | undefined,
           resumeId: args?.resume_id as string | undefined,
         }, {signal:extra.signal});
