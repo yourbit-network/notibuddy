@@ -2,11 +2,17 @@
 
 ## Unreleased
 
-## 0.2.5 — 2026-10-17
+## 0.2.6 — 2026-10-17
 
 - Keep ordinary approval, text, form and diff requests answerable for three hours by default. Configure a shorter lifetime with CLI `--timeout`, MCP `timeout_seconds`, or library `timeoutSeconds`; polling still waits at most 55 seconds per call.
 - Preserve the original signed deadline and saved reply keys when resuming or retrying. Existing requests keep their original expiration. Live Activity requests retain their one-hour maximum.
 - **Compatibility:** three-hour requests require updated NotiBuddy app and relay support. For an older installation, explicitly select a lifetime of 3600 seconds or less; the client does not silently extend or renegotiate an existing request.
+
+- Make automatic-pairing deadline tests deterministic across timer scheduling differences. Cover early wakeups, exact deadlines, stalled retries and cancellation without changing runtime polling or timeout behavior.
+
+## 0.2.5 — 2026-10-17 (not published)
+
+- The tagged release stopped at a timing-sensitive pairing test before publishing to npm. Version 0.2.6 carries its three-hour request defaults and compatibility guidance; the 0.2.5 tag remains unchanged.
 
 ## 0.2.4 — 2026-10-17
 

@@ -129,20 +129,77 @@ test('legacy/manual fallback and already approved senders return immediately wit
   } finally { globalThis.fetch = original; }
 });
 
-test('zero wait, a bounded timeout and cancellation never pretend pairing succeeded', async () => {
+test('zero wait and cancellation before waiting never pretend pairing succeeded', async () => {
   const f = await fixture(), original = globalThis.fetch; let calls = 0;
   globalThis.fetch = async () => { calls++; return response(f.registration, 'pending_automatic', f.firstUse.invitation.expiresAt); };
   try {
-    for (const waitSeconds of [0, 0.03]) {
-      assert.equal((await pairSender(f.config, f.sender.privateKey, f.registration, f.firstUse, { waitSeconds })).status, 'pending_automatic');
-    }
-    assert.equal(calls, 2);
+    assert.equal((await pairSender(f.config, f.sender.privateKey, f.registration, f.firstUse, { waitSeconds: 0 })).status, 'pending_automatic');
+    assert.equal(calls, 1);
     const controller = new AbortController();
     await assert.rejects(pairSender(f.config, f.sender.privateKey, f.registration, f.firstUse, {
       signal: controller.signal, onWaiting: () => controller.abort(new Error('Synthetic interruption')),
     }), /Synthetic interruption/);
-    assert.equal(calls, 3);
+    assert.equal(calls, 2);
   } finally { globalThis.fetch = original; }
+});
+
+for (const scenario of [
+  { name: 'waking at the deadline', wallElapsed: 30, stalled: false },
+  { name: 'waking before the deadline', wallElapsed: 29, stalled: false },
+  { name: 'a retry stalled at the deadline', wallElapsed: 29, stalled: true },
+]) test(`automatic pairing stays pending after ${scenario.name}`, { timeout: 5000 }, async (t) => {
+  const f = await fixture(), start = Date.now(), calls: number[] = [], bodies: string[] = [];
+  let now = start, aborted = 0, ready!: () => void;
+  const waiting = new Promise<void>(resolve => { ready = resolve; });
+  // Timer delivery and Date.now are separate clocks. An early wake can permit
+  // another identical POST within the budget, so elapsed time cannot fix its count.
+  t.mock.method(Date, 'now', () => now);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, init?: RequestInit) => {
+    calls.push(Date.now() - start); bodies.push(String(init?.body));
+    assert(Date.now() < start + 30, 'No POST may start at or after the deadline');
+    if (scenario.stalled && calls.length === 2) {
+      return new Promise<Response>((_resolve, reject) => {
+        init!.signal!.addEventListener('abort', () => { aborted++; reject(init!.signal!.reason); }, { once: true });
+      });
+    }
+    return response(f.registration, 'pending_automatic', f.firstUse.invitation.expiresAt);
+  });
+  const pending = pairSender(f.config, f.sender.privateKey, f.registration, f.firstUse, { waitSeconds: 0.03, onWaiting: ready });
+  await waiting;
+  assert.deepEqual(calls, [0]);
+  now = start + scenario.wallElapsed; t.mock.timers.tick(30);
+  // Drain the immediate response/body microtasks without advancing either clock.
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, scenario.wallElapsed === 30 ? [0] : [0, 29]);
+  now = start + 30; t.mock.timers.tick(1);
+  assert.equal(aborted, scenario.stalled ? 1 : 0, 'The retry must abort at its deadline');
+  assert.equal((await pending).status, 'pending_automatic');
+  assert.equal(new Set(bodies).size, 1, 'Polling must reuse the exact signed proof');
+  const completedCalls = calls.length;
+  t.mock.timers.tick(60000);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(calls.length, completedCalls, 'Completed pairing must not leave polling behind');
+});
+
+test('cancellation during the pairing wait prevents another POST', { timeout: 5000 }, async (t) => {
+  const f = await fixture(), controller = new AbortController(); let calls = 0, cancelled = false, ready!: () => void;
+  const waiting = new Promise<void>(resolve => { ready = resolve; });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++; return response(f.registration, 'pending_automatic', f.firstUse.invitation.expiresAt);
+  });
+  const rejected = assert.rejects(pairSender(f.config, f.sender.privateKey, f.registration, f.firstUse, {
+    signal: controller.signal, onWaiting: ready,
+  }), /Synthetic interruption/).then(() => { cancelled = true; });
+  await waiting;
+  controller.abort(new Error('Synthetic interruption'));
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(cancelled, true, 'Cancellation must settle without advancing time');
+  await rejected;
+  t.mock.timers.tick(60000);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
 });
 
 test('a lost polling response retries the identical proof without reopening pairing', async () => {
