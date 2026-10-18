@@ -11,10 +11,13 @@ import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } fr
 test('actual CLI reports automatic, manual, pending and already-linked outcomes without retaining the code', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy-pairing-cli-'));
   try {
-    const enc = await generateReplyKeyPair(), sig = await generateSenderSigningKeyPair(), key = createECDH('prime256v1'); key.generateKeys();
+    const enc = await generateReplyKeyPair(), sig = await generateSenderSigningKeyPair(), key = createECDH('prime256v1');
+    // A valid short scalar makes leading-zero export coverage deterministic.
+    key.setPrivateKey(Buffer.from([1]));
     const device = { id: await deriveDeviceId(enc.publicKeyB64u, sig.publicKeyB64u), encPub: enc.publicKeyB64u, sigPub: sig.publicKeyB64u, name: 'Synthetic phone' };
     const digest = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
-    const token = 'nb_snd_cli_pairing_fixture', now = Date.now(), privateKey = key.getPrivateKey().toString('base64url');
+    const scalar = key.getPrivateKey(), privateKey = Buffer.concat([Buffer.alloc(32 - scalar.length), scalar]).toString('base64url');
+    const token = 'nb_snd_cli_pairing_fixture', now = Date.now();
     const bundle = { v: 1, relay: 'https://pairing.fixture.invalid', token, device, pairSecret: Buffer.alloc(32).toString('base64url'),
       requestProtocol: 2, minimumRecipientGeneration: 0, firstUse: { privateKey, invitation: {
         v: 1, id: 'pin_' + digest(key.getPublicKey()).slice(0, 32), accountId: digest(token.slice(7)).slice(0, 32),
