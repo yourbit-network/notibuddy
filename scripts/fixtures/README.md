@@ -22,5 +22,12 @@ node scripts/check-installed-client.mjs --release test-vectors/published-0.2.6.j
 
 Use a new output directory for every run. The receipt records exact artifact
 binding, commands, outcomes and cleanup, without private keys or file content.
-This lane does not establish Windows ACL protection, signals/crash handling, v2,
-first-use invitations, APNs, purchases or physical Apple-device acceptance.
+On Windows, a read-only DACL walk checks the actual destination/pending-key and
+received-file trees before cleanup. It permits access for the current user,
+SYSTEM and local administrators; other effective allow entries fail the check.
+A disposable control verifies that a private file passes and an Everyone-readable
+file fails. The check reads permissions, never file contents, and does not repair
+or change the application profile. This is evidence for the tested Windows
+profile, not a guarantee for shared/custom directories or other Windows systems.
+Signals/crash handling, v2, first-use invitations, APNs, purchases and physical
+Apple-device acceptance remain outside this lane.

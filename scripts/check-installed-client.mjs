@@ -8,7 +8,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {pathToFileURL} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {fixture} from './fixtures/installed-client-smoke.mjs';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -91,7 +91,7 @@ export async function main(args) {
   const receipt = path.join(output, 'receipt.json'); assert(!fs.existsSync(receipt), 'Use a new output directory');
   const result = {startedAt: new Date().toISOString(), completed: false, platform: process.platform, architecture: process.arch,
     node: process.version, osRelease: os.release(), commands: [], limits: ['Synthetic v1 HTTP phone fixture; no real relay, native UI, Apple service or APNs.',
-      'No signal/crash matrix or v2/invitation coverage in this lane.', 'Windows ACLs are not inferred from POSIX permission bits.',
+      'No signal/crash matrix or v2/invitation coverage in this lane.', 'Windows DACL observations cover this disposable profile; custom directories and other systems can have different inherited permissions.',
       'Registry integrity is checked independently; npm verifies installation against the exact locked archive integrity. Installed file hashes are retained.',
       'Fixture fetch restrictions are not an OS firewall or packet capture.']};
   let temporary, stage = 'preflight';
@@ -103,6 +103,10 @@ export async function main(args) {
       result.commands.push({label, exitCode: 0, elapsedMs: Date.now() - start, stdoutSHA256: sha(out.stdout), stderrSHA256: sha(out.stderr)}); return out;
     } catch (error) {
       result.commands.push({label, exitCode: error.code, signal: error.signal, elapsedMs: Date.now() - start, stdoutSHA256: sha(error.stdout || ''), stderrSHA256: sha(error.stderr || '')});
+      if (label.startsWith('windows-acl-')) {
+        const code = String(error.stderr || '').match(/^ACL_PROBE_FAILED: ([A-Za-z0-9_. ,-]{1,160})\r?$/m)?.[1];
+        if (code) result.commands.at(-1).diagnosticCode = code;
+      }
       if (extra.expectedFailure === error.code) return {stdout: error.stdout, stderr: error.stderr};
       throw new Error(label + ' failed');
     }
@@ -144,7 +148,23 @@ export async function main(args) {
     assert.match((await run('fresh-status',process.execPath,[cli,'status'],{env})).stdout,/No named destinations paired/);
     const missing = await run('unpaired-mcp',process.execPath,[path.join(installed,'dist/mcp-entry.js')],{env,expectedFailure:1});
     assert.match(missing.stderr,/Select a destination explicitly/);
-    stage = 'synthetic-cli-mcp-file'; result.synthetic = await fixture({installed,temporary,env,run,version:expected.version}); result.completed = true;
+    let inspectStorage;
+    if (process.platform === 'win32') {
+      const powershell = path.join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const script = fileURLToPath(new URL('./fixtures/windows-private-acl.ps1', import.meta.url));
+      const args = ['-NoProfile','-NonInteractive','-File',script];
+      stage = 'windows-acl-controls';
+      result.windowsACLControls = JSON.parse((await run('windows-acl-controls',powershell,[...args,'-Root',temporary,'-SelfTest'],{env})).stdout.replace(/^\uFEFF/,''));
+      assert.equal(result.windowsACLControls.privateControlAccepted,true);
+      assert.equal(result.windowsACLControls.everyoneReadableControlRejected,true);
+      result.windowsStorageACLs = [];
+      inspectStorage = async phase => {
+        const observation = JSON.parse((await run('windows-acl-'+phase,powershell,[...args,'-Root',profile],{env})).stdout.replace(/^\uFEFF/,''));
+        assert.equal(observation.private,true); assert(observation.objects.length > 0);
+        result.windowsStorageACLs.push({phase,...observation});
+      };
+    }
+    stage = 'synthetic-cli-mcp-file'; result.synthetic = await fixture({installed,temporary,env,run,version:expected.version,inspectStorage}); result.completed = true;
   } catch (error) {
     // Do not serialize assertion operands, request bodies or synthetic private keys.
     result.failure = {stage,kind:error.name};
