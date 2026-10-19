@@ -7,8 +7,9 @@ on:
       - .github/workflows/published-client-windows.yml
       - scripts/check-installed-client.mjs
       - scripts/fixtures/installed-client-smoke.mjs
+      - scripts/fixtures/windows-private-acl.ps1
       - scripts/tests/installed-client-acceptance.test.mjs
-      - test-vectors/published-0.2.6.json
+      - test-vectors/published-0.2.7.json
 
 permissions:
   contents: read
@@ -28,11 +29,11 @@ jobs:
       - name: Check isolated environment and artifact binding safeguards
         run: node --test scripts/tests/installed-client-acceptance.test.mjs
       - name: Install exact published artifact and exercise encrypted CLI, MCP and files
-        run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.6.json --output .build/windows-public-026 --expected-platform win32
+        run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.7.json --output .build/windows-public-027 --expected-platform win32
       - name: Preserve sanitized acceptance receipt in job log
         if: always()
         shell: pwsh
         run: |
-          if (Test-Path .build/windows-public-026/receipt.json) {
-            Get-Content .build/windows-public-026/receipt.json
+          if (Test-Path .build/windows-public-027/receipt.json) {
+            Get-Content .build/windows-public-027/receipt.json
           }
