@@ -201,7 +201,7 @@ The sender MUST encrypt a separate envelope for each target device.
 | `text_input` | `ask` | yes |
 | `form` | `ask` | yes |
 | `diff` | `ask` | yes |
-| `activity_start`, `activity_update`, `activity_end` | `activity` | no |
+| `activity_start`, `activity_update`, `activity_end` | `activity` | optional stream of control replies when a reply key is supplied |
 
 `ask` payload:
 
@@ -225,7 +225,8 @@ The 0.2.1 high-level client accepts these fields as `diff: {filename, language?,
 `activity` payload:
 
 ```json
-{ "type": "activity", "activityId": "ci-42", "title": "CI", "status": "Running tests", "step": 3, "totalSteps": 10, "timerEndsAt": 1790000900 }
+{ "type": "activity", "action": "start", "activityId": "ci-42", "primitive": "stepper", "revision": 1,
+  "title": "CI", "status": "Running tests", "step": 3, "totalSteps": 10, "replyPub": "<b64u R.pub>" }
 ```
 
 `requiresAuth` can only make the device stricter. Device policy MAY require biometrics for every answer regardless.
@@ -271,7 +272,7 @@ Answer payload:
 { "action": "Approve", "text": "optional free text", "values": { "env": "stg" }, "authenticated": true }
 ```
 
-- `action` is one of the request's `options`, `"submit"` for forms, `"reply"` for text input, `"approve"`/`"reject"` for default diff actions, or `"dismiss"`.
+- `action` carries the selected action ID: a request option, `"submit"` for forms, `"send"` from the native text-input control, `"approve"`/`"reject"` for default diff actions, or a supported activity control. It is not a localized display label. Consumers must interpret it in the original request context; the wire parser does not restrict it to an action enum.
 - Free text is only ever placed in `text`, never in `action`.
 - `authenticated` is true only if the user passed biometric or passcode authentication for this answer.
 
@@ -279,6 +280,8 @@ Answer payload:
 requests. `sig` verifies under the pinned `DS.pub`. HPKE opens with `R`. The sender accepts at most one answer per request.
 
 The exported `openReply` and `openError` helpers require `expectedRequestId` from the caller's saved request, alongside the pinned device ID/key. Do not derive the expected ID from the received envelope. This is a required argument for direct library users in 0.2.0; older calls that omit it fail closed. The helpers verify wire structure, binding and signatures (and decrypt/validate answers for replies). They do not own pending-request storage: direct callers must enforce the original request lifetime and single-answer/terminal-state policy. `NotiBuddyClient` supplies those checks for CLI/MCP callers and preserves resumable state on an invalid response.
+
+The reply envelope contains exactly the fields shown above, with optional positive safe-integer `seq` added by the relay. `seq` is not signed and never establishes identity. `createdAt` is a positive safe integer. `enc`, `ct`, and `sig` use canonical unpadded Base64URL; decoded lengths are 65, 16–150,000, and 64 bytes respectively. The answer has only `action`, optional `text`, optional object `values`, and optional boolean `authenticated`. `action` is nonblank and at most 200 Unicode code points; `text` is at most 50,000 code points. The complete encoded plaintext, including JSON escapes and `values`, must fit in 149,984 UTF-8 bytes. Form fields named `text` or `input` stay inside `values`. Timer replies carry the resulting `state`, `targetTimestamp` and/or `remainingSeconds` in `values` when present.
 
 ## 7. Error envelope (device → sender)
 
@@ -295,6 +298,8 @@ sig    = ECDSA-Sign(DS, UTF-8(header) ‖ 0x00)
 ```
 
 Codes: `undecryptable`, `bad_signature`, `unknown_sender`, `expired`, `replayed`, `unsupported`, `wrong_device`.
+
+An error contains exactly the displayed fields, plus optional positive safe-integer `seq`. It has no `enc`, `ct`, free-form message or extra fields. The same response timestamp, encoding and pinned request/device rules apply; `code` must be one of the seven values above. A signed error is a terminal result for its request, not permission to retry with weaker verification.
 
 ## 8. Relay API
 
@@ -317,8 +322,8 @@ On compatible relays, an exact retry of a stored, unexpired v1 request returns i
 The relay can't read content. It enforces the following:
 
 - Authentication and per-account isolation.
-- Shape validation per §5–§7.
-- Size limits: request `ct` ≤ 32 KiB, reply `ct` ≤ 16 KiB, request body ≤ 64 KiB.
+- Request version, identifier, lifetime and encoding checks; reply request/device/kind/timestamp and signature checks. Senders independently enforce the strict reply/error shapes in §6–§7 even after relay acceptance.
+- V1 request ciphertext is 16–150,000 decoded bytes. The edge bounds the complete UTF-8 JSON mutation body to 262,144 bytes (256 KiB), counting Base64URL expansion and envelope fields. Reply consumers independently enforce the same ciphertext bound; the native producer validates its complete plaintext before encryption. V2 request/reply mutation bodies have a separate 524,288-byte limit; file uploads use their own limits below.
 - `enc` is a valid 65-byte point and `sig` is 64 bytes.
 - The validity window per §5.2, step 4.
 - `deviceId` is registered and matches its keys.
@@ -327,7 +332,7 @@ The relay can't read content. It enforces the following:
 - Quotas and rate limits.
 - **Device signature verification on replies and errors.** This is defense in depth: senders MUST still verify.
 
-**Retention.** The relay deletes request and reply envelopes no later than 10 minutes after `expiresAt`.
+**Retention.** Requests stop accepting new answers at `expiresAt`. The relay retains envelopes/receipts for ten additional minutes to support exact retry acknowledgement, then garbage collection removes them. Failed cleanup is retried; expiration enforcement does not depend on the physical deletion completing on time.
 
 **Push.** APNs alerts carry no content:
 
@@ -347,8 +352,7 @@ prefix. Receivers MUST reject versions they do not know.
 ## 10. Test vectors
 
 `test-vectors/v1.json` contains fixed keys and envelopes produced by the TypeScript implementation.
-`test-vectors/v1-swift-reply.json` contains a reply produced by the iOS implementation.
-Every implementation MUST pass both files.
+`test-vectors/v1-swift-reply.json` contains six replies produced by the native `ActionResponder.queue` and all seven signed error codes produced by the native signing helper. Its reply decryption scalar is explicitly public test data. `test/response-vectors.test.ts` opens those fixed replies, compares the original answer shapes and rejects signature, identity, ciphertext, field and sequence substitutions. Run it through `npm test`, or `npx tsx test/response-vectors.test.ts /path/to/installed/notibuddy` to check a separately installed artifact. The Apple network test suite verifies the same fixed bytes and current native producer. Implementations MUST verify applicable vectors; tests never authorize a live device or prove hardware-backed key storage.
 
 ## Device management and recovery
 
