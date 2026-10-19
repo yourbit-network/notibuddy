@@ -1,7 +1,8 @@
 # Published client acceptance
 
-The Windows workflow installs the exact public `notibuddy@0.2.6` archive into a
-fresh temporary directory, cache and profile. `test-vectors/published-0.2.6.json`
+The published-client workflow installs the exact public `notibuddy@0.2.7` archive
+on Linux (Node 20) and Windows (Node 24), each with a fresh temporary directory,
+cache and profile. `test-vectors/published-0.2.7.json`
 pins the registry archive hash, integrity and file count; it contains public
 release metadata only. This lane is separate from tests of the current source.
 
@@ -17,10 +18,12 @@ On Windows with Node 24 and its npm installation:
 
 ```sh
 node --test scripts/tests/installed-client-acceptance.test.mjs
-node scripts/check-installed-client.mjs --release test-vectors/published-0.2.6.json --output .build/windows-public-026 --expected-platform win32
+node scripts/check-installed-client.mjs --release test-vectors/published-0.2.7.json --output .build/windows-public-027 --expected-platform win32
 ```
 
-Use a new output directory for every run. The receipt records exact artifact
+For Linux with Node 20 or newer, use `--expected-platform linux`; for macOS,
+use `--expected-platform darwin`. Unix file and directory modes must be `0600`
+and `0700`. Use a new output directory for every run. The receipt records exact artifact
 binding, commands, outcomes and cleanup, without private keys or file content.
 On Windows, a read-only DACL walk checks the actual destination/pending-key and
 received-file trees before cleanup. It permits access for the current user,

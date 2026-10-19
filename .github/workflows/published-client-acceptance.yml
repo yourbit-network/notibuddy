@@ -1,10 +1,10 @@
-name: Published client Windows acceptance
+name: Published client acceptance
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
-      - .github/workflows/published-client-windows.yml
+      - .github/workflows/published-client-acceptance.yml
       - scripts/check-installed-client.mjs
       - scripts/fixtures/installed-client-smoke.mjs
       - scripts/fixtures/windows-private-acl.ps1
@@ -15,25 +15,29 @@ permissions:
   contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  installed:
+    name: Installed (${{ matrix.platform }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, platform: linux, node: 20}
+          - {os: windows-latest, platform: win32, node: 24}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
           package-manager-cache: false
       - name: Check isolated environment and artifact binding safeguards
         run: node --test scripts/tests/installed-client-acceptance.test.mjs
       - name: Install exact published artifact and exercise encrypted CLI, MCP and files
-        run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.7.json --output .build/windows-public-027 --expected-platform win32
+        run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.7.json --output .build/published-client --expected-platform ${{ matrix.platform }}
       - name: Preserve sanitized acceptance receipt in job log
         if: always()
-        shell: pwsh
         run: |
-          if (Test-Path .build/windows-public-027/receipt.json) {
-            Get-Content .build/windows-public-027/receipt.json
-          }
+          node -e "const fs=require('node:fs'); const path='.build/published-client/receipt.json'; if(fs.existsSync(path)) process.stdout.write(fs.readFileSync(path,'utf8'))"
