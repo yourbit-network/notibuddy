@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { DestinationRecord } from './config.js';
 import { NOTIBUDDY_DIR } from './config.js';
 import { ecdsaSign, ecdsaVerify, hpkeOpenBytes } from './crypto.js';
+import type { CallOptions } from './client-http.js';
 
 export const MAX_FILE_BYTES=10_000_000;
 export const MAX_FILE_CIPHERTEXT=MAX_FILE_BYTES+4+4096+16;
@@ -43,12 +44,25 @@ export async function openFile(record:DestinationRecord, input:unknown, cipherte
   if(/^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(name))name='received-'+name;
   return {manifest:m,name,type:metadata.type,bytes:plaintext.subarray(4+length)};
 }
-async function bounded(response:Response, maximum:number) {
+function checkCall(options:CallOptions) {
+  options.signal?.throwIfAborted();
+  if(Date.now()>=(options.deadline ?? Infinity))throw new Error('File operation deadline reached');
+}
+async function abortable<T>(operation:()=>Promise<T>,signal:AbortSignal):Promise<T> {
+  signal.throwIfAborted();
+  let abort!:()=>void;
+  const cancelled=new Promise<never>((_,reject)=>{
+    abort=()=>reject(signal.reason);signal.addEventListener('abort',abort,{once:true});
+  });
+  try{return await Promise.race([operation(),cancelled]);}
+  finally{signal.removeEventListener('abort',abort);}
+}
+async function bounded(response:Response, maximum:number,signal:AbortSignal) {
   if(Number(response.headers.get('content-length'))>maximum) throw new Error('File response is too large');
   const reader=response.body?.getReader(); if(!reader) throw new Error('Empty response');
   const chunks:Uint8Array[]=[]; let size=0;
-  try { for(;;) { const {done,value}=await reader.read(); if(done)break; size+=value.length; if(size>maximum)throw new Error('File response is too large'); chunks.push(value); } }
-  finally { await reader.cancel(); }
+  try { for(;;) { const {done,value}=await abortable(()=>reader.read(),signal); if(done)break; size+=value.length; if(size>maximum)throw new Error('File response is too large'); chunks.push(value); } }
+  finally { void reader.cancel().catch(()=>{}); }
   return Buffer.concat(chunks,size);
 }
 function syncDirectory(directory:string) { if(process.platform==='win32')return; const fd=fs.openSync(directory,'r');try {fs.fsyncSync(fd);}finally{fs.closeSync(fd);} }
@@ -124,23 +138,34 @@ export class FileInbox {
     const c=record.config;
     this.directory=path.join(root,'inbox',hash(JSON.stringify([c.relay,c.token,c.device.id,c.senderKeyId])));
   }
-  private async request(route:string,method='GET',body?:object) {
+  private async request<T>(route:string,options:CallOptions,read:(response:Response,signal:AbortSignal)=>Promise<T>,method='GET',body?:object):Promise<T> {
+    checkCall(options);
     if(!this.record.fileKey) throw new Error('Pair this destination again with a fresh connection document to enable files, then approve it on the phone.');
-    const payload=body ? JSON.stringify(body) : '', timestamp=String(Math.floor(Date.now()/1000)),nonce=randomUUID();
-    const signature=await ecdsaSign(this.signingKey,new TextEncoder().encode(`nb1|http|${method}|${route}|${timestamp}|${nonce}|${hash(payload)}`));
-    const response=await fetch(this.record.config.relay.replace(/\/$/,'')+'/v1'+route,{method,
-      headers:{Authorization:`Bearer ${this.record.config.token}`,'Content-Type':'application/json',
-        'X-Sender-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},
-      body:payload || undefined,signal:AbortSignal.timeout(60_000)});
-    if(!response.ok) { const bytes=await bounded(response,8192);let message=`File relay returned ${response.status}`;
-      try{message=JSON.parse(bytes.toString()).error || message;}catch{} throw new Error(message); }
-    return response;
+    const controller=new AbortController(),signal=controller.signal;
+    const abort=()=>controller.abort(options.signal?.reason);
+    const timer=setTimeout(()=>controller.abort(new Error('File operation deadline reached')),
+      Math.min(60_000,(options.deadline ?? Date.now()+60_000)-Date.now()));
+    options.signal?.addEventListener('abort',abort,{once:true});
+    try {
+      const payload=body ? JSON.stringify(body) : '', timestamp=String(Math.floor(Date.now()/1000)),nonce=randomUUID();
+      const signature=await ecdsaSign(this.signingKey,new TextEncoder().encode(`nb1|http|${method}|${route}|${timestamp}|${nonce}|${hash(payload)}`));
+      const response=await abortable(()=>fetch(this.record.config.relay.replace(/\/$/,'')+'/v1'+route,{method,
+        headers:{Authorization:`Bearer ${this.record.config.token}`,'Content-Type':'application/json',
+          'X-Sender-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},
+        body:payload || undefined,signal}),signal);
+      if(!response.ok) { const bytes=await bounded(response,8192,signal);let message=`File relay returned ${response.status}`;
+        try{message=JSON.parse(bytes.toString()).error || message;}catch{} throw new Error(message); }
+      return await read(response,signal);
+    } finally {
+      clearTimeout(timer);options.signal?.removeEventListener('abort',abort);controller.abort();
+    }
   }
-  async list() {
-    const response=await this.request('/files');
-    return z.object({files:z.array(z.object({id:idSchema,status:z.enum(['uploading','ready','delivered','cancelled','expired']),expiresAt:z.number().int(),size:z.number().int().max(MAX_FILE_BYTES)})).max(100)}).parse(JSON.parse((await bounded(response,65536)).toString())).files;
+  async list(options:CallOptions={}) {
+    return this.request('/files',options,async(response,signal)=>
+      z.object({files:z.array(z.object({id:idSchema,status:z.enum(['uploading','ready','delivered','cancelled','expired']),expiresAt:z.number().int(),size:z.number().int().max(MAX_FILE_BYTES)})).max(100)}).parse(JSON.parse((await bounded(response,65536,signal)).toString())).files);
   }
-  async receive(id:string) {
+  async receive(id:string,options:CallOptions={}) {
+    checkCall(options);
     idSchema.parse(id);
     fs.mkdirSync(this.directory,{recursive:true,mode:0o700});fs.chmodSync(this.directory,0o700);
     const lock=path.join(this.directory,id+'.lock'),target=path.join(this.directory,id);
@@ -151,11 +176,15 @@ export class FileInbox {
       if(fs.existsSync(target)) {
         saved=readReceipt(target,id);
       } else {
-        const response=await this.request('/files/'+id);
-        const header=response.headers.get('X-File-Manifest'); if(!header || header.length>8192)throw new Error('Missing file authentication');
-        const m=fileManifestSchema.parse(JSON.parse(Buffer.from(header,'base64url').toString('utf8')));
-        if(m.id!==id)throw new Error('Wrong transfer returned');
-        const file=await openFile(this.record,m,await bounded(response,MAX_FILE_CIPHERTEXT));
+        const {m,bytes}=await this.request('/files/'+id,options,async(response,signal)=>{
+          const header=response.headers.get('X-File-Manifest'); if(!header || header.length>8192)throw new Error('Missing file authentication');
+          const m=fileManifestSchema.parse(JSON.parse(Buffer.from(header,'base64url').toString('utf8')));
+          if(m.id!==id)throw new Error('Wrong transfer returned');
+          return {m,bytes:await bounded(response,MAX_FILE_CIPHERTEXT,signal)};
+        });
+        checkCall(options);
+        const file=await openFile(this.record,m,bytes);
+        checkCall(options);
         if(file.name.toLowerCase()==='receipt.json')file.name='received-receipt.json';
         saved={id,name:file.name,size:file.bytes.length,sha256:m.sha256,plaintextHash:hash(file.bytes),delivered:false};
         const temporary=path.join(this.directory,id+'.'+randomUUID()+'.tmp');fs.mkdirSync(temporary,{mode:0o700});
@@ -165,7 +194,7 @@ export class FileInbox {
           syncDirectory(temporary);fs.renameSync(temporary,target);syncDirectory(this.directory);
         } finally { if(fs.existsSync(temporary))fs.rmSync(temporary,{recursive:true}); }
       }
-      verifySavedFile(target,saved);
+      checkCall(options);verifySavedFile(target,saved);
       cleanupReceipts(target,saved.name);
       if(!saved.delivered) {
         // A prior process may have renamed the files but failed before its flush completed.
@@ -173,12 +202,13 @@ export class FileInbox {
         syncReceipt(target);syncDirectory(target);syncDirectory(this.directory);
         const inbox=path.dirname(this.directory);syncDirectory(inbox);syncDirectory(path.dirname(inbox));
         try {
-          const response=await this.request('/files/'+id+'/ack','POST',{sha256:saved.sha256});
-          const result=JSON.parse((await bounded(response,8192)).toString());
+          const result=await this.request('/files/'+id+'/ack',options,async(response,signal)=>
+            JSON.parse((await bounded(response,8192,signal)).toString()),'POST',{sha256:saved.sha256});
           if(result.status!=='delivered')throw new Error('Delivery could not be confirmed');
           saved.delivered=true;
           replaceReceipt(target,saved);
         } catch {
+          checkCall(options);
           return {id,path:path.join(target,saved.name),size:saved.size,status:'saved_pending_receipt',message:'Saved and verified locally. Retry receive with this ID to confirm delivery.'};
         }
       }

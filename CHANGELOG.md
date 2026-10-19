@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.8 — 2026-10-19
+
+- Honor MCP cancellation and CLI interruption while listing or receiving encrypted files. Stop unfinished network/body reads, release the transfer lock, and keep a durable local copy when receipt confirmation is interrupted. Retry the same file ID to finish safely without downloading an already saved file again.
+- Bound file response consumption by the caller’s cancellation/deadline as well as the existing per-request timeout. Keep authentication, size limits and save-before-acknowledgement unchanged.
+
 ## 0.2.7 — 2026-10-19
 
 - Keep activity polling moving when a relay repeats an already verified response at a later sequence. Repeated controls are not emitted again, polling remains bounded, and altered responses preserve the original cursor and reply key for recovery.

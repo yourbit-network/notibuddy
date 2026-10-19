@@ -209,7 +209,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
       const route=router.resolve(args?.to as string|undefined), client=route.client;
       if(name.startsWith('notibuddy_files_')) {
         if(name==='notibuddy_files_receive' && typeof args?.id!=='string')throw new Error('A file ID is required');
-        const result=name==='notibuddy_files_list' ? await route.files.list() : await route.files.receive(args!.id as string);
+        const result=name==='notibuddy_files_list' ? await route.files.list({signal:extra.signal}) : await route.files.receive(args!.id as string,{signal:extra.signal});
         return {content:[{type:'text',text:JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2)}]};
       }
       if (name === 'notibuddy_ask') {
