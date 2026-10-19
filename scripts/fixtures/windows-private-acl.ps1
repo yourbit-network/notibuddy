@@ -26,7 +26,8 @@ function Read-PrivateAcl([string]$ItemPath) {
   if ($null -ne $descriptor.DiscretionaryAcl) {
     foreach ($ace in $descriptor.DiscretionaryAcl) {
       # Inherit-only grants do not apply to this object; each child is checked.
-      if (($ace.AceFlags -band [System.Security.AccessControl.AceFlags]::InheritOnly) -ne 0) { continue }
+      # Windows PowerShell 5.1 cannot apply -band to this byte-backed enum.
+      if ($ace.AceFlags.HasFlag([System.Security.AccessControl.AceFlags]::InheritOnly)) { continue }
       if ($ace -isnot [System.Security.AccessControl.QualifiedAce]) { $valid = $false; continue }
       if ($ace.AceQualifier -eq [System.Security.AccessControl.AceQualifier]::AccessDenied) { continue }
       if ($ace.AceQualifier -ne [System.Security.AccessControl.AceQualifier]::AccessAllowed) { $valid = $false; continue }
