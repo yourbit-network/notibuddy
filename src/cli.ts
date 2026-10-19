@@ -111,7 +111,7 @@ async function main():Promise<void> {
     const action=args.positional[0];
     if(!(action==='list' && args.positional.length===1) && !(action==='receive' && args.positional.length===2))throw new Error('Use nb files list --to <name>, or nb files receive <file_id> with --to <name> or --pairing <device_id>:<sender_key_id>.');
     const route=await resolveFileDestination({to:routing.to,pairing:args.text('--pairing')},store);
-    const result=action==='list'?await route.files.list():await route.files.receive(args.positional[1]);
+    const result=await withShutdown(async signal=>action==='list'?await route.files.list({signal}):await route.files.receive(args.positional[1],{signal}));
     console.log(JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2));return;
   }
   if(!routing.to) throw new Error('Choose a destination with --to <name>. Use nb devices list to see saved names.');
