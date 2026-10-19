@@ -7,6 +7,12 @@ import http from 'node:http';
 import {createHash,randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
+function gate() { let resolve; const promise=new Promise(done=>{resolve=done;}); return {promise,resolve}; }
+async function within(promise,phase) {
+ let timer;
+ try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error('Installed file cancellation did not finish'),{name:phase+'Timeout'})),3000);})]);}
+ finally{clearTimeout(timer);}
+}
 export async function fixture({installed,temporary,env,run,version,inspectStorage}) {
  const sha=b=>createHash('sha256').update(b).digest('hex'),api=await import(pathToFileURL(path.join(installed,'dist/index.js')).href);
  const req=createRequire(path.join(installed,'package.json'));const {Client}=await import(pathToFileURL(req.resolve('@modelcontextprotocol/sdk/client/index.js')).href);const {StdioClientTransport}=await import(pathToFileURL(req.resolve('@modelcontextprotocol/sdk/client/stdio.js')).href);
@@ -20,7 +26,7 @@ export async function fixture({installed,temporary,env,run,version,inspectStorag
   else if(url.pathname==='/v1/files'||url.pathname.startsWith('/v1/files/')){
    const record=records.get(request.headers['x-sender-id']);assert(record);assert.equal(request.headers.authorization,'Bearer '+record.config.token);const route=url.pathname.slice(3);assert(await api.ecdsaVerify(record.keys.publicKeyB64u,Buffer.from(`nb1|http|${request.method}|${route}|${request.headers['x-sender-timestamp']}|${request.headers['x-sender-nonce']}|${sha(raw)}`),request.headers['x-sender-signature']));counts.signedFileHTTP++;
    if(route==='/files'){json(200,{files:[...files.values()].filter(f=>f.m.senderKeyId===record.keys.senderKeyId).map(f=>({id:f.m.id,status:'ready',expiresAt:f.m.expiresAt,size:f.m.size}))});}
-   else {const file=files.get(route.split('/')[2]);assert(file);assert.equal(file.m.senderKeyId,record.keys.senderKeyId);if(route.endsWith('/ack')){counts.acks++;file.acks++;assert.equal(body.sha256,file.m.sha256);const inbox=new api.FileInbox(record,null,env.NOTIBUDDY_HOME);const saved=path.join(inbox.directory,file.m.id,'_report.txt');assert.equal(fs.readFileSync(saved,'utf8'),file.text);if(file.loseFirstAck&&file.acks===1){response.destroy();return;}json(200,{status:'delivered'});}else{counts.downloads++;file.downloads++;response.writeHead(200,{'X-File-Manifest':Buffer.from(JSON.stringify(file.m)).toString('base64url')});response.end(file.ct);}}
+   else {const file=files.get(route.split('/')[2]);assert(file);assert.equal(file.m.senderKeyId,record.keys.senderKeyId);if(route.endsWith('/ack')){counts.acks++;file.acks++;assert.equal(body.sha256,file.m.sha256);const inbox=new api.FileInbox(record,null,env.NOTIBUDDY_HOME);const saved=path.join(inbox.directory,file.m.id,'_report.txt');assert.equal(fs.readFileSync(saved,'utf8'),file.text);if(file.loseFirstAck&&file.acks===1){response.destroy();return;}if(file.holdAck){response.writeHead(200,{'content-type':'application/json'});response.on('close',file.holdAck.closed.resolve);response.write('{');file.holdAck.started.resolve();return;}json(200,{status:'delivered'});}else{counts.downloads++;file.downloads++;response.writeHead(200,{'X-File-Manifest':Buffer.from(JSON.stringify(file.m)).toString('base64url')});if(file.holdDownload){response.on('close',file.holdDownload.closed.resolve);response.write(file.ct.subarray(0,1));file.holdDownload.started.resolve();return;}response.end(file.ct);}}
   }else{unexpected.push({method:request.method,route:url.pathname});response.writeHead(404);response.end();}
  }catch(e){unexpected.push({error:e.name,message:String(e.message).slice(0,180)});if(!response.headersSent)response.writeHead(500);response.end();}});
  const originalFetch=globalThis.fetch;globalThis.fetch=async()=>{throw new Error('Parent fetch denied during fixture');};
@@ -42,8 +48,36 @@ export async function fixture({installed,temporary,env,run,version,inspectStorag
   async function file(p,loseFirstAck){const now=Math.floor(Date.now()/1000),text='Synthetic private installed file '+p.device.name,bytes=Buffer.from(text),m={v:1,id:'file_'+randomUUID().replaceAll('-',''),deviceId:p.device.id,senderKeyId:p.record.keys.senderKeyId,fileEncPub:p.record.fileKey.publicKeyB64u,createdAt:now,expiresAt:now+86400,size:bytes.length,cipherSize:0,enc:'',sha256:'',sig:''};const meta=Buffer.from(JSON.stringify({name:'../report.txt',type:'text/plain'})),length=Buffer.alloc(4);length.writeUInt32BE(meta.length);const sealed=await api.hpkeSealBytes(m.fileEncPub,'notibuddy/file/v1',api.fileHeader(m),Buffer.concat([length,meta,bytes]));Object.assign(m,{enc:sealed.enc,cipherSize:sealed.ct.length,sha256:sha(sealed.ct)});m.sig=await api.ecdsaSign(p.sig.privateKey,api.fileSignatureInput(m));const f={m,ct:sealed.ct,text,loseFirstAck,acks:0,downloads:0};files.set(m.id,f);return f;}
   const personalFile=await file(personal,true),workFile=await file(work,false);assert.equal((await cliJSON('cli-files-list',['files','list','--to','personal'])).result[0].id,personalFile.m.id);const saved=(await cliJSON('cli-file-lost-ack',['files','receive',personalFile.m.id,'--to','personal'])).result;assert.equal(saved.status,'saved_pending_receipt');assert.equal(fs.readFileSync(saved.path,'utf8'),personalFile.text);const relative=path.relative(env.NOTIBUDDY_HOME,saved.path);assert(relative&&!relative.startsWith('..')&&!path.isAbsolute(relative));assert.equal(path.basename(saved.path),'_report.txt');assert.equal((await cliJSON('cli-file-restart-receipt',['files','receive',personalFile.m.id,'--to','personal'])).result.status,'delivered');assert.equal((await cliJSON('cli-file-idempotent',['files','receive',personalFile.m.id,'--to','personal'])).result.status,'delivered');assert.equal(personalFile.downloads,1);assert.equal(personalFile.acks,2);
   assert.equal((await call('notibuddy_files_list',{})).result[0].id,workFile.m.id);assert.equal((await call('notibuddy_files_receive',{id:workFile.m.id})).result.status,'delivered');assert.equal(workFile.downloads,1);assert.equal(workFile.acks,1);
+  const cancelledFile=await file(work,false);
+  cancelledFile.holdDownload={started:gate(),closed:gate()};
+  const cancelDownload=new AbortController();
+  const downloading=client.callTool({name:'notibuddy_files_receive',arguments:{id:cancelledFile.m.id}},undefined,{signal:cancelDownload.signal,timeout:10000});
+  void downloading.catch(()=>{});
+  await within(cancelledFile.holdDownload.started.promise,'DownloadStart');cancelDownload.abort();await assert.rejects(downloading);
+  await within(cancelledFile.holdDownload.closed.promise,'DownloadCancel');
+  const workInbox=new api.FileInbox(work.record,null,env.NOTIBUDDY_HOME);
+  assert.equal(cancelledFile.acks,0);assert(!fs.existsSync(path.join(workInbox.directory,cancelledFile.m.id)));
+  assert(!fs.existsSync(path.join(workInbox.directory,cancelledFile.m.id+'.lock')));
+  delete cancelledFile.holdDownload;
+  assert.equal((await call('notibuddy_files_receive',{id:cancelledFile.m.id})).result.status,'delivered');
+  assert.equal(cancelledFile.downloads,2);assert.equal(cancelledFile.acks,1);
+
+  const cancelledAck=await file(work,false);
+  cancelledAck.holdAck={started:gate(),closed:gate()};
+  const cancelReceipt=new AbortController();
+  const acknowledging=client.callTool({name:'notibuddy_files_receive',arguments:{id:cancelledAck.m.id}},undefined,{signal:cancelReceipt.signal,timeout:10000});
+  void acknowledging.catch(()=>{});
+  await within(cancelledAck.holdAck.started.promise,'AcknowledgementStart');cancelReceipt.abort();await assert.rejects(acknowledging);
+  await within(cancelledAck.holdAck.closed.promise,'AcknowledgementCancel');
+  const savedTarget=path.join(workInbox.directory,cancelledAck.m.id);
+  assert.equal(fs.readFileSync(path.join(savedTarget,'_report.txt'),'utf8'),cancelledAck.text);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(savedTarget,'receipt.json'),'utf8')).delivered,false);
+  assert(!fs.existsSync(path.join(workInbox.directory,cancelledAck.m.id+'.lock')));
+  delete cancelledAck.holdAck;
+  assert.equal((await call('notibuddy_files_receive',{id:cancelledAck.m.id})).result.status,'delivered');
+  assert.equal(cancelledAck.downloads,1);assert.equal(cancelledAck.acks,2);
   await inspectStorage?.('received-files');
   await client.close();clients.length=0;assert.equal(mcpErrors,'');assert.deepEqual(unexpected,[]);const modes={files:0,directories:0,temporaryFiles:0,temporaryDirectories:0,lockFiles:0,lockDirectories:0,permissionCheck:process.platform==='win32'?(inspectStorage?'Windows DACLs checked separately':'Windows ACLs not asserted'):'Unix files0600/directories0700'};function walk(dir){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const p=path.join(dir,entry.name);assert(!entry.isSymbolicLink());const kind=entry.isDirectory()?'Directories':'Files';if(/\.tmp$/i.test(entry.name))modes['temporary'+kind]++;if(/\.lock$/i.test(entry.name))modes['lock'+kind]++;if(entry.isDirectory()){if(process.platform!=='win32')assert.equal(fs.statSync(p).mode&0o777,0o700);modes.directories++;walk(p);}else{if(process.platform!=='win32')assert.equal(fs.statSync(p).mode&0o777,0o600);modes.files++;}}}walk(env.NOTIBUDDY_HOME);for(const key of ['temporaryFiles','temporaryDirectories','lockFiles','lockDirectories'])assert.equal(modes[key],0);
-  const auditRows=fs.readFileSync(audit,'utf8').trim().split('\n').map(v=>JSON.parse(v));assert(auditRows.every(v=>v.blocked===0));return{registrations:registrations.length,encryptedRequests:requests.length,signedRequestChecks:counts.requestSignatures,signedRepliesResolved:2,invalidReplyPreservedKeyThenResolved:true,CLIProcessRestart:true,requestLifetimeSeconds:10800,generatedMcpVersion:'notibuddy@^'+version,wrongDestinationRejected:true,mcpStdoutProtocolAndStderrClean:true,manualEncryptedFiles:2,fileHTTP:counts,savedBeforeAcknowledgement:true,lostFileAckRecoveredAcrossProcessRestart:true,idempotentReceiveWithoutRedownload:true,pathTraversalSanitized:true,privateFilesystem:modes,childFetchAudit:auditRows,loopbackFetches:auditRows.reduce((n,v)=>n+v.calls,0),nonLoopbackFetchAttempts:0,limits:['Synthetic v1 phone responder; no physical Apple device, APNs, StoreKit or production relay','Fetch interception is not an OS packet capture','10800-second wire deadline checked; no new elapsed-duration test','No v2, invitation-first-use or signal/crash matrix in this bounded smoke']};
+  const auditRows=fs.readFileSync(audit,'utf8').trim().split('\n').map(v=>JSON.parse(v));assert(auditRows.every(v=>v.blocked===0));return{registrations:registrations.length,encryptedRequests:requests.length,signedRequestChecks:counts.requestSignatures,signedRepliesResolved:2,invalidReplyPreservedKeyThenResolved:true,CLIProcessRestart:true,requestLifetimeSeconds:10800,generatedMcpVersion:'notibuddy@^'+version,wrongDestinationRejected:true,mcpStdoutProtocolAndStderrClean:true,manualEncryptedFiles:files.size,mcpDownloadCancellationAndRetry:true,mcpAcknowledgementCancellationPreservesFile:true,fileHTTP:counts,savedBeforeAcknowledgement:true,lostFileAckRecoveredAcrossProcessRestart:true,idempotentReceiveWithoutRedownload:true,pathTraversalSanitized:true,privateFilesystem:modes,childFetchAudit:auditRows,loopbackFetches:auditRows.reduce((n,v)=>n+v.calls,0),nonLoopbackFetchAttempts:0,limits:['Synthetic v1 phone responder; no physical Apple device, APNs, StoreKit or production relay','Fetch interception is not an OS packet capture','10800-second wire deadline checked; no new elapsed-duration test','No v2, invitation-first-use or signal/crash matrix in this bounded smoke']};
  }finally{for(const c of clients)await c.close();server.closeAllConnections();await new Promise(r=>server.close(r));globalThis.fetch=originalFetch;}
 }
