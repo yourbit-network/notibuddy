@@ -1,0 +1,38 @@
+name: Published client Windows acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/published-client-windows.yml
+      - scripts/check-installed-client.mjs
+      - scripts/fixtures/installed-client-smoke.mjs
+      - scripts/tests/installed-client-acceptance.test.mjs
+      - test-vectors/published-0.2.6.json
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Check isolated environment and artifact binding safeguards
+        run: node --test scripts/tests/installed-client-acceptance.test.mjs
+      - name: Install exact published artifact and exercise encrypted CLI, MCP and files
+        run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.6.json --output .build/windows-public-026 --expected-platform win32
+      - name: Preserve sanitized acceptance receipt in job log
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path .build/windows-public-026/receipt.json) {
+            Get-Content .build/windows-public-026/receipt.json
+          }
