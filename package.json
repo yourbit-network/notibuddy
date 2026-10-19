@@ -1,6 +1,6 @@
 {
   "name": "notibuddy",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "End-to-end encrypted CLI and Model Context Protocol (MCP) server for NotiBuddy",
   "license": "MIT",
   "author": "Yourbit, LLC <contact@notibuddy.app>",
