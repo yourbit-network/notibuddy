@@ -26,18 +26,28 @@ test('Windows environment keeps required system root without inheriting profile 
   assert.equal(env.SystemRoot,'C:\\Windows');
   assert.equal(env.PATH,'C:\\Node With Spaces;C:\\Windows\\System32');
   assert.equal(env.NOTIBUDDY_HOME,'D:\\Temp Lane\\profile');
-  for (const key of ['HOME','USERPROFILE','APPDATA','NPM_TOKEN','NODE_AUTH_TOKEN','NODE_OPTIONS','HTTPS_PROXY','CODEX_HOME']) assert.equal(env[key],undefined);
+  assert.equal(env.USERPROFILE,'D:\\Temp Lane');
+  assert.equal(env.HOMEDRIVE,'D:');
+  assert.equal(env.HOMEPATH,'\\Temp Lane');
+  assert.equal(env.APPDATA,'D:\\Temp Lane\\AppData\\Roaming');
+  assert.equal(env.LOCALAPPDATA,'D:\\Temp Lane\\AppData\\Local');
+  assert.equal(env.USERNAME,'notibuddy-fixture');
+  assert.equal(env.USERDOMAIN,'notibuddy-fixture');
+  assert.equal(env.LOGONSERVER,'');
+  for (const key of ['HOME','NPM_TOKEN','NODE_AUTH_TOKEN','NODE_OPTIONS','HTTPS_PROXY','CODEX_HOME']) assert.equal(env[key],undefined);
   assert(!JSON.stringify(env).includes('private-'));
   assert.throws(() => isolatedEnvironment({platform:'win32',source:{SystemRoot:'relative'}}));
 });
 
-test('undefined SDK profile overrides really disappear in a child process', () => {
+test('child processes cannot restore the parent profile through SDK or Windows defaults', () => {
   const root=temp();
   try {
     const env=isolatedEnvironment({temporary:root,cache:path.join(root,'cache'),profile:path.join(root,'profile'),user:path.join(root,'user'),global:path.join(root,'global')});
-    const actual=JSON.parse(execFileSync(process.execPath,['-e',"console.log(JSON.stringify({home:process.env.HOME,profile:process.env.USERPROFILE,notibuddy:process.env.NOTIBUDDY_HOME,auth:process.env.NODE_AUTH_TOKEN,options:process.env.NODE_OPTIONS}))"],
+    const actual=JSON.parse(execFileSync(process.execPath,['-e',"console.log(JSON.stringify({home:process.env.HOME,profile:process.env.USERPROFILE,notibuddy:process.env.NOTIBUDDY_HOME,auth:process.env.NODE_AUTH_TOKEN,options:process.env.NODE_OPTIONS,homeDrive:process.env.HOMEDRIVE,homePath:process.env.HOMEPATH,appData:process.env.APPDATA,localAppData:process.env.LOCALAPPDATA}))"],
       {env:{HOME:'synthetic-sdk-default',USERPROFILE:'synthetic-sdk-default',...env},encoding:'utf8'}));
-    assert.deepEqual(actual,{notibuddy:path.join(root,'profile')});
+    const expectedChild={notibuddy:path.join(root,'profile')};
+    if(process.platform==='win32') Object.assign(expectedChild,{profile:root,homeDrive:path.parse(root).root.replace(/\\$/,''),homePath:root.slice(2),appData:path.join(root,'AppData','Roaming'),localAppData:path.join(root,'AppData','Local')});
+    assert.deepEqual(actual,expectedChild);
   } finally {fs.rmSync(root,{recursive:true,force:true});}
 });
 

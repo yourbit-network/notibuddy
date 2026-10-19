@@ -24,14 +24,26 @@ export function releaseExpectation(record) {
 
 export function isolatedEnvironment({platform = process.platform, source = process.env, temporary, cache, profile, user, global, node = process.execPath}) {
   // The SDK merges selected parent variables even with explicit env. Undefined
-  // entries remove its user-profile defaults from the spawned MCP process.
+  // entries remove its user-profile defaults on Unix. libuv restores omitted
+  // required Windows variables, so redirect those explicitly below.
   const env = Object.fromEntries(['HOME','LOGNAME','SHELL','TERM','USER','APPDATA','HOMEDRIVE','HOMEPATH',
     'LOCALAPPDATA','USERNAME','USERPROFILE','PROGRAMFILES','PROCESSOR_ARCHITECTURE'].map(key => [key, undefined]));
   const paths = [platform === 'win32' ? path.win32.dirname(node) : path.dirname(node)];
   if (platform === 'win32') {
     const root = Object.entries(source).find(([key]) => key.toUpperCase() === 'SYSTEMROOT')?.[1];
     assert(root && path.win32.isAbsolute(root), 'Windows requires an absolute SystemRoot');
+    assert(temporary && path.win32.isAbsolute(temporary), 'Windows requires an absolute temporary directory');
     env.SystemRoot = root;
+    env.WINDIR = root;
+    env.SYSTEMDRIVE = path.win32.parse(root).root.replace(/\\$/, '');
+    env.USERPROFILE = temporary;
+    env.HOMEDRIVE = path.win32.parse(temporary).root.replace(/\\$/, '');
+    env.HOMEPATH = temporary.slice(env.HOMEDRIVE.length);
+    env.APPDATA = path.win32.join(temporary, 'AppData', 'Roaming');
+    env.LOCALAPPDATA = path.win32.join(temporary, 'AppData', 'Local');
+    env.USERNAME = 'notibuddy-fixture';
+    env.USERDOMAIN = 'notibuddy-fixture';
+    env.LOGONSERVER = '';
     paths.push(path.win32.join(root, 'System32'));
   } else paths.push('/usr/bin', '/bin');
   return {...env, PATH: paths.join(platform === 'win32' ? ';' : ':'), TMPDIR: temporary, TMP: temporary, TEMP: temporary,
