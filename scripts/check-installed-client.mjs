@@ -106,6 +106,8 @@ export async function main(args) {
       if (label.startsWith('windows-acl-')) {
         const code = String(error.stderr || '').match(/^ACL_PROBE_FAILED: ([A-Za-z0-9_. ,-]{1,160})\r?$/m)?.[1];
         if (code) result.commands.at(-1).diagnosticCode = code;
+        const line = String(error.stderr || '').match(/^ACL_PROBE_LINE: ([0-9]{1,6})\r?$/m)?.[1];
+        if (line) result.commands.at(-1).diagnosticLine = Number(line);
       }
       if (extra.expectedFailure === error.code) return {stdout: error.stdout, stderr: error.stderr};
       throw new Error(label + ' failed');
@@ -159,9 +161,11 @@ export async function main(args) {
       assert.equal(result.windowsACLControls.everyoneReadableControlRejected,true);
       result.windowsStorageACLs = [];
       inspectStorage = async phase => {
-        const observation = JSON.parse((await run('windows-acl-'+phase,powershell,[...args,'-Root',profile],{env})).stdout.replace(/^\uFEFF/,''));
-        assert.equal(observation.private,true); assert(observation.objects.length > 0);
+        // A failing permission observation is safe metadata and must survive in
+        // the receipt. Retaining it does not turn the failed check into a pass.
+        const observation = JSON.parse((await run('windows-acl-'+phase,powershell,[...args,'-Root',profile],{env,expectedFailure:1})).stdout.replace(/^\uFEFF/,''));
         result.windowsStorageACLs.push({phase,...observation});
+        assert.equal(observation.private,true); assert(observation.objects.length > 0);
       };
     }
     stage = 'synthetic-cli-mcp-file'; result.synthetic = await fixture({installed,temporary,env,run,version:expected.version,inspectStorage}); result.completed = true;

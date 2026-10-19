@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 trap {
   [Console]::Error.WriteLine('ACL_PROBE_FAILED: ' + $_.FullyQualifiedErrorId)
+  [Console]::Error.WriteLine('ACL_PROBE_LINE: ' + $_.InvocationInfo.ScriptLineNumber)
   exit 1
 }
 $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
