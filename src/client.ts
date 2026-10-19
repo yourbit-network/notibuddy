@@ -242,10 +242,14 @@ export class NotiBuddyClient {
         for(let count=0;count<(index===latest?8:2);count++) {
           if(Date.now()>=call.deadline)break;
           const response=await this.getSavedReply(pending.id,saved,pending.afterSeq,call);if(!response)break;
-          if(pending.seenSignatures?.includes(response.envelope.sig)){warnings.push(`Repeated reply for ${pending.id} was ignored`);break;}
           const result=await this.open(pending.id,response.envelope,saved);
-          // Dedupe and validate sequence before returning any action to callers.
-          pending.afterSeq=response.seq;(pending.seenSignatures ??= []).push(response.envelope.sig);
+          // Verify even repeated signatures before advancing unsigned relay metadata.
+          // Skip authenticated replays within the same bounded polling budget.
+          pending.afterSeq=response.seq;
+          if(pending.seenSignatures?.includes(response.envelope.sig)) {
+            warnings.push(`Repeated reply for ${pending.id} was ignored`);continue;
+          }
+          (pending.seenSignatures ??= []).push(response.envelope.sig);
           if(result.answer)events.push({seq:response.seq,answer:result.answer});
         }
       }catch(error) {

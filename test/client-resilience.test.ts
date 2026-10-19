@@ -179,6 +179,49 @@ test('slow history is bounded and rotated while the newest controls are checked 
   assert.equal(aborted,2);
 }));
 
+for(const version of [1,2] as const)test(`v${version} repeated activity replies advance bounded cursors without replaying controls`,()=>fixture(async(f)=>{
+  const watch=await device(),config={requestProtocol:version};
+  let queue:any[]=[],lookups=0;
+  globalThis.fetch=async(url,init)=>{
+    const u=new URL(String(url));
+    if(u.pathname==='/v2/recipients')return Response.json(await manifest(f,watch,2));
+    if(init?.method==='POST') {
+      const q=JSON.parse(String(init.body));f.requests.push(q);
+      return Response.json({requestId:q.requestId,seq:f.requests.length},{status:202});
+    }
+    lookups++;
+    const next=queue.find(r=>r.seq>Number(u.searchParams.get('afterSeq')));
+    return next?Response.json(next):new Response(null,{status:204});
+  };
+  await f.client(config).activity({activityId:'replay',action:'start',timerMinutes:10});
+  const q=f.requests[0],makeReply=()=>version===1?f.reply(q):groupReply(f,q,watch);
+  const first=await makeReply();queue=[first];
+  assert.equal((await f.client(config).activity({activityId:'replay',action:'poll'})).controls.length,1);
+  const key=f.store.read('reply:'+q.requestId).privateKeyJwk;
+  queue=[...Array.from({length:8},(_,i)=>({...first,seq:101+i})),{...await makeReply(),seq:109}];
+  lookups=0;
+  assert.deepEqual((await f.client(config).activity({activityId:'replay',action:'poll'})).controls,[]);
+  assert.equal(lookups,8,'Repeated responses must obey the per-call lookup bound');
+  let saved=f.store.read('activity:replay');
+  assert.equal(saved.requests[0].afterSeq,108);assert.equal(saved.requests[0].seenSignatures.length,1);
+  assert.equal(saved.lastControlSeq,100,'A replay must not consume a new control sequence');
+  assert.equal((await f.client(config).activity({activityId:'replay',action:'poll'})).controls.length,1);
+  assert.deepEqual((await f.client(config).activity({activityId:'replay',action:'poll'})).controls,[]);
+
+  // A copied signature on changed ciphertext is not an authenticated duplicate.
+  const wire=version===1?first:first.envelope;
+  const changed={...wire,ct:(wire.ct[0]==='A'?'B':'A')+wire.ct.slice(1)};
+  queue=[version===1?{...changed,seq:110}:{...first,envelope:changed,seq:110},{...await makeReply(),seq:111}];
+  const rejected=await f.client(config).activity({activityId:'replay',action:'poll'});
+  assert.deepEqual(rejected.controls,[]);assert(rejected.warnings?.length);
+  saved=f.store.read('activity:replay');assert.equal(saved.requests[0].afterSeq,109);
+  assert.deepEqual(f.store.read('reply:'+q.requestId).privateKeyJwk,key);
+  queue[0]={...first,seq:110};
+  assert.equal((await f.client(config).activity({activityId:'replay',action:'poll'})).controls.length,1);
+  assert.equal(f.store.read('activity:replay').requests[0].afterSeq,111);
+  assert.deepEqual((await f.client(config).activity({activityId:'replay',action:'poll'})).controls,[]);
+}));
+
 test('doctor exposes approval and compatibility without credentials or private keys',()=>fixture(async(f)=>{
   globalThis.fetch=async(url)=>String(url).endsWith('/health')?Response.json({status:'healthy'}):Response.json({sender:{senderKeyId:f.sender.senderKeyId,approved:1}});
   const report=await f.client().doctor();assert(report.reachable);assert.equal(report.sender,'approved');assert.equal(report.requestProtocol,1);
