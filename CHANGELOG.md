@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep activity polling moving when a relay repeats an already verified response at a later sequence. Repeated controls are not emitted again, polling remains bounded, and altered responses preserve the original cursor and reply key for recovery.
+
+## Unreleased
+
 ## 0.2.6 — 2026-10-17
 
 - Keep ordinary approval, text, form and diff requests answerable for three hours by default. Configure a shorter lifetime with CLI `--timeout`, MCP `timeout_seconds`, or library `timeoutSeconds`; polling still waits at most 55 seconds per call.
