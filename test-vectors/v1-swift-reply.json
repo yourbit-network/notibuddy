@@ -1,0 +1,189 @@
+{
+  "description" : "Public synthetic Swift vectors. Replies use ActionResponder.queue; errors use SecureEnclaveSigner.errorSigningInput/signB64u. In-memory software signing key; public reply private scalar 6. No live account, Keychain or network.",
+  "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+  "deviceSigPub" : "BPxki6w3j39XlVhnDxO2rNt7Q2FuaqYOdvUgPNIg-nJMSAkBfNlYm9I2q6XNeN9T-DArKqGw9YqphAkENbDs7fY",
+  "errors" : [
+    {
+      "code" : "undecryptable",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_undecryptable",
+      "sig" : "uH00Pw-5pXPz4XvrY4G7P9rEq38uo-BunT0Pmzh8O4WqiookCIrpGYjbKe9huNX3yRcCkLQ-BGcLlnUv2XdTbA",
+      "v" : 1
+    },
+    {
+      "code" : "bad_signature",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_bad_signature",
+      "sig" : "CilGlfTz955NIFz4Q83cSI2lJQnI5Vu2S9-K8hegtSJtzb0D562B-Hm07cvxi4EGj_EOe74nG-r6UQmGjg9Qiw",
+      "v" : 1
+    },
+    {
+      "code" : "unknown_sender",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_unknown_sender",
+      "sig" : "lBtefUNCy8mmxHKsPVj6NORQo2wLoH6JJ1odZdTgUVyr5XxcOuKWWATlZRhTFCmTBkZV8R9W9GERzCuP5loqdQ",
+      "v" : 1
+    },
+    {
+      "code" : "expired",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_expired",
+      "sig" : "2mGChU4yc-U95vDPzhJlLwezs-_kB8VrrKlYX7MTxQ9EgUjJoBcYxD40fZXdZs7CZVR8dbBy1BriEqDp2U58Jg",
+      "v" : 1
+    },
+    {
+      "code" : "replayed",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_replayed",
+      "sig" : "TdpuMs7XyHzZ1aBHL86nbyMr6Ck0clrSsG10wkmOTlM8Ev7-zquc7ocbfzk2XRj718i8Mf_zh5HVuWyx6PmLdg",
+      "v" : 1
+    },
+    {
+      "code" : "unsupported",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_unsupported",
+      "sig" : "JFPWc37bY67tifUPnmsq-Hx2S-OMpzrJYJ46fPUrvXpAIgkFLpc3yv5c0lkGi95v0ZaAZ6krydSNoLK8iG-Mew",
+      "v" : 1
+    },
+    {
+      "code" : "wrong_device",
+      "createdAt" : 1792407957,
+      "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+      "kind" : "error",
+      "requestId" : "vector_error_wrong_device",
+      "sig" : "vapO6eMOlRkgrngLTuAI2ekjF6mCDMZZNnhJadXaY532wKtLaZcn5bP0ymp7nomEhjzr--eODmVIpwx2j6p7ZA",
+      "v" : 1
+    }
+  ],
+  "replies" : [
+    {
+      "answer" : {
+        "action" : "Approve",
+        "authenticated" : true
+      },
+      "envelope" : {
+        "createdAt" : 1792407957,
+        "ct" : "Zljel7yrsIkfl2cnoc7A8X_Kd_6eNJcyj_HEmQDgpTQQV_484IkZsYZr5Nfu8afsgWJvAWSQyHmq",
+        "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+        "enc" : "BFokNv_-JSUxEEoKNcUPCWFFk2zay192fY9OZGEKtXcc_v8K3R8ZXW8gVe_vzrFguXBRJNOBc7O5JNpeNjtBpYE",
+        "kind" : "reply",
+        "requestId" : "vector_approval",
+        "sig" : "DTXyOl447EBtX2mz7YbC73Vi8QFSE-EUUA-iGtl57-5iz7Y5BXSXheB0gDTNzIy5tl0_jmzTQtAYf8DfIdCueQ",
+        "v" : 1
+      },
+      "id" : "approval"
+    },
+    {
+      "answer" : {
+        "action" : "send",
+        "authenticated" : true,
+        "text" : "Listo 🇲🇽\n"
+      },
+      "envelope" : {
+        "createdAt" : 1792407957,
+        "ct" : "1nfmYL-kdcdv-PQiGdoGvV1rgH2QWRehBeix1C7kRknxetIlPr-AVapL0fl2B8pn-GH1-CxBMM8ERfHo3ce6fh7PqfLAnpacvTJOtJWvTCI",
+        "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+        "enc" : "BOBisp2cXFVUZeZ506Cdfo_GyO-lD0TQtOjHJc6WUJvnDzHc_5FrjHwirDdNwxjaTAYSZEPrFI0vfTw9H9Ux_Gs",
+        "kind" : "reply",
+        "requestId" : "vector_text_input",
+        "sig" : "JnXiHukgC8dV0OGWGvAhbEeJyF9UQF4R2Q35plPp6w-TQ5bRhTX21z5gx4zbfQcgD3261x2Yi5gt0MSd9PIBEA",
+        "v" : 1
+      },
+      "id" : "text_input"
+    },
+    {
+      "answer" : {
+        "action" : "submit",
+        "authenticated" : true,
+        "values" : {
+          "count" : 2,
+          "enabled" : true,
+          "input" : "Field named input",
+          "text" : "México 🇲🇽"
+        }
+      },
+      "envelope" : {
+        "createdAt" : 1792407957,
+        "ct" : "soZcJo1zP-wcVFcFbYhqd0asr4RqgPt1IS3HO3FxhhQT0F7zJ_n1GQc_9BEEWYeSiQk7EgVbadTYPr9PouvDB_xStkkB0z_v64c-CchmfuKbnJfzVcENit611xUM6UnCTlTucfuqTyXyqOugAGmlh3A-lQqSJoH0CoBbYPBSs0D7C9aCBE9DSI8eBXJe7pTQfHg",
+        "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+        "enc" : "BAqgmd_EhUcrbCpzrdTLw5BgAkE38PFy_3-JGmcSMxS7UeKMBQ_XBg_Z8sruNLZ936M1awpF5cz5g-DhvUt67j0",
+        "kind" : "reply",
+        "requestId" : "vector_form",
+        "sig" : "SX8bvCzhUPC3nbhPm6M0S_fXTNVTgtkMcMJN6q-0idkKc3T40CRQ4S5DeOfvhpo4QGoEv2eQ2nddMI6tHoZ65Q",
+        "v" : 1
+      },
+      "id" : "form"
+    },
+    {
+      "answer" : {
+        "action" : "approve",
+        "authenticated" : true
+      },
+      "envelope" : {
+        "createdAt" : 1792407957,
+        "ct" : "iRAbDETJ68FzEy-OTWvNNsSHPQingxfmh-jlYSsOtQfzUuudtR9pKY9gv8RvmzSsmRTfLeIHp44u",
+        "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+        "enc" : "BGM8dF-6BIsh87m8ITsn2De2xPzsbGoM4AzI7Zd9PWqciB25IetWzLs5Zwe1_rUxZyYwbl6Lr8jzIwPieYfafoc",
+        "kind" : "reply",
+        "requestId" : "vector_diff",
+        "sig" : "786YscWjOmSMUN3NL0UtXm9QJO6hB_myJPooVs3avaNYlaXBQtNf_707UitopZwy4CnXw8B1_PUnSyWccYqr_Q",
+        "v" : 1
+      },
+      "id" : "diff"
+    },
+    {
+      "answer" : {
+        "action" : "cancel",
+        "authenticated" : true,
+        "values" : {
+          "state" : "cancelled"
+        }
+      },
+      "envelope" : {
+        "createdAt" : 1792407957,
+        "ct" : "vY81cwp8xBI1vcXrehFBE2WN0QdoArR7dcA301I7s6Fr8TdNOLobkE_H2XL2Aji5fBPHSxae-A4eVXgi6mquJn72dwqawXG2bUFryw-Yf8919yIA1s66",
+        "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+        "enc" : "BJz7vaYDbIsVo1f_j1gb167du7nvRmU7niSg8BR8WYmZljfiVPhw7Urnp9Fe-yrSV3e1K4f_qPqfueS7ck4B4eo",
+        "kind" : "reply",
+        "requestId" : "vector_timer",
+        "sig" : "UXtJir1ua9PaFjZ3kxyuGNm4q7z1BKwBT7ZOiD6axPN-ofS8z43CTSCOj8T2Ei0L73ID5Wd8Bc6t4R3reGwrVw",
+        "v" : 1
+      },
+      "id" : "timer"
+    },
+    {
+      "answer" : {
+        "action" : "next",
+        "authenticated" : true,
+        "values" : {
+          "step" : 2
+        }
+      },
+      "envelope" : {
+        "createdAt" : 1792407957,
+        "ct" : "5S91YtNiQJgwg2LINVH7vLAQteFjo_KRmoTKQV2F2ikSKzGVTkmmRP88f_QeQvjDMnWBt0DqJY2hw0fERIIktZpxbm5mi624ftA",
+        "deviceId" : "dev_8fd634613a67b16b1d1e46d4",
+        "enc" : "BHnLBNs6BpFSraxmoloehIpVb90YQiLsLSkTi85Mua1u_HbkGtZNblbPW6bBD7V15_3wqSnVrezZuf-LpVqQcHE",
+        "kind" : "reply",
+        "requestId" : "vector_stepper",
+        "sig" : "_8Wln1d-E220e6d3NneysZoz7_6oGyW5sVBzhiq3F40pq94cbkxCkYVPVSdV8DSOVIX673Sa1g-vz0EcUYSAdg",
+        "v" : 1
+      },
+      "id" : "stepper"
+    }
+  ],
+  "replyPrivateScalar" : 6,
+  "schemaVersion" : 1
+}
