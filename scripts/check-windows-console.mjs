@@ -29,7 +29,7 @@ const result = {startedAt: new Date().toISOString(), completed: false, platform,
     'Resume uses the request ID printed by the interrupted CLI.',
     'Fetch interception is not an OS firewall or packet capture.']};
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy signal acceptance '));
-let server, active, stage = 'install';
+let server, active, executionEnv, stage = 'install';
 const children = new Set();
 async function command(label, executable, args, env, cwd = temporary) {
   const out = await execute(executable, args, {env, cwd, timeout: 120000, maxBuffer: 4 * 1024 * 1024});
@@ -58,6 +58,7 @@ try {
   const user = path.join(temporary, 'empty-user.npmrc'), global = path.join(temporary, 'empty-global.npmrc');
   fs.writeFileSync(user, ''); fs.writeFileSync(global, '');
   const env = isolatedEnvironment({temporary, profile, cache: path.join(temporary, 'cache'), user, global});
+  executionEnv = env;
   const npm = npmCLI();
   result.npm = (await command('npm-version', process.execPath, [npm, '--version'], env)).stdout.trim();
   await command('fresh-registry-install', process.execPath, [npm, 'install', '--ignore-scripts', '--no-audit', '--no-fund'], env, consumer);
@@ -191,6 +192,15 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
     child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
     const ended = new Promise((resolve, reject) => {
       child.once('error', reject); child.once('close', (code, terminationSignal) => {
+        result.helperExit = {code, signal: terminationSignal, stdoutSHA256: hash(stdout), stderrSHA256: hash(stderr)};
+        if (fs.existsSync(controlReceipt)) {
+          try {
+            const probe = JSON.parse(fs.readFileSync(controlReceipt, 'utf8').replace(/^\uFEFF/, ''));
+            if (probe.failure) result.helperFailure = probe.failure;
+          } catch {
+            result.helperFailure = {stage: 'receipt', kind: 'InvalidProbeReceipt'};
+          }
+        }
         children.delete(child); resolve({code, signal: terminationSignal});
       });
     });
@@ -273,13 +283,34 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
   result.loopbackFetches = fetches.reduce((n, x) => n + x.calls, 0); result.nonLoopbackFetchAttempts = 0;
   result.completed = true;
 } catch (error) {
-  result.failure = {stage, kind: error.name};
+  result.failure = {stage, kind: error.name,
+    sourceLine: Number(error.stack?.match(/check-windows-console\.mjs:(\d+):/)?.[1]) || undefined};
 } finally {
-  await Promise.all([...children].map(child => new Promise(resolve => {
-    child.once('close', resolve); child.kill('SIGKILL');
-  })));
+  try {
+    await Promise.all([...children].map(async child => {
+      const closed = new Promise(resolve => child.once('close', resolve));
+      // Windows kill() only terminates the PowerShell helper. Clean up its
+      // owned CLI subtree too if the harness fails before normal completion.
+      try {
+        await execute(path.join(executionEnv.SystemRoot, 'System32/taskkill.exe'),
+          ['/PID', String(child.pid), '/T', '/F'], {env: executionEnv, timeout: 5000});
+      } catch {
+        // The helper may already have exited during the cleanup race.
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      }
+      await bounded(closed, 5000, 'Test helper did not stop during cleanup');
+    }));
+  } catch {
+    result.completed = false; result.failure = {stage: 'cleanup', kind: 'ProcessCleanupFailed'};
+  }
   if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
-  fs.rmSync(temporary, {recursive: true, force: true, maxRetries: 5, retryDelay: 100}); result.temporaryProfilesKeysAndCacheRemoved = !fs.existsSync(temporary);
+  try {
+    fs.rmSync(temporary, {recursive: true, force: true, maxRetries: 5, retryDelay: 100});
+    result.temporaryProfilesKeysAndCacheRemoved = !fs.existsSync(temporary);
+  } catch {
+    result.temporaryProfilesKeysAndCacheRemoved = false;
+    result.completed = false; result.failure = {stage: 'cleanup', kind: 'TemporaryCleanupFailed'};
+  }
   result.finishedAt = new Date().toISOString(); fs.writeFileSync(receipt, JSON.stringify(result, null, 2) + '\n');
 }
 console.log(JSON.stringify({completed: result.completed, cases: result.cases.length, receipt}));

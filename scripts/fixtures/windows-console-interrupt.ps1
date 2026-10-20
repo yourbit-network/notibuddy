@@ -9,6 +9,8 @@ if ((Test-Path -LiteralPath $config.receipt) -or (Test-Path -LiteralPath $config
     throw 'Control files already exist'
 }
 
+$probeStage = 'compile'
+try {
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -24,6 +26,7 @@ public class NotiBuddyConsoleResult {
     public string Stderr;
 }
 public static class NotiBuddyConsoleInterrupt {
+    public static string Stage = "allocate-console";
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool FreeConsole();
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -65,6 +68,7 @@ public static class NotiBuddyConsoleInterrupt {
             info.RedirectStandardInput = true;
             info.RedirectStandardOutput = true;
             info.RedirectStandardError = true;
+            Stage = "start-cli";
             child = Process.Start(info);
             child.StandardInput.Close();
             var stdout = child.StandardOutput.ReadToEndAsync();
@@ -72,12 +76,14 @@ public static class NotiBuddyConsoleInterrupt {
             // This changes only the helper; the CLI is already running.
             Require(SetConsoleCtrlHandler(IntPtr.Zero, true), "Protect helper");
             Stopwatch waiting = Stopwatch.StartNew();
+            Stage = "wait-trigger";
             while (!File.Exists(trigger)) {
                 if (child.HasExited) throw new InvalidOperationException("CLI exited before interruption");
                 if (waiting.ElapsedMilliseconds > 25000) throw new TimeoutException("Missing interruption trigger");
                 Thread.Sleep(10);
             }
             uint helper = (uint)Process.GetCurrentProcess().Id;
+            Stage = "inspect-console";
             uint target = (uint)child.Id;
             uint[] processes = new uint[3];
             uint count = GetConsoleProcessList(processes, (uint)processes.Length);
@@ -91,7 +97,9 @@ public static class NotiBuddyConsoleInterrupt {
             if (count != 2 || !targetPresent || !helperPresent)
                 throw new InvalidOperationException("Refusing to signal a non-isolated console");
             // CTRL_C_EVENT must use group 0; nonzero can succeed without delivery.
+            Stage = "send-ctrl-c";
             Require(GenerateConsoleCtrlEvent(0, 0), "Generate CTRL_C_EVENT");
+            Stage = "wait-cli-exit";
             if (!child.WaitForExit(3000)) throw new TimeoutException("CLI did not exit after Ctrl+C");
             return new NotiBuddyConsoleResult {
                 ExitCode = child.ExitCode, Stdout = stdout.Result, Stderr = stderr.Result
@@ -107,6 +115,7 @@ public static class NotiBuddyConsoleInterrupt {
     }
 }
 '@
+$probeStage = 'run'
 $result = [NotiBuddyConsoleInterrupt]::Run($config.node, [string[]]$config.args, $config.cwd, $config.trigger)
 $receipt = @{
     consoleEvent = @{event = 'CTRL_C_EVENT'; isolatedConsoleProcesses = 2; targetPresent = $true; sent = $true}
@@ -117,3 +126,13 @@ $receipt = @{
 # This private temporary record is checked and deleted by the parent harness.
 # Only the sanitized pass/failure receipt is retained in the CI log.
 [System.IO.File]::WriteAllText($config.receipt, $receipt, (New-Object System.Text.UTF8Encoding($false)))
+} catch {
+    if ($probeStage -eq 'run') { $probeStage = [NotiBuddyConsoleInterrupt]::Stage }
+    $exception = $_.Exception.GetBaseException()
+    $failure = @{stage = $probeStage; kind = $exception.GetType().FullName}
+    if ($exception -is [System.ComponentModel.Win32Exception]) { $failure.nativeCode = $exception.NativeErrorCode }
+    # Fixed stage, exception type and numeric OS code only; no command/profile data.
+    $receipt = @{failure = $failure} | ConvertTo-Json -Compress
+    [System.IO.File]::WriteAllText($config.receipt, $receipt, (New-Object System.Text.UTF8Encoding($false)))
+    exit 1
+}
