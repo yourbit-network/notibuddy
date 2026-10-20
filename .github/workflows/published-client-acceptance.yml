@@ -9,6 +9,7 @@ on:
       - scripts/check-windows-console.mjs
       - scripts/fixtures/installed-client-smoke.mjs
       - scripts/fixtures/installed-launchers.mjs
+      - scripts/fixtures/installed-storage.mjs
       - scripts/fixtures/windows-private-acl.ps1
       - scripts/fixtures/windows-console-interrupt.ps1
       - scripts/tests/installed-client-acceptance.test.mjs

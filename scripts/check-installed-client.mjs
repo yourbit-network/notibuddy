@@ -11,6 +11,7 @@ import {promisify} from 'node:util';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {fixture} from './fixtures/installed-client-smoke.mjs';
 import {fixture as launcherFixture} from './fixtures/installed-launchers.mjs';
+import {fixture as storageFixture} from './fixtures/installed-storage.mjs';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
 export function releaseExpectation(record) {
@@ -84,12 +85,12 @@ export function verifyInstalledLock(lock, installed, expectation) {
 export async function main(args) {
   const options = {};
   for (let i = 0; i < args.length; i += 2) {
-    assert(['--release','--output','--expected-platform','--npm-cli','--scope'].includes(args[i]) && args[i + 1], 'Use --release FILE --output DIRECTORY --expected-platform PLATFORM [--npm-cli FILE] [--scope delivery|launchers]');
+    assert(['--release','--output','--expected-platform','--npm-cli','--scope'].includes(args[i]) && args[i + 1], 'Use --release FILE --output DIRECTORY --expected-platform PLATFORM [--npm-cli FILE] [--scope delivery|launchers|storage]');
     assert(!(args[i] in options), 'Duplicate option'); options[args[i]] = args[i + 1];
   }
   assert(options['--release'] && options['--output'] && options['--expected-platform']);
   const scope = options['--scope'] ?? 'delivery';
-  assert(['delivery','launchers'].includes(scope), 'Unknown acceptance scope');
+  assert(['delivery','launchers','storage'].includes(scope), 'Unknown acceptance scope');
   const output = path.resolve(options['--output']); fs.mkdirSync(output, {recursive: true});
   const receipt = path.join(output, 'receipt.json'); assert(!fs.existsSync(receipt), 'Use a new output directory');
   const result = {startedAt: new Date().toISOString(), completed: false, platform: process.platform, architecture: process.arch,
@@ -174,7 +175,7 @@ export async function main(args) {
       };
     }
     stage = 'synthetic-' + scope;
-    result.synthetic = await (scope === 'launchers' ? launcherFixture : fixture)({
+    result.synthetic = await ({launchers:launcherFixture, storage:storageFixture, delivery:fixture}[scope])({
       installed, temporary, env, run, version:expected.version, inspectStorage,
       npm, expected, installedFiles:result.installedFiles,
     });
