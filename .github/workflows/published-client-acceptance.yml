@@ -6,8 +6,10 @@ on:
     paths:
       - .github/workflows/published-client-acceptance.yml
       - scripts/check-installed-client.mjs
+      - scripts/check-windows-console.mjs
       - scripts/fixtures/installed-client-smoke.mjs
       - scripts/fixtures/windows-private-acl.ps1
+      - scripts/fixtures/windows-console-interrupt.ps1
       - scripts/tests/installed-client-acceptance.test.mjs
       - test-vectors/published-0.2.9.json
 
@@ -37,7 +39,11 @@ jobs:
         run: node --test scripts/tests/installed-client-acceptance.test.mjs
       - name: Install exact published artifact and exercise encrypted CLI, MCP and files
         run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.9.json --output .build/published-client --expected-platform ${{ matrix.platform }}
+      - name: Interrupt and resume the installed CLI with a Windows console event
+        if: matrix.platform == 'win32'
+        run: node scripts/check-windows-console.mjs test-vectors/published-0.2.9.json .build/windows-console win32
       - name: Preserve sanitized acceptance receipt in job log
         if: always()
         run: |
           node -e "const fs=require('node:fs'); const path='.build/published-client/receipt.json'; if(fs.existsSync(path)) process.stdout.write(fs.readFileSync(path,'utf8'))"
+          node -e "const fs=require('node:fs'); const path='.build/windows-console/receipt.json'; if(fs.existsSync(path)) process.stdout.write(fs.readFileSync(path,'utf8'))"
