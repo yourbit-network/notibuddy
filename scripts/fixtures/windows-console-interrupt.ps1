@@ -10,6 +10,9 @@ if ((Test-Path -LiteralPath $config.receipt) -or (Test-Path -LiteralPath $config
 }
 
 $probeStage = 'compile'
+[System.IO.File]::WriteAllText($config.receipt,
+    '{"failure":{"stage":"compile","kind":"IncompleteProbe"}}',
+    (New-Object System.Text.UTF8Encoding($false)))
 try {
 Add-Type -TypeDefinition @'
 using System;
@@ -116,6 +119,9 @@ public static class NotiBuddyConsoleInterrupt {
 }
 '@
 $probeStage = 'run'
+[System.IO.File]::WriteAllText($config.receipt,
+    '{"failure":{"stage":"run","kind":"IncompleteProbe"}}',
+    (New-Object System.Text.UTF8Encoding($false)))
 $result = [NotiBuddyConsoleInterrupt]::Run($config.node, [string[]]$config.args, $config.cwd, $config.trigger)
 $receipt = @{
     consoleEvent = @{event = 'CTRL_C_EVENT'; isolatedConsoleProcesses = 2; targetPresent = $true; sent = $true}

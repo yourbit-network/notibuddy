@@ -186,7 +186,7 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
     const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File', fileURLToPath(new URL('./fixtures/windows-console-interrupt.ps1', import.meta.url)),
       '-ConfigPath', launchConfig],
-      {cwd: temporary, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true, windowsHide: false});
+      {cwd: temporary, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false});
     children.add(child);
     let stdout = '', stderr = '';
     child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
