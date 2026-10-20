@@ -176,7 +176,15 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
     const reached = new Promise(resolve => { ready = resolve; });
     active = {protocol, phase, ready, posts: 0, gets: 0, discovery: 0, signedLookups: 0};
     const args = cliArgs(['ask', 'Synthetic signal recovery', '--to', name, '--wait', '55']);
-    const child = spawn(process.execPath, args,
+    const controlReceipt = path.join(temporary, stage + '-console.json');
+    const controlTrigger = path.join(temporary, stage + '-interrupt');
+    const launchConfig = path.join(temporary, stage + '-launch.json');
+    fs.writeFileSync(launchConfig, JSON.stringify({node: process.execPath, args, cwd: temporary,
+      trigger: controlTrigger, receipt: controlReceipt}));
+    const powershell = path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+      '-File', fileURLToPath(new URL('./fixtures/windows-console-interrupt.ps1', import.meta.url)),
+      '-ConfigPath', launchConfig],
       {cwd: temporary, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true, windowsHide: false});
     children.add(child);
     let stdout = '', stderr = '';
@@ -187,23 +195,24 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
       });
     });
     await bounded(Promise.race([reached, ended.then(() => { throw Error('CLI exited before interruption point'); })]),
-      10000, 'CLI did not reach interruption point');
+      20000, 'CLI did not reach interruption point');
     assert(!relayFailure); assert(active.envelope);
     const id = active.envelope.requestId;
     const before = saved.read('reply:' + id);
     assert(before?.privateKeyJwk);
     assert.equal(before.expiresAt - active.envelope.createdAt, 10800);
-    const controlReceipt = path.join(temporary, stage + '-console.json');
-    const powershell = path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
     const stoppedAt = Date.now();
-    await command('ctrl-c-' + stage, powershell, ['-NoLogo', '-NoProfile', '-NonInteractive',
-      '-ExecutionPolicy', 'Bypass', '-File', fileURLToPath(new URL('./fixtures/windows-console-interrupt.ps1', import.meta.url)),
-      '-TargetProcessId', String(child.pid), '-ReceiptPath', controlReceipt], env);
-    const consoleEvent = JSON.parse(fs.readFileSync(controlReceipt, 'utf8').replace(/^\uFEFF/, ''));
+    fs.writeFileSync(controlTrigger, 'interrupt');
+    const helperExit = await bounded(ended, 5000, 'Console event did not stop the CLI promptly');
+    assert.equal(helperExit.code, 0); assert.equal(helperExit.signal, null);
+    assert.equal(stdout, ''); assert.equal(stderr, '');
+    const observation = JSON.parse(fs.readFileSync(controlReceipt, 'utf8').replace(/^\uFEFF/, ''));
+    const consoleEvent = observation.consoleEvent;
     assert.deepEqual(consoleEvent, {event: 'CTRL_C_EVENT', isolatedConsoleProcesses: 2, targetPresent: true, sent: true});
-    const exit = await bounded(ended, 3000, 'Console event did not stop the CLI promptly');
+    const exit = {code: observation.exitCode, signal: null};
     const elapsedMs = Date.now() - stoppedAt;
-    assert.equal(exit.code, 130); assert.equal(exit.signal, null);
+    assert.equal(exit.code, 130);
+    stdout = observation.stdout; stderr = observation.stderr;
     assert.equal(stdout, '');
     assert(stderr.includes("resume_id='" + id + "'"));
     assert(!stderr.includes(destination.config.token)); assert(!stderr.includes(before.privateKeyJwk.d));

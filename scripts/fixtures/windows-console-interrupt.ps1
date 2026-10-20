@@ -1,25 +1,33 @@
-# Test-only helper. The caller creates the CLI with Node's detached:true,
-# which gives it a separate Windows console. Never signal a shared console.
-# https://nodejs.org/api/child_process.html#optionsdetached
+# Test-only helper: allocate a new console explicitly, launch the CLI there,
+# wait for the harness to reach its stall, and deliver an actual Ctrl+C event.
+# Node/libuv detached mode alone can create a process without any console.
 # https://learn.microsoft.com/windows/console/generateconsolectrlevent
-param(
-    [Parameter(Mandatory = $true)][ValidateRange(1, 2147483647)][int]$TargetProcessId,
-    [Parameter(Mandatory = $true)][string]$ReceiptPath
-)
+param([Parameter(Mandatory = $true)][string]$ConfigPath)
 $ErrorActionPreference = 'Stop'
-if (Test-Path -LiteralPath $ReceiptPath) { throw 'Receipt already exists' }
+$config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+if ((Test-Path -LiteralPath $config.receipt) -or (Test-Path -LiteralPath $config.trigger)) {
+    throw 'Control files already exist'
+}
 
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 
+public class NotiBuddyConsoleResult {
+    public int ExitCode;
+    public string Stdout;
+    public string Stderr;
+}
 public static class NotiBuddyConsoleInterrupt {
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool FreeConsole();
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AttachConsole(uint processId);
+    private static extern bool AllocConsole();
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint GetConsoleProcessList([Out] uint[] processes, uint count);
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -30,16 +38,47 @@ public static class NotiBuddyConsoleInterrupt {
     private static void Require(bool ok, string operation) {
         if (!ok) throw new Win32Exception(Marshal.GetLastWin32Error(), operation);
     }
-    public static void Send(uint target) {
-        uint helper = (uint)Process.GetCurrentProcess().Id;
-        if (target == helper) throw new InvalidOperationException("Refusing to target self");
-        // A console may already be absent. AttachConsole must succeed next.
+    // Windows argv quoting, including embedded quotes and trailing backslashes.
+    private static string Quote(string value) {
+        StringBuilder quoted = new StringBuilder("\"");
+        int slashes = 0;
+        foreach (char c in value) {
+            if (c == '\\') { slashes++; continue; }
+            quoted.Append('\\', c == '"' ? slashes * 2 + 1 : slashes);
+            quoted.Append(c);
+            slashes = 0;
+        }
+        return quoted.Append('\\', slashes * 2).Append('"').ToString();
+    }
+    public static NotiBuddyConsoleResult Run(string node, string[] args, string cwd, string trigger) {
         FreeConsole();
-        Require(AttachConsole(target), "Attach target console");
+        Require(AllocConsole(), "Allocate isolated console");
+        Process child = null;
         try {
-            // AttachConsole resets control handlers. Ignore Ctrl+C only in this
-            // helper, after attaching; the already-running CLI is unaffected.
+            // AllocConsole resets handlers; do not let the child inherit ignore.
+            Require(SetConsoleCtrlHandler(IntPtr.Zero, false), "Enable child Ctrl+C");
+            ProcessStartInfo info = new ProcessStartInfo(node);
+            info.Arguments = String.Join(" ", Array.ConvertAll(args, Quote));
+            info.WorkingDirectory = cwd;
+            info.UseShellExecute = false;
+            info.CreateNoWindow = false;
+            info.RedirectStandardInput = true;
+            info.RedirectStandardOutput = true;
+            info.RedirectStandardError = true;
+            child = Process.Start(info);
+            child.StandardInput.Close();
+            var stdout = child.StandardOutput.ReadToEndAsync();
+            var stderr = child.StandardError.ReadToEndAsync();
+            // This changes only the helper; the CLI is already running.
             Require(SetConsoleCtrlHandler(IntPtr.Zero, true), "Protect helper");
+            Stopwatch waiting = Stopwatch.StartNew();
+            while (!File.Exists(trigger)) {
+                if (child.HasExited) throw new InvalidOperationException("CLI exited before interruption");
+                if (waiting.ElapsedMilliseconds > 25000) throw new TimeoutException("Missing interruption trigger");
+                Thread.Sleep(10);
+            }
+            uint helper = (uint)Process.GetCurrentProcess().Id;
+            uint target = (uint)child.Id;
             uint[] processes = new uint[3];
             uint count = GetConsoleProcessList(processes, (uint)processes.Length);
             bool targetPresent = false, helperPresent = false;
@@ -51,28 +90,30 @@ public static class NotiBuddyConsoleInterrupt {
             }
             if (count != 2 || !targetPresent || !helperPresent)
                 throw new InvalidOperationException("Refusing to signal a non-isolated console");
-            // CTRL_C_EVENT must use group 0. A nonzero group can report success
-            // without delivering Ctrl+C. Only the CLI and this helper are here.
-            using (Process child = Process.GetProcessById((int)target)) {
-                // Acquire the handle before dispatch; the CLI may exit before
-                // GetProcessById could find it after the event.
-                IntPtr childHandle = child.Handle;
-                Require(GenerateConsoleCtrlEvent(0, 0), "Generate CTRL_C_EVENT");
-                // Keep the protected helper attached until the target exits.
-                if (!child.WaitForExit(3000))
-                    throw new TimeoutException("CLI did not exit after console Ctrl+C");
-            }
+            // CTRL_C_EVENT must use group 0; nonzero can succeed without delivery.
+            Require(GenerateConsoleCtrlEvent(0, 0), "Generate CTRL_C_EVENT");
+            if (!child.WaitForExit(3000)) throw new TimeoutException("CLI did not exit after Ctrl+C");
+            return new NotiBuddyConsoleResult {
+                ExitCode = child.ExitCode, Stdout = stdout.Result, Stderr = stderr.Result
+            };
         } finally {
+            // Cleanup only this helper's child on a failed test.
+            if (child != null) {
+                if (!child.HasExited) { child.Kill(); child.WaitForExit(3000); }
+                child.Dispose();
+            }
             Require(FreeConsole(), "Detach helper");
         }
     }
 }
 '@
-[NotiBuddyConsoleInterrupt]::Send([uint32]$TargetProcessId)
+$result = [NotiBuddyConsoleInterrupt]::Run($config.node, [string[]]$config.args, $config.cwd, $config.trigger)
 $receipt = @{
-    event = 'CTRL_C_EVENT'
-    isolatedConsoleProcesses = 2
-    targetPresent = $true
-    sent = $true
+    consoleEvent = @{event = 'CTRL_C_EVENT'; isolatedConsoleProcesses = 2; targetPresent = $true; sent = $true}
+    exitCode = $result.ExitCode
+    stdout = $result.Stdout
+    stderr = $result.Stderr
 } | ConvertTo-Json -Compress
-[System.IO.File]::WriteAllText($ReceiptPath, $receipt, (New-Object System.Text.UTF8Encoding($false)))
+# This private temporary record is checked and deleted by the parent harness.
+# Only the sanitized pass/failure receipt is retained in the CI log.
+[System.IO.File]::WriteAllText($config.receipt, $receipt, (New-Object System.Text.UTF8Encoding($false)))
