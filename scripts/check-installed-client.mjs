@@ -10,6 +10,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {fixture} from './fixtures/installed-client-smoke.mjs';
+import {fixture as launcherFixture} from './fixtures/installed-launchers.mjs';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
 export function releaseExpectation(record) {
@@ -83,18 +84,20 @@ export function verifyInstalledLock(lock, installed, expectation) {
 export async function main(args) {
   const options = {};
   for (let i = 0; i < args.length; i += 2) {
-    assert(['--release','--output','--expected-platform','--npm-cli'].includes(args[i]) && args[i + 1], 'Use --release FILE --output DIRECTORY --expected-platform PLATFORM [--npm-cli FILE]');
+    assert(['--release','--output','--expected-platform','--npm-cli','--scope'].includes(args[i]) && args[i + 1], 'Use --release FILE --output DIRECTORY --expected-platform PLATFORM [--npm-cli FILE] [--scope delivery|launchers]');
     assert(!(args[i] in options), 'Duplicate option'); options[args[i]] = args[i + 1];
   }
   assert(options['--release'] && options['--output'] && options['--expected-platform']);
+  const scope = options['--scope'] ?? 'delivery';
+  assert(['delivery','launchers'].includes(scope), 'Unknown acceptance scope');
   const output = path.resolve(options['--output']); fs.mkdirSync(output, {recursive: true});
   const receipt = path.join(output, 'receipt.json'); assert(!fs.existsSync(receipt), 'Use a new output directory');
   const result = {startedAt: new Date().toISOString(), completed: false, platform: process.platform, architecture: process.arch,
-    node: process.version, osRelease: os.release(), commands: [], limits: ['Synthetic v1 HTTP phone fixture; no real relay, native UI, Apple service or APNs.',
+    node: process.version, osRelease: os.release(), scope, commands: [], limits: ['Synthetic v1 HTTP phone fixture; no real relay, native UI, Apple service or APNs.',
       'No signal/crash matrix or v2/invitation coverage in this lane.', 'Windows DACL observations cover this disposable profile; custom directories and other systems can have different inherited permissions.',
       'Registry integrity is checked independently; npm verifies installation against the exact locked archive integrity. Installed file hashes are retained.',
       'Fixture fetch restrictions are not an OS firewall or packet capture.']};
-  let temporary, stage = 'preflight';
+  let temporary, stage = 'preflight', cleanupUnconfirmed = false;
   const childExec = promisify(execFile);
   async function run(label, command, argv, extra = {}) {
     const start = Date.now();
@@ -118,7 +121,9 @@ export async function main(args) {
     const releaseBytes = fs.readFileSync(path.resolve(options['--release']));
     const expected = releaseExpectation(JSON.parse(releaseBytes)); result.expected = expected; result.releaseReceiptSHA256 = sha(releaseBytes);
     const npm = npmCLI(options['--npm-cli']); result.npmExecutableSHA256 = sha(fs.readFileSync(npm));
-    temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy installed '));
+    // npm's npx lock paths differ when macOS /var aliases /private/var.
+    // Use one canonical disposable root without relaxing artifact verification.
+    temporary = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy installed ')));
     const consumer = path.join(temporary, 'consumer'), cache = path.join(temporary, 'fresh cache'), profile = path.join(temporary, 'fresh profile');
     fs.mkdirSync(consumer, {mode: 0o700});
     fs.writeFileSync(path.join(consumer, 'package.json'), JSON.stringify({name:'installed-public-client-check',private:true,dependencies:{notibuddy:expected.version}}));
@@ -168,12 +173,26 @@ export async function main(args) {
         assert.equal(observation.private,true); assert(observation.objects.length > 0);
       };
     }
-    stage = 'synthetic-cli-mcp-file'; result.synthetic = await fixture({installed,temporary,env,run,version:expected.version,inspectStorage}); result.completed = true;
+    stage = 'synthetic-' + scope;
+    result.synthetic = await (scope === 'launchers' ? launcherFixture : fixture)({
+      installed, temporary, env, run, version:expected.version, inspectStorage,
+      npm, expected, installedFiles:result.installedFiles,
+    });
+    result.completed = true;
   } catch (error) {
     // Do not serialize assertion operands, request bodies or synthetic private keys.
     result.failure = {stage,kind:error.name};
+    if(scope==='launchers' && /^[a-z-]{1,40}$/.test(error.launcherStage ?? '')) result.failure.launcherStage=error.launcherStage;
+    if(scope==='launchers') {
+      const location=error.stack?.match(/installed-launchers\.mjs:\d+:\d+/)?.[0];
+      if(location)result.failure.location=location;
+      cleanupUnconfirmed=error.cleanupUnconfirmed===true;
+    }
   } finally {
-    if (temporary) {
+    if (temporary && cleanupUnconfirmed) {
+      result.temporaryCacheProfilesKeysAndPlaintextRemoved=false;
+      result.cleanupDeferredUntilChildExit=true;
+    } else if (temporary) {
       try { fs.rmSync(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:100}); result.temporaryCacheProfilesKeysAndPlaintextRemoved = !fs.existsSync(temporary); }
       catch { result.temporaryCacheProfilesKeysAndPlaintextRemoved = false; result.completed = false; result.failure = {stage:'cleanup',kind:'CleanupFailed'}; }
     } else result.noTemporaryLaneCreated = true;
