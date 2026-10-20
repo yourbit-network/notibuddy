@@ -29,7 +29,7 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "tsx test/protocol.test.ts && tsx test/response-vectors.test.ts && tsx test/pairing-validation.test.ts && tsx test/pairing-invitations.test.ts && tsx test/pairing-cli.test.ts && tsx test/response-binding.test.ts && tsx test/client.test.ts && tsx test/sender-registration.test.ts && tsx test/activity-dispatch.test.ts && tsx test/destinations.test.ts && tsx test/files.test.ts && tsx test/file-durability.test.ts && tsx test/file-cancellation.test.ts && tsx test/file-routing.test.ts && tsx test/groups.test.ts && tsx test/client-resilience.test.ts && tsx test/doctor.test.ts && tsx test/diff.test.ts && tsx test/request-timeout.test.ts",
+    "test": "tsx test/protocol.test.ts && tsx test/response-vectors.test.ts && tsx test/pairing-validation.test.ts && tsx test/pairing-invitations.test.ts && tsx test/pairing-cli.test.ts && tsx test/response-binding.test.ts && tsx test/client.test.ts && tsx test/sender-registration.test.ts && tsx test/activity-dispatch.test.ts && tsx test/destinations.test.ts && tsx test/destination-storage.test.ts && tsx test/files.test.ts && tsx test/file-durability.test.ts && tsx test/file-cancellation.test.ts && tsx test/file-routing.test.ts && tsx test/groups.test.ts && tsx test/client-resilience.test.ts && tsx test/doctor.test.ts && tsx test/diff.test.ts && tsx test/request-timeout.test.ts",
     "prepublishOnly": "tsc",
     "test:disk-full": "tsx test/file-disk-full.test.ts",
     "test:release": "node --test test/package-contents.test.mjs test/publication.test.mjs",

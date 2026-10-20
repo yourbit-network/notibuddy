@@ -49,8 +49,12 @@ export class DestinationStore {
   private create(name: string, record: DestinationRecord): void {
     this.ensure();
     const target=this.file(name), temporary=target+'.'+randomUUID()+'.tmp';
-    fs.writeFileSync(temporary,JSON.stringify(record,null,2)+'\n',{mode:0o600,flag:'wx'});
-    try { fs.linkSync(temporary,target); } // Atomic create, never replace an existing pairing.
+    const fd=fs.openSync(temporary,'wx',0o600);
+    try {
+      try { fs.writeFileSync(fd,JSON.stringify(record,null,2)+'\n'); }
+      finally { fs.closeSync(fd); }
+      fs.linkSync(temporary,target); // Atomic create, never replace an existing pairing.
+    }
     finally { fs.unlinkSync(temporary); }
   }
   list(): DestinationSummary[] {
