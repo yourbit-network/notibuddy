@@ -183,6 +183,7 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
     fs.writeFileSync(launchConfig, JSON.stringify({node: process.execPath, args, cwd: temporary,
       trigger: controlTrigger, receipt: controlReceipt}));
     const powershell = path.join(env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const startingAt = Date.now();
     const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File', fileURLToPath(new URL('./fixtures/windows-console-interrupt.ps1', import.meta.url)),
       '-ConfigPath', launchConfig],
@@ -204,8 +205,12 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
         children.delete(child); resolve({code, signal: terminationSignal});
       });
     });
+    // Existing PowerShell ACL probes take 23–36 seconds on hosted runners.
+    // Bound host startup separately from the 3-second
+    // console-event response; no application/network timeout is changed.
     await bounded(Promise.race([reached, ended.then(() => { throw Error('CLI exited before interruption point'); })]),
-      20000, 'CLI did not reach interruption point');
+      60000, 'CLI did not reach interruption point');
+    const startupAndDispatchMs = Date.now() - startingAt;
     assert(!relayFailure); assert(active.envelope);
     const id = active.envelope.requestId;
     const before = saved.read('reply:' + id);
@@ -271,7 +276,8 @@ if(blocked)throw Error('Non-loopback fetch');return original(url,options);};`, {
     assert.equal(active.signedLookups, protocol === 2 ? active.gets + 1 : 0);
     const residue = fs.readdirSync(profile, {recursive: true}).filter(p => /\.(tmp|lock)([\\/]|$)/.test(String(p)));
     assert.deepEqual(residue, []);
-    result.cases.push({protocol, phase, consoleEvent, exitCode: exit.code, terminationSignal: exit.signal, elapsedMs,
+    result.cases.push({protocol, phase, consoleEvent, exitCode: exit.code, terminationSignal: exit.signal,
+      startupAndDispatchMs, elapsedMs,
       resumeIdReported: true, operationLockReleased: true,
       sameKeyAndEnvelopeRetained: true, unchangedThreeHourExpiry: true, verifiedReplyResolved: true,
       responder: protocol === 2 ? 'watch' : 'phone', recipientDiscoveries: active.discovery,
