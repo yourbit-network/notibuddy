@@ -108,12 +108,15 @@ try {
   const storageEnv = {...env, NOTIBUDDY_HOME:path.join(temporary,'storage-profile')};
   let inspectStorage;
   if (process.platform === 'win32') {
+    // The CI shell uses PowerShell 7; Windows PowerShell must resolve its own
+    // built-in ACL cmdlets rather than inherit that shell's module search path.
+    const probeEnv = Object.fromEntries(Object.entries(storageEnv).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
     const powershell = path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
     const args = ['-NoProfile','-NonInteractive','-File',path.join(root,'scripts/fixtures/windows-private-acl.ps1')];
-    const controls = JSON.parse(run(powershell,[...args,'-Root',temporary,'-SelfTest'],{env:storageEnv}).replace(/^\uFEFF/,''));
+    const controls = JSON.parse(run(powershell,[...args,'-Root',temporary,'-SelfTest'],{env:probeEnv}).replace(/^\uFEFF/,''));
     assert.equal(controls.privateControlAccepted,true); assert.equal(controls.everyoneReadableControlRejected,true);
     inspectStorage = async () => {
-      const observation = JSON.parse(run(powershell,[...args,'-Root',storageEnv.NOTIBUDDY_HOME],{env:storageEnv}).replace(/^\uFEFF/,''));
+      const observation = JSON.parse(run(powershell,[...args,'-Root',storageEnv.NOTIBUDDY_HOME],{env:probeEnv}).replace(/^\uFEFF/,''));
       assert.equal(observation.private,true); assert(observation.objects.length > 0);
     };
   }
