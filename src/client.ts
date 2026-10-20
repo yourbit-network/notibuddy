@@ -319,7 +319,7 @@ export class NotiBuddyClient {
         status:params.status ?? previous?.status,step:params.step ?? previous?.step,totalSteps:params.totalSteps ?? previous?.totalSteps,
         timerEndsAt:params.timerMinutes!==undefined?Math.floor(Date.now()/1000)+Math.round(params.timerMinutes*60):previous?.timerEndsAt,
         state:params.timerMinutes!==undefined?'running':previous?.state,remainingSeconds:params.timerMinutes!==undefined?undefined:previous?.remainingSeconds,
-        controls:params.controls ?? previous?.controls ?? ['pause','add_5m','cancel'],replyPub:pair.publicKeyB64u,
+        controls:params.controls ?? previous?.controls ?? ['pause','resume','add_5m','cancel'],replyPub:pair.publicKeyB64u,
       };
       const primitive:PrimitiveType=params.action==='start'?'activity_start':params.action==='end'?'activity_end':'activity_update';
       const version=params.action==='start'?(this.config.requestProtocol ?? 1):(session?.protocol ?? 1);

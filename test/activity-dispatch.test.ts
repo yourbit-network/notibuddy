@@ -32,6 +32,17 @@ try {
   }
   http=202;await client.activity({activityId:'task',action:'end'});
   assert.equal((await client.activity({activityId:'task',action:'poll'})).status,'ended');
+  // A default timer must be resumable after pausing. Explicitly requested
+  // controls must survive status-only updates without being broadened.
+  http=202;
+  await client.activity({activityId:'timer-defaults',action:'start',title:'Timer',timerMinutes:30});
+  const defaultControls=store.read<ActivitySession>('activity:timer-defaults')!.payload.controls!;
+  assert.ok(defaultControls.includes('pause') && defaultControls.includes('resume'), 'Default timers must offer Pause and Resume');
+  await client.activity({activityId:'timer-defaults',action:'update',status:'Still running'});
+  assert.deepEqual(store.read<ActivitySession>('activity:timer-defaults')!.payload.controls,defaultControls);
+  await client.activity({activityId:'timer-restricted',action:'start',title:'Restricted timer',timerMinutes:30,controls:['cancel']});
+  await client.activity({activityId:'timer-restricted',action:'update',status:'Still restricted'});
+  assert.deepEqual(store.read<ActivitySession>('activity:timer-restricted')!.payload.controls,['cancel']);
   for(const status of [409,500]) {
     http=status;const activityId='ambiguous-'+status;
     await assert.rejects(client.activity({activityId,action:'start',title:'Unknown'}));
