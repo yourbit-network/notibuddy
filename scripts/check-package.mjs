@@ -6,17 +6,19 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateContents } from './package-contents.mjs';
+import { fixture as storageFixture } from './fixtures/installed-storage.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, '.build/release');
 const temporary = mkdtempSync(path.join(tmpdir(), 'notibuddy-package-'));
 function run(command, args, options = {}) {
+  const {fullOutput = false, ...spawnOptions} = options;
   const result = spawnSync(command, args, {
-    cwd: root, encoding: 'utf8', timeout: 180_000, maxBuffer: 8 * 1024 * 1024, ...options,
+    cwd: root, encoding: 'utf8', timeout: 180_000, maxBuffer: 8 * 1024 * 1024, ...spawnOptions,
   });
   if (result.error) throw result.error;
   assert.equal(result.status, 0, `${command} failed: ${result.stderr}`);
-  return result.stdout;
+  return fullOutput ? result : result.stdout;
 }
 function npm(args, options) {
   assert.ok(process.env.npm_execpath, 'Run this through npm run pack:check.');
@@ -103,6 +105,24 @@ try {
     mcpServers: { notibuddy: { command: 'npx',
       args: ['-y', `notibuddy@^${manifest.version}`, 'mcp', '--to', 'package-check'] } },
   }, 'Generated MCP configuration must require the tested package version and explicit destination.');
+  const storageEnv = {...env, NOTIBUDDY_HOME:path.join(temporary,'storage-profile')};
+  let inspectStorage;
+  if (process.platform === 'win32') {
+    // The CI shell uses PowerShell 7; Windows PowerShell must resolve its own
+    // built-in ACL cmdlets rather than inherit that shell's module search path.
+    const probeEnv = Object.fromEntries(Object.entries(storageEnv).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
+    const powershell = path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
+    const args = ['-NoProfile','-NonInteractive','-File',path.join(root,'scripts/fixtures/windows-private-acl.ps1')];
+    const controls = JSON.parse(run(powershell,[...args,'-Root',temporary,'-SelfTest'],{env:probeEnv}).replace(/^\uFEFF/,''));
+    assert.equal(controls.privateControlAccepted,true); assert.equal(controls.everyoneReadableControlRejected,true);
+    inspectStorage = async () => {
+      const observation = JSON.parse(run(powershell,[...args,'-Root',storageEnv.NOTIBUDDY_HOME],{env:probeEnv}).replace(/^\uFEFF/,''));
+      assert.equal(observation.private,true); assert(observation.objects.length > 0);
+    };
+  }
+  const storage = await storageFixture({installed, temporary, env:storageEnv, inspectStorage,
+    run:async (_label,command,args,options) => run(command,args,{...options,fullOutput:true})});
+  console.log('Installed storage acceptance: ' + JSON.stringify(storage));
   // Write the manifest only after every check has passed.
   writeFileSync(path.join(output, 'pack.json'), JSON.stringify([packed], null, 2) + '\n');
   console.log(`Verified ${packed.filename}: ${packed.files.length} allowed files, clean installation, CLI/MCP entry points and pairing configuration${process.argv.includes('--scan') ? ', secret scan' : ''}.`);

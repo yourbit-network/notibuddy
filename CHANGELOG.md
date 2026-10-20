@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.2.10 — 2026-10-20
+
+- Remove private temporary destination records after partial disk-full or I/O write failures. Preserve existing pairings, legacy migration files, and temporary files owned by another writer. Retry after fixing the storage problem; existing keys and connections do not need to change.
+- Check existing destination and legacy migration permissions against the packed artifact, including identity preservation and recovery after partial writes. Add published-package acceptance for actual npx and generated MCP launchers on macOS, Linux and Windows.
+
+## 0.2.9 — 2026-10-20
+
+- Include Resume in the default timer controls so a paused timer can be resumed. Preserve explicit custom control lists and verify encrypted Pause/Resume responses.
+
 ## 0.2.8 — 2026-10-19
 
 - Honor MCP cancellation and CLI interruption while listing or receiving encrypted files. Stop unfinished network/body reads, release the transfer lock, and keep a durable local copy when receipt confirmation is interrupted. Retry the same file ID to finish safely without downloading an already saved file again.
