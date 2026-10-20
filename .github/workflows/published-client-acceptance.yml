@@ -8,9 +8,11 @@ on:
       - scripts/check-installed-client.mjs
       - scripts/check-windows-console.mjs
       - scripts/fixtures/installed-client-smoke.mjs
+      - scripts/fixtures/installed-launchers.mjs
       - scripts/fixtures/windows-private-acl.ps1
       - scripts/fixtures/windows-console-interrupt.ps1
       - scripts/tests/installed-client-acceptance.test.mjs
+      - scripts/tests/installed-launchers.test.mjs
       - test-vectors/published-0.2.9.json
 
 permissions:
@@ -27,6 +29,7 @@ jobs:
         include:
           - {os: ubuntu-latest, platform: linux, node: 20}
           - {os: windows-latest, platform: win32, node: 24}
+          - {os: macos-latest, platform: darwin, node: 24}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,9 +39,11 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - name: Check isolated environment and artifact binding safeguards
-        run: node --test scripts/tests/installed-client-acceptance.test.mjs
+        run: node --test scripts/tests/installed-client-acceptance.test.mjs scripts/tests/installed-launchers.test.mjs
       - name: Install exact published artifact and exercise encrypted CLI, MCP and files
         run: node scripts/check-installed-client.mjs --release test-vectors/published-0.2.9.json --output .build/published-client --expected-platform ${{ matrix.platform }}
+      - name: Exercise actual npx and generated MCP launchers
+        run: node scripts/check-installed-client.mjs --scope launchers --release test-vectors/published-0.2.9.json --output .build/published-launchers --expected-platform ${{ matrix.platform }}
       - name: Interrupt and resume the installed CLI with a Windows console event
         if: matrix.platform == 'win32'
         run: node scripts/check-windows-console.mjs test-vectors/published-0.2.9.json .build/windows-console win32
@@ -47,3 +52,4 @@ jobs:
         run: |
           node -e "const fs=require('node:fs'); const path='.build/published-client/receipt.json'; if(fs.existsSync(path)) process.stdout.write(fs.readFileSync(path,'utf8'))"
           node -e "const fs=require('node:fs'); const path='.build/windows-console/receipt.json'; if(fs.existsSync(path)) process.stdout.write(fs.readFileSync(path,'utf8'))"
+          node -e "const fs=require('node:fs'); const path='.build/published-launchers/receipt.json'; if(fs.existsSync(path)) process.stdout.write(fs.readFileSync(path,'utf8'))"
