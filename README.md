@@ -69,6 +69,9 @@ npx notibuddy@^0.2.10 ask "Deploy v1.2 to production?" --to personal --sender "D
 # Ask with custom options and Face ID required:
 npx notibuddy@^0.2.10 ask "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
 
+# Send a one-way informational notification (no action buttons or waiting):
+npx notibuddy@^0.2.10 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+
 # Start a countdown timer on the Dynamic Island:
 npx notibuddy@^0.2.10 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```

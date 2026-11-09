@@ -53,8 +53,23 @@ try {
   assert.deepEqual(resumed.answer?.values,{text:'form text',input:'form input'});
   assert.ok(!JSON.stringify(resumed).includes('privateKey'));
 
+  const getsBeforeNotify=gets;
+  const delivered=await client().notify({title:'Bead completed',message:'Finished crucible-123',sensitive:true,presentation:{shortTitle:'Bead closed',summary:'crucible-123 done'}});
+  assert.equal(delivered.status,'delivered');
+  assert.equal(gets,getsBeforeNotify,'notify is one-way and does not poll for replies');
+  const notifyEnvelope=bodies.at(-1)!;
+  assert.equal(notifyEnvelope.requestId,delivered.requestId);
+  assert.equal(notifyEnvelope.primitive,'approval');
+  const notifyPayload=await open(notifyEnvelope);
+  assert.equal(notifyPayload.title,'Bead completed');
+  assert.equal(notifyPayload.message,'Finished crucible-123');
+  assert.deepEqual(notifyPayload.options,[]);
+  assert.equal(notifyPayload.sensitive,true);
+  assert.deepEqual(notifyPayload.presentation,{shortTitle:'Bead closed',summary:'crucible-123 done'});
+  await assert.rejects(client().ask({resumeId:delivered.requestId,waitSeconds:0}),/No saved response key/);
+
   const protectedPending=await client().ask({title:'Another',waitSeconds:0});
-  await reply(bodies[1],'approve');const authentic=answers.get(protectedPending.requestId)![0];
+  await reply(bodies.at(-1)!,'approve');const authentic=answers.get(protectedPending.requestId)![0];
   answers.set(protectedPending.requestId,[{...authentic,sig:'A'.repeat(86)}]);
   const unverified=await client().ask({resumeId:protectedPending.requestId,waitSeconds:0});
   assert.equal(unverified.status,'pending');assert.equal(unverified.requestId,protectedPending.requestId);assert.equal(unverified.errorCode,'RETRY_REQUIRED');

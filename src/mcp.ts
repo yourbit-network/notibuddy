@@ -164,9 +164,38 @@ export const ACTIVITY_TOOL_SCHEMA = {
   },
 };
 
+export const NOTIFY_TOOL_SCHEMA = {
+  name: 'notibuddy_notify',
+  description:
+    'Send a one-way end-to-end encrypted informational notification to the user\'s phone without action buttons or waiting for a reply.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      presentation: presentationSchema,
+      sensitive: { type: 'boolean', description: 'Hide all notification content on Lock Screen previews; view privately in the app.' },
+      title: {
+        type: 'string',
+        description: 'Primary title displayed on the iOS notification and Lock Screen banner',
+      },
+      message: {
+        type: 'string',
+        description: 'Detailed informational message for the user',
+      },
+      timeout_seconds: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MAX_REQUEST_TIMEOUT_SECONDS,
+        default: DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        description: 'Seconds the notification remains retained on the relay (default/max: 10800, three hours).',
+      },
+    },
+    required: ['title'],
+  },
+};
+
 export async function createMcpServer(options:RoutingOptions = {}, store=new DestinationStore()): Promise<Server> {
   const router=await createDestinationRouter(options,store);
-  const routedSchema=(schema: typeof ASK_TOOL_SCHEMA | typeof ACTIVITY_TOOL_SCHEMA)=>({
+  const routedSchema=(schema: typeof ASK_TOOL_SCHEMA | typeof ACTIVITY_TOOL_SCHEMA | typeof NOTIFY_TOOL_SCHEMA)=>({
     ...schema,
     description: schema.description + (router.selectable ? ' Select an explicitly exposed destination with to.' : ` Destination is pinned to ${router.names[0]}.`),
     inputSchema:{...schema.inputSchema,
@@ -188,7 +217,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
-      tools: [routedSchema(ASK_TOOL_SCHEMA), routedSchema(ACTIVITY_TOOL_SCHEMA), {
+      tools: [routedSchema(ASK_TOOL_SCHEMA), routedSchema(NOTIFY_TOOL_SCHEMA), routedSchema(ACTIVITY_TOOL_SCHEMA), {
         name:'notibuddy_list_destinations',description:'List only destination phones exposed to this MCP server. Saved pairing does not guarantee online status. New phone-initiated messages are not supported.',
         inputSchema:{type:'object',properties:{},additionalProperties:false},
       }, ...['list','receive'].map(action=>({
@@ -204,13 +233,30 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
 
     try {
       if(name==='notibuddy_list_destinations') return {content:[{type:'text',text:JSON.stringify(router.list(),null,2)}]};
-      if(!['notibuddy_ask','notibuddy_activity','notibuddy_files_list','notibuddy_files_receive'].includes(name)) throw new Error(`Unknown tool: ${name}`);
+      if(!['notibuddy_ask','notibuddy_notify','notibuddy_activity','notibuddy_files_list','notibuddy_files_receive'].includes(name)) throw new Error(`Unknown tool: ${name}`);
       if(args?.to!==undefined && typeof args.to!=='string') throw new Error('to must be a destination name');
       const route=router.resolve(args?.to as string|undefined), client=route.client;
       if(name.startsWith('notibuddy_files_')) {
         if(name==='notibuddy_files_receive' && typeof args?.id!=='string')throw new Error('A file ID is required');
         const result=name==='notibuddy_files_list' ? await route.files.list({signal:extra.signal}) : await route.files.receive(args!.id as string,{signal:extra.signal});
         return {content:[{type:'text',text:JSON.stringify({to:route.name,connectionId:route.record.connectionId,result},null,2)}]};
+      }
+      if (name === 'notibuddy_notify') {
+        const result = await client.notify({
+          title: args?.title as string,
+          presentation: args?.presentation as PresentationHints | undefined,
+          sensitive: args?.sensitive as boolean | undefined,
+          message: args?.message as string | undefined,
+          timeoutSeconds: args?.timeout_seconds as number | undefined,
+        }, {signal:extra.signal});
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({to:route.name,connectionId:route.record.connectionId,...result}, null, 2),
+            },
+          ],
+        };
       }
       if (name === 'notibuddy_ask') {
         const result = await client.ask({
