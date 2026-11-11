@@ -1,0 +1,15 @@
+{
+  "description": "Synthetic public vector for account-bound HTTP request signatures (nb2). The token and the throwaway P-256 key exist only here; never use them as a live identity. The relay, the TypeScript client and the Swift app all reproduce these bytes.",
+  "token": "nb_snd_vector-http-signature-v2-public-secret",
+  "accountId": "0e6036566883813e250a0c13af373bfc",
+  "method": "POST",
+  "path": "/messages?limit=2",
+  "timestamp": "1794355200",
+  "nonce": "vector-nonce-http-v2-0001",
+  "body": "{\"hello\":\"world\"}",
+  "bodySha256": "93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588",
+  "v1Input": "nb1|http|POST|/messages?limit=2|1794355200|vector-nonce-http-v2-0001|93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588",
+  "v2Input": "nb2|http|0e6036566883813e250a0c13af373bfc|POST|/messages?limit=2|1794355200|vector-nonce-http-v2-0001|93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588",
+  "publicKey": "BNVQW5sZ_w2r2zIcAX3c-AXfS_cWAZFuD4cYepFkManvAwPZJi8tPJX7t9kdTzFNJ15Yy5WZKKp8PgidwSnVFVI",
+  "v2Signature": "ZDCOiVL_-GrL2cGK16PHPAxvmxkIZ4Lyf17KpXY_rhH3Tfzo7E5mwSOiOTzO4l2f9pw5sqCVO6yeOArMwCbY-w"
+}

@@ -107,7 +107,7 @@ try {
       assert(active);
       if (active.protocol === 2 && request.method === 'GET') {
         const sender = registrations.get(request.headers['x-sender-key-id']); assert(sender);
-        const input = `nb1|http|GET|${url.pathname}${url.search}|${request.headers['x-sender-timestamp']}|${request.headers['x-sender-nonce']}|${hash(wire)}`;
+        const input = `nb2|http|${hash(token.slice(7)).slice(0, 32)}|GET|${url.pathname}${url.search}|${request.headers['x-sender-timestamp']}|${request.headers['x-sender-nonce']}|${hash(wire)}`;
         assert(await api.ecdsaVerify(sender.senderPub, Buffer.from(input), request.headers['x-sender-signature']));
         active.signedLookups++;
       }

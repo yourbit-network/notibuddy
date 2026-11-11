@@ -8,7 +8,7 @@ import { NotiBuddyClient, ResumableRequestError, clockSkewMessage, requestIdConf
 import { PendingStore, type PendingReply, type ActivitySession } from '../src/pending-store.js';
 import { DestinationStore } from '../src/config.js';
 import { parsePairingBundle, buildRequestHeader, buildErrorHeader, sealReply } from '../src/protocol.js';
-import { relayJSON, DeadlineError } from '../src/client-http.js';
+import { relayJSON, DeadlineError, httpSigningInput } from '../src/client-http.js';
 import { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, hpkeOpen, hpkeSeal, ecdsaSign, ecdsaVerify, sha256, toHex, toB64u } from '../src/crypto.js';
 import { companionGrantInput, type CompanionGrant } from '../src/companion-grant.js';
 import { groupDeliveryHeader, groupResponseHeader, groupResponseInput, type GroupRequest, type GroupResponse } from '../src/group-wire.js';
@@ -309,7 +309,7 @@ test('v2 dispatch and resumed Watch reply use original proofs and canonical sign
     const u=new URL(String(url));
     if(init?.method!=='POST') {
       const headers=new Headers(init?.headers),stamp=headers.get('X-Sender-Timestamp'),nonce=headers.get('X-Sender-Nonce');
-      const input=new TextEncoder().encode(`nb1|http|GET|${u.pathname}${u.search}|${stamp}|${nonce}|${toHex(await sha256(new Uint8Array()))}`);
+      const input=httpSigningInput(f.config.token,'GET',`${u.pathname}${u.search}`,stamp!,nonce!,toHex(await sha256(new Uint8Array())));
       assert(await ecdsaVerify(f.sender.publicKeyB64u,input,headers.get('X-Sender-Signature')!));
     }
     if(u.pathname==='/v2/recipients'){discoveries++;return Response.json(discoveries===1?original:await manifest(f,nextWatch,3));}

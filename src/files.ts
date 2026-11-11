@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { DestinationRecord } from './config.js';
 import { NOTIBUDDY_DIR } from './config.js';
 import { ecdsaSign, ecdsaVerify, hpkeOpenBytes } from './crypto.js';
-import type { CallOptions } from './client-http.js';
+import { httpSigningInput, type CallOptions } from './client-http.js';
 
 export const MAX_FILE_BYTES=10_000_000;
 export const MAX_FILE_CIPHERTEXT=MAX_FILE_BYTES+4+4096+16;
@@ -148,7 +148,7 @@ export class FileInbox {
     options.signal?.addEventListener('abort',abort,{once:true});
     try {
       const payload=body ? JSON.stringify(body) : '', timestamp=String(Math.floor(Date.now()/1000)),nonce=randomUUID();
-      const signature=await ecdsaSign(this.signingKey,new TextEncoder().encode(`nb1|http|${method}|${route}|${timestamp}|${nonce}|${hash(payload)}`));
+      const signature=await ecdsaSign(this.signingKey,httpSigningInput(this.record.config.token,method,route,timestamp,nonce,hash(payload)));
       const response=await abortable(()=>fetch(this.record.config.relay.replace(/\/$/,'')+'/v1'+route,{method,
         headers:{Authorization:`Bearer ${this.record.config.token}`,'Content-Type':'application/json',
           'X-Sender-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},

@@ -1,8 +1,16 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ecdsaSign, sha256, toHex } from './crypto.js';
 import { normalizeRelay } from './relay-url.js';
 import type { NotiBuddyConfig } from './types.js';
 
+/** The 32-hex account the relay edge derives from a sender/device bearer token (sha256 of its secret part). */
+export function httpSigningAccount(token:string):string {
+  return createHash('sha256').update(token.replace(/^nb_(?:snd|dev|usr)_/,''),'utf8').digest('hex').slice(0,32);
+}
+/** `nb2|http|` input: names the account, then method, route, timestamp, nonce and body hash. */
+export function httpSigningInput(token:string,method:string,route:string,timestamp:string,nonce:string,bodyHashHex:string):Uint8Array {
+  return new TextEncoder().encode(`nb2|http|${httpSigningAccount(token)}|${method}|${route}|${timestamp}|${nonce}|${bodyHashHex}`);
+}
 export interface CallOptions {signal?:AbortSignal;deadline?:number}
 interface RelayCallOptions extends CallOptions {maxResponseBytes?:number}
 export class DeadlineError extends Error {constructor(){super('Request deadline reached; resume the saved request');}}
@@ -32,7 +40,7 @@ export async function relayJSON(config:NotiBuddyConfig,route:string,init:Request
       const stamp=String(Math.floor(Date.now()/1000)),nonce=randomUUID();
       const url=new URL(normalizeRelay(config.relay)+route),body=typeof init.body==='string'?init.body:'';
       const bodyHash=toHex(await sha256(new TextEncoder().encode(body)));
-      const input=new TextEncoder().encode(`nb1|http|${(init.method || 'GET').toUpperCase()}|${url.pathname}${url.search}|${stamp}|${nonce}|${bodyHash}`);
+      const input=httpSigningInput(config.token,(init.method || 'GET').toUpperCase(),`${url.pathname}${url.search}`,stamp,nonce,bodyHash);
       headers.set('X-Sender-Key-ID',config.senderKeyId);headers.set('X-Sender-Timestamp',stamp);headers.set('X-Sender-Nonce',nonce);
       headers.set('X-Sender-Signature',await ecdsaSign(signingKey,input));
     }

@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { DestinationStore } from '../src/config.js';
 import { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, hpkeSealBytes, ecdsaSign, ecdsaVerify, computePairingMac } from '../src/crypto.js';
 import { FileInbox, openFile, fileHeader, fileSignatureInput, MAX_FILE_BYTES, type FileManifest } from '../src/files.js';
+import { httpSigningInput } from '../src/client-http.js';
 import { signSenderRegistration } from '../src/sender-registration.js';
 
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'nb-files-')),originalFetch=globalThis.fetch;
@@ -46,8 +47,8 @@ try {
  const inbox=new FileInbox(record,signingKey,root);let downloads=0,acks=0;
  globalThis.fetch=async(input,init)=>{
    const url=new URL(String(input)),route=url.pathname.slice(3),headers=new Headers(init?.headers),body=String(init?.body || '');
-   const signatureInput=`nb1|http|${init?.method}|${route}|${headers.get('X-Sender-Timestamp')}|${headers.get('X-Sender-Nonce')}|${hash(body)}`;
-   assert.ok(await ecdsaVerify(record.keys.publicKeyB64u,new TextEncoder().encode(signatureInput),headers.get('X-Sender-Signature')!));
+   const signatureInput=httpSigningInput(record.config.token,String(init?.method),route,headers.get('X-Sender-Timestamp')!,headers.get('X-Sender-Nonce')!,hash(body));
+   assert.ok(await ecdsaVerify(record.keys.publicKeyB64u,signatureInput,headers.get('X-Sender-Signature')!));
    if(route==='/files')return Response.json({files:[{id:f.m.id,status:'ready',expiresAt:f.m.expiresAt,size:f.m.size}]});
    if(route.endsWith('/ack')) {
      acks++;assert.equal(JSON.parse(body).sha256,f.m.sha256);

@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { NotiBuddyClient, clockSkewMessage } from '../src/client.js';
 import { PendingStore } from '../src/pending-store.js';
 import { RecipientStore } from '../src/recipient-store.js';
-import { relayJSON } from '../src/client-http.js';
+import { relayJSON, httpSigningInput } from '../src/client-http.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaVerify, sha256, toHex } from '../src/crypto.js';
 import { DestinationStore } from '../src/config.js';
 import type { NotiBuddyConfig } from '../src/types.js';
@@ -206,9 +206,9 @@ test('v2 diagnostics preserve signed recipient discovery and saved rollback prot
     const u=new URL(String(url));routes.push(u.pathname);
     if(u.pathname==='/v1/health')return health();if(u.pathname===f.route)return Response.json({sender:f.row()});
     assert.equal(u.pathname,'/v2/recipients');assert.equal(u.searchParams.get('deviceId'),f.config.device.id);
-    const h=new Headers(init?.headers),input=`nb1|http|GET|${u.pathname}${u.search}|${h.get('X-Sender-Timestamp')}|${h.get('X-Sender-Nonce')}|${toHex(await sha256(new Uint8Array()))}`;
+    const h=new Headers(init?.headers),input=httpSigningInput(f.config.token,'GET',`${u.pathname}${u.search}`,h.get('X-Sender-Timestamp')!,h.get('X-Sender-Nonce')!,toHex(await sha256(new Uint8Array())));
     assert.equal(h.get('X-Sender-Key-ID'),f.sender.senderKeyId);
-    assert(await ecdsaVerify(f.sender.publicKeyB64u,new TextEncoder().encode(input),h.get('X-Sender-Signature')!));signatures++;
+    assert(await ecdsaVerify(f.sender.publicKeyB64u,input,h.get('X-Sender-Signature')!));signatures++;
     if(failDiscovery)return Response.json({code:'GROUP_DELIVERY_NOT_ENABLED'},{status:426});
     return Response.json({v:2,deviceId:f.config.device.id,generation,
       primary:{deviceId:badBinding?'dev_'+'0'.repeat(24):f.config.device.id,encPub:f.config.device.encPub,sigPub:f.config.device.sigPub},companions:[]});
