@@ -32,11 +32,12 @@ const askSchema = z.object({
   sensitive: z.boolean().optional(),
   diff: z.unknown().optional(),
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
-  options:z.array(z.string().min(1).max(200)).max(20).optional(), inputPlaceholder:z.string().max(500).optional(),
+  options:z.array(z.string().min(1).max(200)).max(20).optional(), declineOption:z.string().min(1).max(200).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
   timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
   waitSeconds:z.number().finite().min(0).max(MAX_REPLY_WAIT_SECONDS).default(25), resumeId:z.string().optional(),
 }).refine(p => p.resumeId || p.title, 'A title is required for a new request')
+  .refine(p => p.declineOption === undefined || !!p.options?.includes(p.declineOption),'declineOption must be one of options')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
     'A new diff request cannot include form fields, choices, text input or a resume ID');
@@ -49,6 +50,12 @@ const activitySchema = z.object({
   timerMinutes:z.number().positive().max(60).optional(),
   controls:z.array(z.enum(['pause','resume','cancel','add_5m'])).max(4).optional(),
 });
+/** Marks the one chosen option as the sender's decline; the phone lets only that choice skip authentication. */
+function declineMarked(options:string[]|undefined,decline:string|undefined):AskPayload['options'] {
+  if(!options||decline===undefined) return options;
+  const index=options.indexOf(decline);
+  return options.map((label,i)=>i===index?{id:label,label,role:'decline' as const}:label);
+}
 export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffInput };
 export type ActivityParams = z.input<typeof activitySchema>;
 export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
@@ -200,7 +207,7 @@ export class NotiBuddyClient {
       else {
         const pair=await generateReplyKeyPair(),primitive:PrimitiveType=diff?'diff':params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
         const payload:AskPayload={type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
-          options:params.options,inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
+          options:declineMarked(params.options,params.declineOption),inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
         saved=await this.prepare(id,primitive,payload,pair.privateKey,params.timeoutSeconds,call);
       }
       try {

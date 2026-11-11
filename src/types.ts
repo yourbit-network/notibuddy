@@ -54,7 +54,7 @@ export interface AskPayload extends Partial<DiffInput> {
   replyPub: string; // Base64url SEC1 uncompressed P-256 public key (65 bytes)
   title: string;
   message?: string;
-  options?: string[];
+  options?: (string | { id: string; label: string; role: 'decline' })[];
   inputPlaceholder?: string;
   fields?: FormField[];
   requiresAuth?: boolean;

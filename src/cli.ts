@@ -48,6 +48,7 @@ Pairing waits up to 45 seconds for a first-use code; --wait accepts 0–60 secon
 Ask options:
   --message, -m <text>       Prompt details
   --options, -o <a,b,...>    Action buttons
+  --decline-option <text>    One of --options that declines; on --requires-auth only it skips authentication
   --placeholder, -p <text>  Free-text reply
   --diff <json-file>        Review original/modified text; cannot combine with choices/input/resume
   --timeout <seconds>      New request lifetime (default ${DEFAULT_REQUEST_TIMEOUT_SECONDS}, max ${MAX_REQUEST_TIMEOUT_SECONDS}; three hours)
@@ -159,7 +160,7 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${
       fileReceiving:route.record.fileKey?'enabled':'pair_again_to_enable',receiveCommand:`nb files list --to ${route.name}`},null,2));return;
   }
   if(command==='ask') {
-    const args=argumentsFor(rest,['--message','--options','--placeholder','--timeout','--wait','--resume','--diff'],['--requires-auth','--sensitive']);
+    const args=argumentsFor(rest,['--message','--options','--decline-option','--placeholder','--timeout','--wait','--resume','--diff'],['--requires-auth','--sensitive']);
     if(args.positional.length>1)throw new Error('Quote the request title as one argument');
     const diffFile=args.text('--diff');
     if(diffFile !== undefined && ['--options','--placeholder','--resume'].some(flag=>args.text(flag)!==undefined))
@@ -167,7 +168,7 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${
     const diff=diffFile === undefined ? undefined : readDiffFile(diffFile);
     const route=(await createDestinationRouter(routing,store)).resolve();
     const result=await withShutdown(signal=>route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
-      options:args.text('--options')?.split(',').map(s=>s.trim()),inputPlaceholder:args.text('--placeholder'),
+      options:args.text('--options')?.split(',').map(s=>s.trim()),declineOption:args.text('--decline-option')?.trim(),inputPlaceholder:args.text('--placeholder'),
       timeoutSeconds:args.number('--timeout'),waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive'),diff},{signal}));
     console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
   }

@@ -54,6 +54,11 @@ export const ASK_TOOL_SCHEMA = {
         description:
           'Interactive button choices (e.g. ["Approve", "Deny"] or ["Deploy Staging", "Deploy Prod"])',
       },
+      decline_option: {
+        type: 'string',
+        description:
+          'One of options that declines. On a requires_auth request only this choice may be answered without device authentication.',
+      },
       input_placeholder: {
         type: 'string',
         description:
@@ -94,7 +99,8 @@ export const ASK_TOOL_SCHEMA = {
       },
       requires_auth: {
         type: 'boolean',
-        description: 'Require Face ID / Touch ID authentication to approve this action',
+        description:
+          'Require Face ID / Touch ID authentication to approve this action. With options, only the decline_option choice skips authentication; without options, only the phone\'s own Reject does.',
       },
       timeout_seconds: {
         type: 'integer',
@@ -219,6 +225,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
           sensitive: args?.sensitive as boolean | undefined,
           message: args?.message as string | undefined,
           options: args?.options as string[] | undefined,
+          declineOption: args?.decline_option as string | undefined,
           inputPlaceholder: args?.input_placeholder as string | undefined,
           fields: args?.fields as any[] | undefined,
           diff: args?.diff as DiffInput | undefined,

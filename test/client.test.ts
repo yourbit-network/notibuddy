@@ -88,6 +88,14 @@ try {
     // Windows uses ACLs; Unix permission bits do not describe its access controls.
     if(fs.statSync(file).isFile() && process.platform !== 'win32') assert.equal(fs.statSync(file).mode&0o777,0o600);
   }
+  await assert.rejects(client().ask({title:'Bad decline',waitSeconds:0,options:['Go','Stop'],declineOption:'Cancel'}),/declineOption must be one of options/);
+  await assert.rejects(client().ask({title:'Decline without options',waitSeconds:0,declineOption:'Stop'}),/declineOption must be one of options/);
+  const beforeDecline=bodies.length;
+  await client().ask({title:'Decline',waitSeconds:0,requiresAuth:true,options:['Go','Stop'],declineOption:'Stop'});
+  assert.deepEqual((await open(bodies[beforeDecline])).options,['Go',{id:'Stop',label:'Stop',role:'decline'}]);
+  const beforePlain=bodies.length;
+  await client().ask({title:'Plain options',waitSeconds:0,options:['Go','Stop']});
+  assert.deepEqual((await open(bodies[beforePlain])).options,['Go','Stop']);
   console.log('Client regressions passed: encryption, restart/resume, terminal polling, key retention, activity continuity/controls, auth propagation, private storage.');
 } finally {
   globalThis.fetch=originalFetch;
