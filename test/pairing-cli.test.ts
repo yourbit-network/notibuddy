@@ -51,13 +51,14 @@ test('actual CLI reports automatic, manual, pending and already-linked outcomes 
       process.on('exit', () => assert.equal(calls, process.env.PAIRING_FIXTURE_MODE === 'automatic' ? 2 : 1));
     `);
     const encoded = 'nbpair1.' + Buffer.from(JSON.stringify(bundle)).toString('base64url');
-    const run = (mode: string) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const run = (mode: string, viaStdin = false) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), '--import', pathToFileURL(fixture).href,
-        fileURLToPath(new URL('../src/cli.ts', import.meta.url)), 'pair', encoded, '--to', 'phone', '--label', 'CLI fixture',
+        fileURLToPath(new URL('../src/cli.ts', import.meta.url)), 'pair', ...(viaStdin ? [] : [encoded]), '--to', 'phone', '--label', 'CLI fixture',
         '--wait', mode === 'waiting' ? '0' : '3'], {
         env: { ...process.env, NOTIBUDDY_HOME: path.join(root, 'profile'), PAIRING_FIXTURE_MODE: mode, PAIRING_FIXTURE_EXPIRY: String(bundle.firstUse.invitation.expiresAt) },
-        cwd: root, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], timeout: 15_000,
+        cwd: root, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', 'ipc'], timeout: 15_000,
       });
+      if (viaStdin) child.stdin!.end(encoded + '\n');
       let stdout = '', stderr = '';
       child.stdout!.on('data', chunk => {
         stdout += chunk;
@@ -77,6 +78,13 @@ test('actual CLI reports automatic, manual, pending and already-linked outcomes 
       if (mode === 'registered' || mode === 'automatic') { assert.match(result.stdout, /Pairing confirmed/); assert.doesNotMatch(result.stdout, /then approve the connection/); }
       if (mode === 'pending_approval') assert.match(result.stdout, /Phone approval required/);
       if (mode === 'waiting') { assert.match(result.stdout, /Connection is not confirmed yet/); assert.doesNotMatch(result.stdout, /Pairing confirmed/); }
+      if (mode === 'registered') {
+        // The same bundle piped on stdin reaches the same outcome and never prints the argv-history warning.
+        const piped = await run('registered', true);
+        assert.equal(piped.code, 0, piped.stderr); assert.match(piped.stdout, /Pairing confirmed/);
+        assert.doesNotMatch(piped.stderr, /shell history/); assert(!piped.stderr.includes(encoded) && !piped.stdout.includes(encoded));
+        assert.match(result.stderr, /shell history/);
+      }
       const bytes = fs.readFileSync(path.join(root, 'profile/destinations/phone.json'));
       assert(!bytes.toString().includes(privateKey)); assert(!bytes.toString().includes('firstUse'));
       if (saved) assert.deepEqual(bytes, saved); saved = bytes;

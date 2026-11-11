@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { parsePairingBundle } from './protocol.js';
+import { readSetupCode } from './setup-code.js';
 import { computePairingMac } from './crypto.js';
 import { DestinationStore, senderLabel } from './config.js';
 import { NotiBuddyClient } from './client.js';
@@ -23,7 +24,8 @@ function printHelp(): void {
   console.log(`NotiBuddy CLI (nb) — Encrypted requests and replies
 
 Usage:
-  nb pair <bundle> --to <name> [--label <connection-name>] [--wait <seconds>]
+  nb pair --to <name> [--label <connection-name>] [--wait <seconds>]
+                                    Paste the setup code when asked, or pipe it: pbpaste | nb pair --to <name>
   nb files list --to <name>
   nb files receive <file_id> --to <name>
   nb files receive <file_id> --pairing <device_id>:<sender_key_id>
@@ -104,7 +106,7 @@ async function main():Promise<void> {
     if(rest.length)throw new Error('Unknown status arguments');
     const destinations=store.list();
     if(routing.to) {await store.open(routing.to);console.log(JSON.stringify(destinations.find(d=>d.name===routing.to),null,2));}
-    else console.log(destinations.length?JSON.stringify(destinations,null,2):'No named destinations paired. Run nb pair <bundle> --to <name>, or nb devices migrate --to <name> to import existing setup.');
+    else console.log(destinations.length?JSON.stringify(destinations,null,2):'No named destinations paired. Run nb pair --to <name> and paste the setup code, or nb devices migrate --to <name> to import existing setup.');
     return;
   }
   if(command==='files') {
@@ -123,12 +125,15 @@ async function main():Promise<void> {
   if(command==='pair') {
     if(routing.sender)throw new Error('Use --label for the approved connection name; --sender labels individual requests.');
     const args=argumentsFor(rest,['--label','--wait']);
-    if(args.positional.length!==1)throw new Error('Use nb pair <bundle> --to <name>');
+    if(args.positional.length>1)throw new Error('Use nb pair --to <name> and paste the setup code when asked');
     const waitSeconds=args.text('--wait')===undefined?45:Number(args.text('--wait'));
     if(!Number.isFinite(waitSeconds) || waitSeconds<0 || waitSeconds>60)throw Error('Pairing wait must be between 0 and 60 seconds');
     // The installed, tested release is the minimum for its generated MCP setup.
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    const bundle=await parsePairingBundle(args.positional[0]);
+    let setupCode=args.positional[0];
+    if(setupCode===undefined)setupCode=await readSetupCode(process.stdin,process.stderr);
+    else console.error(`Warning: a setup code on the command line can be saved in shell history. Run \`nb pair --to ${routing.to}\` and paste it when asked instead.`);
+    const bundle=await parsePairingBundle(setupCode);
     const label=args.text('--label')??store.list().find(d=>d.name===routing.to)?.connectionLabel??senderLabel();
     const {record,signingKey}=await store.prepare(routing.to,bundle,label);
     const {config,keys}=record;

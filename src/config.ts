@@ -41,7 +41,7 @@ export class DestinationStore {
     catch(error) {
       if ((error as NodeJS.ErrnoException).code==='ENOENT') {
         const legacy=fs.existsSync(path.join(this.root,'config.json'));
-        throw new Error(legacy ? `Destination '${name}' is not saved. Import the existing pairing with: nb devices migrate --to ${name}` : `Destination '${name}' is not paired. Run: nb pair <bundle> --to ${name}`);
+        throw new Error(legacy ? `Destination '${name}' is not saved. Import the existing pairing with: nb devices migrate --to ${name}` : `Destination '${name}' is not paired. Run: nb pair --to ${name} and paste the setup code`);
       }
       throw new Error(`Destination '${name}' is unreadable. Preserve its file and restore it; keys will not be regenerated automatically.`);
     }
