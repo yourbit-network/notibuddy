@@ -18,7 +18,7 @@ import { parseDiff } from './diff.js';
 import type { DiffInput } from './types.js';
 
 const field = z.object({
-  id:z.string().min(1).max(80), type:z.enum(['text','email','url','toggle','stepper','picker','date']),
+  id:z.string().min(1).max(80), type:z.enum(['text','email','url','toggle','stepper','picker','date','secret']),
   label:z.string().min(1).max(200), placeholder:z.string().optional(), required:z.boolean().optional(),
   default:z.union([z.string(),z.number().finite(),z.boolean()]).optional(), min:z.number().finite().optional(), max:z.number().finite().optional(),
   options:z.array(z.object({id:z.string(),label:z.string()})).max(100).optional(),

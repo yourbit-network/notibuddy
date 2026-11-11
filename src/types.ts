@@ -19,7 +19,7 @@ export interface FormFieldOption {
 
 export interface FormField {
   id: string;
-  type: 'text' | 'email' | 'url' | 'toggle' | 'stepper' | 'picker' | 'date';
+  type: 'text' | 'email' | 'url' | 'toggle' | 'stepper' | 'picker' | 'date' | 'secret';
   label: string;
   placeholder?: string;
   required?: boolean;

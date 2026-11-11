@@ -67,14 +67,14 @@ export const ASK_TOOL_SCHEMA = {
       fields: {
         type: 'array',
         description:
-          'If set, renders an in-app dynamic SwiftUI form with text fields, toggles, steppers, and pickers',
+          'If set, renders an in-app dynamic SwiftUI form with text fields, toggles, steppers, and pickers. Use type \'secret\' for passwords or tokens: hidden on current phones and kept out of summaries; older phones show unknown field types as plain text.',
         items: {
           type: 'object',
           properties: {
             id: { type: 'string' },
             type: {
               type: 'string',
-              enum: ['text', 'email', 'url', 'toggle', 'stepper', 'picker', 'date'],
+              enum: ['text', 'email', 'url', 'toggle', 'stepper', 'picker', 'date', 'secret'],
             },
             label: { type: 'string' },
             placeholder: { type: 'string' },
