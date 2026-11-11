@@ -103,8 +103,8 @@ try {
   assert.ok(markerAt >= 0, 'Pairing must print its MCP configuration.');
   assert.deepEqual(JSON.parse(pairing.slice(markerAt + marker.length)), {
     mcpServers: { notibuddy: { command: 'npx',
-      args: ['-y', `notibuddy@^${manifest.version}`, 'mcp', '--to', 'package-check'] } },
-  }, 'Generated MCP configuration must require the tested package version and explicit destination.');
+      args: ['-y', `notibuddy@${manifest.version}`, 'mcp', '--to', 'package-check'] } },
+  }, 'Generated MCP configuration must pin the exact tested package version and explicit destination.');
   const storageEnv = {...env, NOTIBUDDY_HOME:path.join(temporary,'storage-profile')};
   let inspectStorage;
   if (process.platform === 'win32') {

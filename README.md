@@ -102,7 +102,7 @@ Do not combine a diff with choices, text input, forms, or a resume ID. If the re
 
 ## 🛠️ Model Context Protocol (MCP) Setup
 
-You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration requiring at least the installed package version. When updating an existing configuration, change its package version to `notibuddy@^0.2.10` and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
+You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.2.10`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
 
 ### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -111,7 +111,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@^0.2.10", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.2.10", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -124,7 +124,7 @@ Run as a local stdio MCP server:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@^0.2.10", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.2.10", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
