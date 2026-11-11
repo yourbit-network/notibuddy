@@ -397,3 +397,107 @@ test('v1 reply polls are signed over the nb2 input for the path the relay verifi
   }
   assert.equal(new Set(polls.map(p=>p.headers.get('X-Sender-Nonce'))).size,polls.length);
 }));
+
+// A request's plaintext never stays in the client's pending record (D46).
+const secretAsk={title:'Plaintext-title-7f3',message:'Plaintext-message-7f3',options:['Plaintext-opt-A','Plaintext-opt-B'],waitSeconds:0};
+const pendingText=(root:string)=>{
+  const out:string[]=[],walk=(d:string)=>{for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(p.endsWith('.json'))out.push(fs.readFileSync(p,'utf8'));}};
+  walk(path.join(root,'pending'));return out.join('\n');
+};
+const assertNoPlaintext=(root:string)=>{
+  const text=pendingText(root);assert(text.length>0);
+  assert(!text.includes('"payload"'));for(const s of ['Plaintext-title-7f3','Plaintext-message-7f3','Plaintext-opt-A','Plaintext-opt-B'])assert(!text.includes(s));
+};
+
+test('pending plaintext 1+2: a failed first POST leaves no plaintext on disk and a new client resumes the saved envelope',()=>fixture(async(f)=>{
+  let failed=false;
+  globalThis.fetch=async(_url,init)=>{
+    if(init?.method==='POST') {
+      const r=JSON.parse(String(init.body));f.requests.push(r);
+      if(!failed){failed=true;throw new TypeError('Lost acknowledgement');}
+      return Response.json({requestId:r.requestId,seq:1},{status:202});
+    }
+    return Response.json(await f.reply(f.requests[0]));
+  };
+  const first=await f.client().ask(secretAsk);
+  assert.equal(first.status,'pending');assertNoPlaintext(f.root);
+  const next=await f.client().ask({resumeId:first.requestId,waitSeconds:0});
+  assert.equal(next.status,'resolved');assert.deepEqual(f.requests[0],f.requests[1]);
+}));
+
+test('pending plaintext 3: same-process v2 RECIPIENTS_CHANGED re-seals from memory and the file holds no plaintext',()=>fixture(async(f)=>{
+  const old=await device(),watch=await device();let discoveries=0,rejected=0,answer:any;
+  globalThis.fetch=async(url,init)=>{
+    const pathname=new URL(String(url)).pathname;
+    if(pathname==='/v2/recipients')return Response.json(await manifest(f,++discoveries===1?old:watch,discoveries===1?2:3));
+    if(pathname==='/v2/requests') {
+      const q=JSON.parse(String(init?.body));f.requests.push(q);
+      if(!rejected++){assertNoPlaintext(f.root);return Response.json({code:'RECIPIENTS_CHANGED'},{status:409});}
+      assertNoPlaintext(f.root);answer=await groupReply(f,q,watch);return Response.json({requestId:q.requestId,seq:1},{status:202});
+    }
+    return Response.json(answer);
+  };
+  assert.equal((await f.client({requestProtocol:2}).ask(secretAsk)).status,'resolved');
+  assert.equal(f.requests.length,2);assert.equal(f.requests[1].generation,3);assert.equal(discoveries,2);
+}));
+
+test('pending plaintext 4: a resumed v2 request rejects RECIPIENTS_CHANGED without re-sealing',()=>fixture(async(f)=>{
+  const old=await device();let discoveries=0,posts=0;
+  globalThis.fetch=async(url,init)=>{
+    const pathname=new URL(String(url)).pathname;
+    if(pathname==='/v2/recipients'){discoveries++;return Response.json(await manifest(f,old,2));}
+    if(pathname==='/v2/requests') {
+      posts++;if(posts===1)throw new TypeError('Lost acknowledgement');
+      return Response.json({code:'RECIPIENTS_CHANGED'},{status:409});
+    }
+    return Response.json({error:'none'},{status:404});
+  };
+  const config={requestProtocol:2 as const};
+  const first=await f.client(config).ask(secretAsk);assert.equal(first.status,'pending');
+  const resumed:any=f.client(config);
+  const saved=resumed.readPending(first.requestId);
+  await assert.rejects(resumed.dispatchSaved(first.requestId,saved,{}),(e:any)=>e.status===409&&e.code==='RECIPIENTS_CHANGED'&&/recipients changed while the request was waiting|recipients changed while this request was waiting to be sent; send it again/.test(e.message));
+  assert.equal(discoveries,1);assert.equal(posts,2);assertNoPlaintext(f.root);
+}));
+
+test('pending plaintext 4b: resuming through ask() after RECIPIENTS_CHANGED ends with a definite error, not a retry loop',()=>fixture(async(f)=>{
+  const old=await device();let posts=0;
+  globalThis.fetch=async(url)=>{
+    const pathname=new URL(String(url)).pathname;
+    if(pathname==='/v2/recipients')return Response.json(await manifest(f,old,2));
+    if(pathname==='/v2/requests') {
+      posts++;if(posts===1)throw new TypeError('Lost acknowledgement');
+      return Response.json({code:'RECIPIENTS_CHANGED'},{status:409});
+    }
+    return Response.json({error:'none'},{status:404});
+  };
+  const config={requestProtocol:2 as const};
+  const first=await f.client(config).ask(secretAsk);assert.equal(first.status,'pending');
+  const resumed=await f.client(config).ask({...secretAsk,resumeId:first.requestId} as any);
+  assert.equal(resumed.status,'error');assert.equal((resumed as any).errorCode,'RECIPIENTS_CHANGED');
+  assert.match(String((resumed as any).message),/recipients changed while this request was waiting to be sent; send it again/);
+  // The unsendable record is gone, so a further resume cannot loop on it.
+  await assert.rejects(f.client(config).ask({...secretAsk,resumeId:first.requestId} as any),/No saved response key/);
+  assert.equal(posts,2);
+}));
+
+test('pending plaintext 5: a legacy record with payload is rewritten without it on first dispatch',()=>fixture(async(f)=>{
+  let failed=false;
+  globalThis.fetch=async(_url,init)=>{
+    if(init?.method==='POST'){
+      const r=JSON.parse(String(init.body));f.requests.push(r);
+      if(!failed){failed=true;throw new TypeError('Lost acknowledgement');}
+      return Response.json({requestId:r.requestId,seq:1},{status:202});
+    }
+    return Response.json({error:'none'},{status:404});
+  };
+  const first=await f.client().ask(secretAsk);assert.equal(first.status,'pending');
+  const saved=f.store.read('reply:'+first.requestId) as PendingReply;
+  f.store.write('reply:'+first.requestId,{...saved,payload:{type:'ask',title:'Plaintext-title-7f3',message:'Plaintext-message-7f3',options:['Plaintext-opt-A','Plaintext-opt-B']}},(saved.expiresAt+600)*1000);
+  assert(pendingText(f.root).includes('Plaintext-title-7f3'));
+  let onDisk='';
+  const real=globalThis.fetch;
+  globalThis.fetch=async(url,init)=>{if(init?.method==='POST')onDisk=pendingText(f.root);return real(url,init);};
+  await f.client().ask({resumeId:first.requestId,waitSeconds:0});
+  assert(onDisk.length>0);assert(!onDisk.includes('"payload"'));assert(!onDisk.includes('Plaintext-title-7f3'));
+}));

@@ -66,8 +66,11 @@ export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_foun
 export const clockSkewMessage = 'The relay rejected this computer\'s clock (more than 120 s off). Fix the system clock, then retry; run nb doctor to see the offset.';
 export const requestIdConflictMessage='This request ID was already used for a different request. Send it again with a new request ID.';
 export class DispatchRejectedError extends Error {
-  constructor(public status:number, detail:string,public code?:string) { super(`Dispatch failed (${status}): ${detail}`); }
+  /** `resend`: the saved request can never be delivered as it is (a resumed request whose recipients
+   * changed, with no plaintext kept to re-seal it); the caller must send a new one. */
+  constructor(public status:number, detail:string,public code?:string,readonly resend=false) { super(`Dispatch failed (${status}): ${detail}`); }
   get definitive():boolean {
+    if(this.resend)return true;
     // A conflict may acknowledge an earlier acceptance; timeouts and 5xx are ambiguous.
     if(this.status===409 && this.code==='REQUEST_ID_CONFLICT')return true;
     return this.status>=400 && this.status<500 && ![408,409,425].includes(this.status);
@@ -180,19 +183,26 @@ export class NotiBuddyClient {
   }
   private async prepare(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload,key:CryptoKey,timeout:number,options:CallOptions,version?:1|2):Promise<PendingReply> {
     const prepared=await this.seal(id,primitive,payload,timeout,options,version);
-    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,payload,dispatch:'pending'};
+    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,dispatch:'pending'};
     this.savePending(id,saved);return saved;
   }
-  private async dispatchSaved(id:string,saved:PendingReply,options:CallOptions):Promise<PendingReply> {
+  /** `plaintext` lives in memory only; a record saved by an earlier process has none. */
+  private async dispatchSaved(id:string,saved:PendingReply,options:CallOptions,plaintext?:AskPayload|ActivityPayload):Promise<PendingReply> {
     if(saved.dispatch!=='pending' || !saved.envelope || saved.expiresAt<=Math.floor(Date.now()/1000))return saved;
+    if(saved.payload!==undefined) {
+      // Legacy record: scrub the plaintext from disk before posting; use it in memory for this call only.
+      plaintext??=saved.payload;
+      const {payload:_legacy,...scrubbed}=saved;saved=scrubbed;this.savePending(id,saved);
+    }
     for(let attempt=0;attempt<2;attempt++) {
       try {
         await this.postRequest(saved.envelope!,options);
-        const accepted={...saved,dispatch:'accepted' as const,payload:undefined};this.savePending(id,accepted);return accepted;
+        const accepted={...saved,dispatch:'accepted' as const};this.savePending(id,accepted);return accepted;
       }catch(error) {
-        if(attempt===0 && error instanceof DispatchRejectedError && error.code==='RECIPIENTS_CHANGED' && saved.envelope!.v===2 && saved.payload) {
+        if(attempt===0 && error instanceof DispatchRejectedError && error.code==='RECIPIENTS_CHANGED' && saved.envelope!.v===2) {
+          if(!plaintext)throw new DispatchRejectedError(error.status,'the phone\'s recipients changed while this request was waiting to be sent; send it again',error.code,true);
           const remaining=saved.expiresAt-Math.floor(Date.now()/1000);if(remaining<=0)return saved;
-          const refreshed=await this.seal(id,saved.envelope!.primitive as PrimitiveType,saved.payload,remaining,options,2,saved.expiresAt);
+          const refreshed=await this.seal(id,saved.envelope!.primitive as PrimitiveType,plaintext,remaining,options,2,saved.expiresAt);
           saved={...saved,...refreshed,expiresAt:refreshed.envelope.expiresAt};this.savePending(id,saved);continue;
         }
         throw error;
@@ -219,16 +229,16 @@ export class NotiBuddyClient {
     // one end-to-end deadline including discovery, dispatch and response bytes.
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+(params.waitSeconds===0?15000:params.waitSeconds*1000))};
     return this.store.withOperation('reply:'+id,async()=>{
-      let saved:PendingReply;
+      let saved:PendingReply,sealed:AskPayload|undefined;
       if(params.resumeId) {saved=this.readPending(id);if(saved.envelope?.primitive.startsWith('activity_'))throw Error('Use activity poll to resume activity controls');}
       else {
         const pair=await generateReplyKeyPair(),primitive:PrimitiveType=diff?'diff':params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
         const payload:AskPayload={type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
           options:declineMarked(params.options,params.declineOption),inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
-        saved=await this.prepare(id,primitive,payload,pair.privateKey,params.timeoutSeconds,call);
+        saved=await this.prepare(id,primitive,payload,pair.privateKey,params.timeoutSeconds,call);sealed=payload;
       }
       try {
-        saved=await this.dispatchSaved(id,saved,call);
+        saved=await this.dispatchSaved(id,saved,call,sealed);
         do {
           const response=await this.getSavedReply(id,saved,0,call);
           if(response){const result=await this.open(id,response.envelope,saved);this.store.remove('reply:'+id);return result;}
@@ -354,7 +364,7 @@ export class NotiBuddyClient {
         lastControlSeq:previous?previousSession?.lastControlSeq:undefined,pollOffset:previous?previousSession?.pollOffset:undefined};
       this.writeActivity(params.activityId,session);
       try {
-        await this.dispatchSaved(requestId,saved,call);
+        await this.dispatchSaved(requestId,saved,call,payload);
         delete session.pendingDispatch;delete session.previous;this.writeActivity(params.activityId,session);
       }catch(error) {
         if(error instanceof DispatchRejectedError && error.definitive) {

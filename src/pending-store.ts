@@ -11,7 +11,7 @@ export interface PendingReply {
   privateKeyJwk: JsonWebKey;
   expiresAt: number;
   envelope?: RequestEnvelope | GroupRequest;
-  payload?:AskPayload|ActivityPayload; // Retained privately only until dispatch acknowledgement.
+  payload?:AskPayload|ActivityPayload; // Legacy records only: read to scrub it, never written.
   recipients?: unknown;
   dispatch?: 'pending' | 'accepted';
 }

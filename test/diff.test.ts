@@ -118,7 +118,7 @@ try {
   const interrupted = await client().ask({ title: 'Retry same diff', diff, waitSeconds: 0 });
   const interruptedWire = requests.at(-1)!;
   assert.equal(interrupted.status, 'pending');
-  assert.equal(pending().read<any>('reply:' + interrupted.requestId).payload.original, diff.original);
+  assert.equal(pending().read<any>('reply:' + interrupted.requestId).payload, undefined, 'D46: the plaintext is never stored');
   loseAcknowledgement = false;
   await reply(interruptedWire, 'reject');
   assert.equal((await client().ask({ resumeId: interrupted.requestId, waitSeconds: 0 })).answer?.action, 'reject');
