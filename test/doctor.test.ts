@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { NotiBuddyClient } from '../src/client.js';
+import { NotiBuddyClient, clockSkewMessage } from '../src/client.js';
 import { PendingStore } from '../src/pending-store.js';
 import { RecipientStore } from '../src/recipient-store.js';
 import { relayJSON } from '../src/client-http.js';
@@ -322,4 +322,27 @@ test('a deadline expiring while signing cannot start the diagnostic request',{ti
   });
   globalThis.fetch=async url=>{routes.push(new URL(String(url)).pathname);return health();};
   unavailable(await f.client().doctor({deadline:Date.now()+120}));assert.deepEqual(routes,['/v1/health']);
+}));
+
+test('doctor reports clock skew from the relay edge time and explains CLOCK_SKEW rejections',()=>fixture(async f=>{
+  const serve=(edge:string|undefined)=>{globalThis.fetch=async url=>{
+    const route=new URL(String(url)).pathname;
+    if(route==='/v1/health')return Response.json(edge===undefined?{status:'healthy'}:{status:'healthy',edgeTime:edge});
+    return Response.json({sender:f.row()});
+  };};
+  serve(new Date().toISOString());
+  let report=await f.client().doctor();
+  assert(Math.abs(report.clockSkewMs!)<=2000);assert(!report.issues.some(i=>i.includes('clock')));
+  serve(new Date(Date.now()+300000).toISOString());
+  report=await f.client().doctor();
+  assert(report.clockSkewMs!>240000);assert(report.issues.some(i=>i.includes('behind')));
+  serve(new Date(Date.now()-300000).toISOString());
+  report=await f.client().doctor();
+  assert(report.clockSkewMs!<-240000);assert(report.issues.some(i=>i.includes('ahead of')));
+  serve(undefined);
+  report=await f.client().doctor();
+  assert(!('clockSkewMs' in report));assert(!report.issues.some(i=>i.includes('clock')));
+  globalThis.fetch=async url=>new URL(String(url)).pathname==='/v1/health'?health():Response.json({code:'CLOCK_SKEW',relayTime:new Date().toISOString()},{status:401});
+  report=await f.client().doctor();
+  assert(report.issues.includes(clockSkewMessage));assert(!report.issues.some(i=>i.includes('Relay returned')));
 }));

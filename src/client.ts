@@ -59,6 +59,7 @@ function declineMarked(options:string[]|undefined,decline:string|undefined):AskP
 export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffInput };
 export type ActivityParams = z.input<typeof activitySchema>;
 export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
+export const clockSkewMessage = 'The relay rejected this computer\'s clock (more than 120 s off). Fix the system clock, then retry; run nb doctor to see the offset.';
 export class DispatchRejectedError extends Error {
   constructor(public status:number, detail:string,public code?:string) { super(`Dispatch failed (${status}): ${detail}`); }
   get definitive():boolean {
@@ -90,9 +91,15 @@ export class NotiBuddyClient {
   async doctor(options:CallOptions={}) {
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+15000)};
     const report={relay:this.config.relay,reachable:false,requestProtocol:this.config.requestProtocol ?? 1,
-      deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[]};
+      deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[],clockSkewMs:undefined as number|undefined};
     try {
+      const t0=Date.now();
       const health=await relayJSON(this.config,'/v1/health',{}, {...call,maxResponseBytes:65536});
+      const t1=Date.now(),edge=typeof health.body?.edgeTime==='string'?Date.parse(health.body.edgeTime):NaN;
+      if(Number.isFinite(edge)) {
+        const skew=Math.round(edge-(t0+t1)/2);report.clockSkewMs=skew;
+        if(Math.abs(skew)>60000)report.issues.push(`This computer's clock is ${Math.round(Math.abs(skew)/1000)} s ${skew>0?'behind':'ahead of'} the relay; requests are rejected beyond 120 s. Fix the system clock.`);
+      }
       report.reachable=health.body?.status==='healthy';if(!report.reachable)report.issues.push('Relay health response was not recognized');
       report.sender=await senderStatus(this.config,this.signingKey,call);
       if(report.requestProtocol===2) {
@@ -103,8 +110,9 @@ export class NotiBuddyClient {
       }else report.recipientCount=1;
     }catch(error) {
       options.signal?.throwIfAborted();
-      report.issues.push(error instanceof RelayHTTPError?`Relay returned ${error.status}${error.code?' '+error.code:''}`:'Verification did not complete; check connectivity, pairing approval, and client compatibility');
+      report.issues.push(error instanceof RelayHTTPError&&error.code==='CLOCK_SKEW'?clockSkewMessage:error instanceof RelayHTTPError?`Relay returned ${error.status}${error.code?' '+error.code:''}`:'Verification did not complete; check connectivity, pairing approval, and client compatibility');
     }
+    if(report.clockSkewMs===undefined)delete report.clockSkewMs;
     return report;
   }
   async registerSender(payload:SenderRegistrationPayload,options:CallOptions={}):Promise<'registered'|'pending_approval'|'pending_automatic'> {
@@ -221,7 +229,7 @@ export class NotiBuddyClient {
       }catch(error) {
         if(options.signal?.aborted)throw new ResumableRequestError(id);
         if(error instanceof TerminalRequestError){this.store.remove('reply:'+id);return {status:error.status,requestId:id};}
-        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.message};}
+        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.message};}
         return {status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`};
       }
       return {status:'pending',requestId:id,message:`Call notibuddy_ask with resume_id='${id}' to check again, including after restarting this client.`};
@@ -343,6 +351,7 @@ export class NotiBuddyClient {
         if(error instanceof DispatchRejectedError && error.definitive) {
           if(previousSession)this.writeActivity(params.activityId,previousSession);else this.store.remove(storeId);
           this.store.remove('reply:'+requestId);
+          if(error.code==='CLOCK_SKEW')throw Error(clockSkewMessage);
         }
         throw error;
       }

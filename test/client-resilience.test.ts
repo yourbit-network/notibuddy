@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { NotiBuddyClient, ResumableRequestError } from '../src/client.js';
+import { NotiBuddyClient, ResumableRequestError, clockSkewMessage } from '../src/client.js';
 import { PendingStore, type PendingReply, type ActivitySession } from '../src/pending-store.js';
 import { DestinationStore } from '../src/config.js';
 import { parsePairingBundle, buildRequestHeader, buildErrorHeader, sealReply } from '../src/protocol.js';
@@ -354,4 +354,10 @@ test('the standalone transport enforces caller deadlines and bounds response siz
   let cancelled=false;
   globalThis.fetch=async()=>new Response(new ReadableStream({cancel(){cancelled=true;}}),{headers:{'content-length':'900000'}});
   await assert.rejects(relayJSON(f.config,'/v1/health'),/size limit/);assert(cancelled);
+}));
+
+test('a CLOCK_SKEW dispatch rejection explains itself while keeping its error code',()=>fixture(async(f)=>{
+  globalThis.fetch=async()=>Response.json({code:'CLOCK_SKEW',relayTime:new Date().toISOString()},{status:401});
+  const result=await f.client().ask({title:'Skewed',waitSeconds:0});
+  assert.equal(result.status,'error');assert.equal(result.errorCode,'CLOCK_SKEW');assert.equal(result.message,clockSkewMessage);
 }));
