@@ -40,7 +40,8 @@ export async function relayJSON(config:NotiBuddyConfig,route:string,init:Request
       const stamp=String(Math.floor(Date.now()/1000)),nonce=randomUUID();
       const url=new URL(normalizeRelay(config.relay)+route),body=typeof init.body==='string'?init.body:'';
       const bodyHash=toHex(await sha256(new TextEncoder().encode(body)));
-      const input=httpSigningInput(config.token,(init.method || 'GET').toUpperCase(),`${url.pathname}${url.search}`,stamp,nonce,bodyHash);
+      // The edge strips /v1 before the account object verifies, so v1 routes sign the stripped path.
+      const input=httpSigningInput(config.token,(init.method || 'GET').toUpperCase(),`${url.pathname.replace(/^\/v1(?=\/)/,'')}${url.search}`,stamp,nonce,bodyHash);
       headers.set('X-Sender-Key-ID',config.senderKeyId);headers.set('X-Sender-Timestamp',stamp);headers.set('X-Sender-Nonce',nonce);
       headers.set('X-Sender-Signature',await ecdsaSign(signingKey,input));
     }

@@ -143,7 +143,7 @@ export class NotiBuddyClient {
     if(!Number.isSafeInteger(afterSeq) || afterSeq<0)throw Error('Invalid reply cursor');
     const version=saved?.envelope?.v ?? 1;
     try {
-      const {status,body}=await relayJSON(this.config,`/v${version}/replies/${encodeURIComponent(id)}?afterSeq=${afterSeq}`,{},options,version===2?this.signingKey:undefined);
+      const {status,body}=await relayJSON(this.config,`/v${version}/replies/${encodeURIComponent(id)}?afterSeq=${afterSeq}`,{},options,this.signingKey);
       if(status===204)return null;
       const envelope=version===2 ? body?.envelope : body,seq=body?.seq;
       if(!envelope || envelope.requestId!==id || envelope.v!==version || !Number.isSafeInteger(seq) || seq<1 || seq<=afterSeq)throw Error('Invalid reply binding or sequence');

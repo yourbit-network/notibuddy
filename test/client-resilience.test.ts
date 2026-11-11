@@ -375,3 +375,25 @@ test('a 409 without a code stays pending',()=>fixture(async(f)=>{
   const result=await f.client().ask({title:'Same content',waitSeconds:0});
   assert.equal(result.status,'pending');
 }));
+
+test('v1 reply polls are signed over the nb2 input for the path the relay verifies',()=>fixture(async(f)=>{
+  const polls:{u:URL;headers:Headers}[]=[];
+  globalThis.fetch=async(url,init)=>{
+    const u=new URL(String(url));
+    if(init?.method==='POST'){const q=JSON.parse(String(init.body));f.requests.push(q);return Response.json({requestId:q.requestId,seq:1},{status:202});}
+    assert(u.pathname.startsWith('/v1/replies/'));polls.push({u,headers:new Headers(init?.headers)});return new Response(null,{status:204});
+  };
+  const config={requestProtocol:1 as const};
+  const first=await f.client(config).ask({title:'Approval',waitSeconds:0});assert.equal(first.status,'pending');
+  await f.client(config).ask({resumeId:first.requestId,waitSeconds:0});
+  assert(polls.length>=1);
+  for(const {u,headers} of polls) {
+    for(const name of ['X-Sender-Key-ID','X-Sender-Timestamp','X-Sender-Nonce','X-Sender-Signature'])assert(headers.get(name),name);
+    assert.equal(headers.get('X-Sender-Key-ID'),f.config.senderKeyId);
+    // The edge strips /v1 before the account object verifies, so that is the signed route.
+    const route=`${u.pathname.replace(/^\/v1/,'')}${u.search}`;
+    const input=httpSigningInput(f.config.token,'GET',route,headers.get('X-Sender-Timestamp')!,headers.get('X-Sender-Nonce')!,toHex(await sha256(new Uint8Array())));
+    assert(await ecdsaVerify(f.sender.publicKeyB64u,input,headers.get('X-Sender-Signature')!));
+  }
+  assert.equal(new Set(polls.map(p=>p.headers.get('X-Sender-Nonce'))).size,polls.length);
+}));
