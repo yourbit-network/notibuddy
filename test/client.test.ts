@@ -96,6 +96,11 @@ try {
   const beforePlain=bodies.length;
   await client().ask({title:'Plain options',waitSeconds:0,options:['Go','Stop']});
   assert.deepEqual((await open(bodies[beforePlain])).options,['Go','Stop']);
+  // MCP callers get the same trimming as the CLI's comma-split --options (S-32).
+  const beforeTrimmed=bodies.length;
+  await client().ask({title:'Trimmed options',waitSeconds:0,requiresAuth:true,options:[' Yes ','No '],declineOption:' No'});
+  assert.deepEqual((await open(bodies[beforeTrimmed])).options,['Yes',{id:'No',label:'No',role:'decline'}]);
+  await assert.rejects(client().ask({title:'Blank option',waitSeconds:0,options:['Go','   ']}));
   console.log('Client regressions passed: encryption, restart/resume, terminal polling, key retention, activity continuity/controls, auth propagation, private storage.');
 } finally {
   globalThis.fetch=originalFetch;

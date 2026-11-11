@@ -32,7 +32,7 @@ export const askFields = z.object({
   sensitive: z.boolean().optional(),
   diff: z.unknown().optional(),
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
-  options:z.array(z.string().min(1).max(200)).max(20).optional(), declineOption:z.string().min(1).max(200).optional(), inputPlaceholder:z.string().max(500).optional(),
+  options:z.array(z.string().trim().min(1).max(200)).max(20).optional(), declineOption:z.string().trim().min(1).max(200).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
   timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
   waitSeconds:z.number().finite().min(0).max(MAX_REPLY_WAIT_SECONDS).default(25), resumeId:z.string().optional(),
