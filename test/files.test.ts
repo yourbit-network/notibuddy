@@ -15,7 +15,7 @@ const hash=(v:Uint8Array|string)=>createHash('sha256').update(v).digest('hex');
 try {
  const abandoned=path.join(root,'abandoned.lock');
  const child=spawnSync(process.execPath,['-e',"require('node:fs').writeFileSync(process.argv[1],String(process.pid),{mode:0o600});",abandoned]);
- assert.equal(child.status,0);const unlock=acquireFileLock(abandoned);assert.equal(fs.readFileSync(abandoned,'utf8'),String(process.pid));unlock();
+ assert.equal(child.status,0);const unlock=acquireFileLock(abandoned);assert.equal((JSON.parse(fs.readFileSync(abandoned,'utf8')) as {pid:number}).pid,process.pid);unlock();
  const phone=await generateSenderSigningKeyPair(),enc=await generateReplyKeyPair(),store=new DestinationStore(root);
  const bundle={v:1 as const,relay:'https://fixture.test',token:'nb_snd_'+randomUUID(),pairSecret:Buffer.alloc(32).toString('base64url'),device:{id:await deriveDeviceId(enc.publicKeyB64u,phone.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:phone.publicKeyB64u}};
  const {record,signingKey}=await store.prepare('phone',bundle,'Fixture');
