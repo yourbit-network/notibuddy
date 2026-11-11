@@ -53,7 +53,7 @@ Ask options:
   --diff <json-file>        Review original/modified text; cannot combine with choices/input/resume
   --timeout <seconds>      New request lifetime (default ${DEFAULT_REQUEST_TIMEOUT_SECONDS}, max ${MAX_REQUEST_TIMEOUT_SECONDS}; three hours)
   --wait, -w <seconds>      Wait before returning pending (default 45, max ${MAX_REPLY_WAIT_SECONDS}); does not change expiry
-  --requires-auth           Require phone biometrics
+  --requires-auth           Require device-owner authentication (Face ID, Touch ID, passcode or unlocked Watch)
   --sensitive               Hide content in notification previews
 
 Resuming keeps the original signed expiry; --timeout only applies to new requests.

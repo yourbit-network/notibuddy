@@ -100,7 +100,7 @@ export const ASK_TOOL_SCHEMA = {
       requires_auth: {
         type: 'boolean',
         description:
-          'Require Face ID / Touch ID authentication to approve this action. With options, only the decline_option choice skips authentication; without options, only the phone\'s own Reject does.',
+          'Require device-owner authentication on the phone or Watch before this action can be answered: Face ID, Touch ID, the device passcode, or an unlocked Apple Watch on the wrist. It proves the device owner approved, not which method was used. With options, only the decline_option choice skips authentication; without options, only the phone\'s own Reject does.',
       },
       timeout_seconds: {
         type: 'integer',

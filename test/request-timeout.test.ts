@@ -189,6 +189,14 @@ test('CLI --timeout controls signed lifetime while --wait stays a short operatio
       const result = await run(['ask', 'Invalid', '--to', 'test', ...args]); assert.equal(result.code, 1);
     }
     assert.equal(f.requests.length, before); if (failure) throw failure;
-    const help = await run(['help']); assert.match(help.stdout, /--timeout/); assert.match(help.stdout, /10800/); assert.match(help.stdout, /does not change expiry/);
+    const help = await run(['help']); assert.match(help.stdout, /--timeout/); assert.match(help.stdout, /10800/); assert.match(help.stdout, /does not change expiry/); assert.match(help.stdout, /--requires-auth\s+Require device-owner authentication.*passcode/);
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); f.close(); }
+});
+
+test('requires_auth description does not claim biometrics only', () => {
+  const props = (ASK_TOOL_SCHEMA as any).properties ?? (ASK_TOOL_SCHEMA as any).inputSchema?.properties;
+  const description: string = props.requires_auth.description;
+  assert.match(description, /passcode/);
+  assert.match(description, /Watch/);
+  assert.doesNotMatch(description, /^Require Face ID/);
 });
