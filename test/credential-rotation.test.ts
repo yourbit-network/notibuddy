@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createECDH, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DestinationStore } from '../src/config.js';
 import { relayJSON, RelayHTTPError, httpSigningInput, httpSigningAccount } from '../src/client-http.js';
-import { accountIdOf, bindCredentials, CredentialRecoveryError } from '../src/credential-recovery.js';
+import { accountIdOf, bindCredentials, CredentialRecoveryError, openCredentialRecord } from '../src/credential-recovery.js';
 import { FileInbox } from '../src/files.js';
 import { PendingStore } from '../src/pending-store.js';
 import { RecipientStore } from '../src/recipient-store.js';
@@ -270,4 +270,16 @@ test('pairing accepts an epoch token: bundle, first-use account binding, malform
   assert.throws(()=>validateFirstUse(firstUse(hash(token.slice(7)).slice(0,32)),{relay:'https://relay.example.test',token,device},now));
   for(const bad of [`nb_snd_${account}.${'A'.repeat(42)}`,`nb_snd_${account.toUpperCase()}.${'A'.repeat(43)}`,`nb_snd_${account}.${'A'.repeat(43)}.x`])
     await assert.rejects(parsePairingBundle(encode(bundle(bad))));
+});
+
+test('the Swift app\'s committed sender-credential-record vector opens with the vector\'s token and epoch',async()=>{
+  const v=JSON.parse(fs.readFileSync(new URL('../../test-vectors/sender-credential-record-v1.json',import.meta.url),'utf8'));
+  const config={token:v.token,senderKeyId:v.senderKeyId,device:{id:v.deviceId,sigPub:v.devicePub}} as unknown as NotiBuddyConfig;
+  assert.equal(accountIdOf(v.token),v.accountId);
+  const opened=await openCredentialRecord(config,v.senderPrivateJwk,v.body);
+  assert.equal(opened.token,v.expectedToken);
+  assert.equal(opened.epoch,v.epoch);
+  // The bindings are load-bearing: a different epoch or device must not open.
+  await assert.rejects(openCredentialRecord(config,v.senderPrivateJwk,{...v.body,epoch:v.epoch+1}));
+  await assert.rejects(openCredentialRecord({...config,device:{...config.device,id:'dev_'+'0'.repeat(24)}} as NotiBuddyConfig,v.senderPrivateJwk,v.body));
 });
