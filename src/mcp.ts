@@ -8,6 +8,7 @@ import {
 import { DestinationStore } from './config.js';
 import { createDestinationRouter, type RoutingOptions } from './routing.js';
 import { readFileSync } from 'node:fs';
+import { SessionUpdateNotice, type ReleaseLookupFn } from './update-notice.js';
 import type { PresentationHints, DiffInput } from './types.js';
 
 /** The package's own version, so the server never reports a stale hard-coded number. */
@@ -195,8 +196,9 @@ export const ACTIVITY_TOOL_SCHEMA = {
   },
 };
 
-export async function createMcpServer(options:RoutingOptions = {}, store=new DestinationStore()): Promise<Server> {
+export async function createMcpServer(options:RoutingOptions = {}, store=new DestinationStore(),lookup?:ReleaseLookupFn): Promise<Server> {
   const router=await createDestinationRouter(options,store);
+  const sessionNotice=new SessionUpdateNotice(lookup);
   const routedSchema=(schema: typeof ASK_TOOL_SCHEMA | typeof ACTIVITY_TOOL_SCHEMA)=>({
     ...schema,
     description: schema.description + (router.selectable ? ' Select an explicitly exposed destination with to.' : ` Destination is pinned to ${router.names[0]}.`),
@@ -231,6 +233,12 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const result = await callTool(request, extra);
+    const notice = sessionNotice.take();
+    return notice === undefined ? result : { ...result, content: [...result.content, { type: 'text' as const, text: notice }] };
+  });
+
+  const callTool = async (request: any, extra: any): Promise<{ content: { type: 'text'; text: string }[]; isError?: boolean }> => {
     const { name, arguments: args } = request.params;
 
     try {
@@ -316,7 +324,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
         ],
       };
     }
-  });
+  };
 
   return server;
 }

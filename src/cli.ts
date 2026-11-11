@@ -10,6 +10,7 @@ import { createDestinationRouter, parseRoutingArgs } from './routing.js';
 import { resolveFileDestination } from './file-routing.js';
 import { readDiffFile } from './diff-file.js';
 import { pairSender } from './pairing.js';
+import { UpdateNotifier } from './update-notice.js';
 import { DEFAULT_REQUEST_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, MAX_REPLY_WAIT_SECONDS } from './request-timeout.js';
 
 async function withShutdown<T>(operation:(signal:AbortSignal)=>Promise<T>):Promise<T> {
@@ -85,7 +86,7 @@ function argumentsFor(args:string[],values:string[],booleans:string[]=[]) {
     number:(flag:string)=>options[flag]===undefined?undefined:Number(options[flag]),flag:(flag:string)=>options[flag]===true};
 }
 
-async function main():Promise<void> {
+async function run():Promise<void> {
   const raw=process.argv.slice(2);
   if(!raw.length || ['--help','-h','help'].includes(raw[0])) {printHelp();return;}
   const {options:routing,rest}=parseRoutingArgs(raw), command=rest.shift();
@@ -188,4 +189,24 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@${v
   }
   throw new Error('Unknown command. Run nb help for usage.');
 }
-main().catch(err=>{console.error(`NotiBuddy: ${err.message}`);process.exitCode ??= 1;});
+/** Every command but `mcp` (per-session notice) and `doctor` (reports `newer` itself) gets the daily notice. */
+function wantsUpdateNotice(raw:string[]):boolean {
+  try{const command=parseRoutingArgs(raw).rest[0];return command!=='mcp' && command!=='doctor';}catch{return true;}
+}
+const NOTICE_LOOKUP_MS=1500,NOTICE_GRACE_MS=300;
+
+async function main():Promise<void> {
+  // Cancelled after the grace period: a late answer records nothing (the notice waits for the
+  // next command) and cannot keep the process alive.
+  const lookup=new AbortController();
+  const notice=wantsUpdateNotice(process.argv.slice(2))?new UpdateNotifier().cliNotice(Date.now()+NOTICE_LOOKUP_MS,lookup.signal):undefined;
+  try{await run();}
+  catch(err:any){console.error(`NotiBuddy: ${err.message}`);process.exitCode ??= 1;}
+  if(!notice)return;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  const text=await Promise.race([notice,new Promise<undefined>(resolve=>{timer=setTimeout(()=>resolve(undefined),NOTICE_GRACE_MS);})]);
+  clearTimeout(timer);
+  lookup.abort();
+  if(text)console.error(text);
+}
+main();

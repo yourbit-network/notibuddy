@@ -130,6 +130,9 @@ Run as a local stdio MCP server:
 }
 ```
 
+### Update notices
+The CLI checks npm for a newer release at most once a day (an anonymous request to registry.npmjs.org) and prints a one-line notice on stderr; stdout and exit codes are unchanged. MCP sessions show the notice once, as an extra item in a tool result. Set `NOTIBUDDY_NO_UPDATE_CHECK=1` to turn the check off.
+
 ---
 
 ## 🧪 Testing Test Vectors

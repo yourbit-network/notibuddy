@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { DestinationRecord } from './config.js';
 import { NOTIBUDDY_DIR } from './config.js';
 import { ecdsaSign, ecdsaVerify, hpkeOpenBytes } from './crypto.js';
-import { httpSigningInput, recoverRotatedCredentials, type CallOptions } from './client-http.js';
+import { ClientUpgradeRequiredError, httpSigningInput, recoverRotatedCredentials, type CallOptions } from './client-http.js';
 import { bindCredentials } from './credential-recovery.js';
 import type { DestinationStore } from './config.js';
 
@@ -167,8 +167,10 @@ export class FileInbox {
           'X-Sender-Key-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},
         body:payload || undefined,signal,redirect:'error'}),signal);
       if(!response.ok) { const bytes=await bounded(response,8192,signal);let message=`File relay returned ${response.status}`;
-        let rotated=false;
-        try{const parsed=JSON.parse(bytes.toString());message=parsed.error || message;rotated=response.status===409 && parsed.code==='CREDENTIAL_ROTATED';}catch{}
+        let rotated=false,upgrade:ClientUpgradeRequiredError|undefined;
+        try{const parsed=JSON.parse(bytes.toString());message=parsed.error || message;rotated=response.status===409 && parsed.code==='CREDENTIAL_ROTATED';
+          if(response.status===426 && parsed.code==='CLIENT_UPGRADE_REQUIRED')upgrade=new ClientUpgradeRequiredError(parsed.minimumVersion);}catch{}
+        if(upgrade)throw upgrade;
         throw rotated ? new RotatedCredentialError(message) : new Error(message); }
       return await read(response,signal);
     } finally {

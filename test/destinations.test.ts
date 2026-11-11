@@ -14,6 +14,7 @@ import { PendingStore } from '../src/pending-store.js';
 import { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, hpkeOpen } from '../src/crypto.js';
 import { buildRequestHeader, sealReply } from '../src/protocol.js';
 import type { PairingBundle, RequestEnvelope, ReplyEnvelope } from '../src/types.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'nb-destinations-')), originalFetch=globalThis.fetch;
 const clients:Client[]=[];

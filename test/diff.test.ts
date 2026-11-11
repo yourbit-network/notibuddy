@@ -17,6 +17,7 @@ import { readDiffFile, MAX_DIFF_FILE_BYTES } from '../src/diff-file.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, hpkeOpen, ecdsaVerify } from '../src/crypto.js';
 import { buildRequestHeader, sealReply } from '../src/protocol.js';
 import type { RequestEnvelope, ReplyEnvelope, DiffInput, PairingBundle } from '../src/types.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-diff-'));
 const originalFetch = globalThis.fetch;

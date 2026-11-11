@@ -10,6 +10,7 @@ import { DestinationStore } from '../src/config.js';
 import { z } from 'zod';
 import { askFields, activitySchema } from '../src/client.js';
 import { ASK_TOOL_SCHEMA, ACTIVITY_TOOL_SCHEMA, createMcpServer, MCP_VERSION } from '../src/mcp.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 // Zod property (camelCase) -> advertised property (snake_case).
 const RENAMES: Record<string, string> = {

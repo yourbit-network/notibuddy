@@ -18,6 +18,7 @@ import { sealGroupRequest, verifyRecipients } from '../src/groups.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
 import type { RequestEnvelope, NotiBuddyConfig, AskPayload, ActivityPayload, PrimitiveType } from '../src/types.js';
 import type { GroupRequest } from '../src/group-wire.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 type Wire = RequestEnvelope | GroupRequest;
 async function fixture() {

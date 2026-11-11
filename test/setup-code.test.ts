@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAX_SETUP_CODE_BYTES, SETUP_CODE_PROMPT, readSetupCode, type SetupCodeInput } from '../src/setup-code.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 function fakeTerminal() {
   const input = new PassThrough() as PassThrough & SetupCodeInput & { raw: boolean[] };

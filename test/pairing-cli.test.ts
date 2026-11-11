@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createECDH, createHash } from 'node:crypto';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 test('actual CLI reports automatic, manual, pending and already-linked outcomes without retaining the code', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy-pairing-cli-'));
