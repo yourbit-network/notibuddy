@@ -105,20 +105,10 @@ try {
   assert.deepEqual((await payload(requests.at(-1)!)).source,originalSource,'Activity updates retain original source');
   assert.equal((await store.open('phone')).record.keys.senderKeyId,a.record.keys.senderKeyId,'Display labels never change connection keys');
 
-  const legacyRoot=path.join(root,'legacy'), legacyStore=new DestinationStore(legacyRoot);fs.mkdirSync(legacyRoot);
-  fs.writeFileSync(path.join(legacyRoot,'config.json'),JSON.stringify(a.record.config));
-  fs.writeFileSync(path.join(legacyRoot,'sender.json'),JSON.stringify(a.record.keys));
-  const oldClient=new NotiBuddyClient(a.record.config,a.signingKey,new PendingStore(a.record.config,legacyRoot));
-  const oldPending=await oldClient.ask({title:'Before migration',waitSeconds:0});await reply(requests.at(-1)!);
-  await legacyStore.migrate('imported');
-  const migrated=(await createDestinationRouter({to:'imported'},legacyStore)).resolve();
-  assert.equal((await migrated.client.ask({resumeId:oldPending.requestId,waitSeconds:0})).status,'resolved');
-  assert.equal(migrated.record.keys.senderKeyId,a.record.keys.senderKeyId);
-  await assert.rejects(legacyStore.migrate('imported'),/EEXIST/);
-  assert.ok(fs.existsSync(path.join(legacyRoot,'config.json')),'Migration retains legacy files');
-  fs.writeFileSync(path.join(legacyRoot,'destinations','broken.json'),'invalid');
-  await assert.rejects(legacyStore.open('broken'),/unreadable/);
-  assert.equal(fs.readFileSync(path.join(legacyRoot,'destinations','broken.json'),'utf8'),'invalid','Corrupt credentials are never overwritten');
+  const brokenRoot=path.join(root,'broken'), brokenStore=new DestinationStore(brokenRoot);fs.mkdirSync(path.join(brokenRoot,'destinations'),{recursive:true});
+  fs.writeFileSync(path.join(brokenRoot,'destinations','broken.json'),'invalid');
+  await assert.rejects(brokenStore.open('broken'),/unreadable/);
+  assert.equal(fs.readFileSync(path.join(brokenRoot,'destinations','broken.json'),'utf8'),'invalid','Corrupt credentials are never overwritten');
   if(process.platform!=='win32') for(const name of fs.readdirSync(path.join(root,'destinations'))) assert.equal(fs.statSync(path.join(root,'destinations',name)).mode&0o777,0o600);
   const cli=fileURLToPath(new URL('../src/cli.ts',import.meta.url));
   const run=(args:string[],home=root)=>spawnSync(process.execPath,['--import','tsx',cli,...args],{env:{...process.env,NOTIBUDDY_HOME:home},encoding:'utf8',timeout:15000});
@@ -127,8 +117,7 @@ try {
   const unspecified=run(['ask','Never send']);assert.equal(unspecified.status,1);assert.match(unspecified.stderr,/--to/);
   const unsupported=run(['ask','Never send','--to','phone','--profile','hidden']);assert.equal(unsupported.status,1);assert.match(unsupported.stderr,/Unknown option/);
   const noMcpRoute=run(['mcp']);assert.equal(noMcpRoute.status,1);assert.match(noMcpRoute.stderr,/explicitly/);
-  const badLegacy=path.join(root,'bad-legacy');fs.mkdirSync(badLegacy);fs.writeFileSync(path.join(badLegacy,'config.json'),'private-corrupt-value');
-  const badImport=run(['devices','migrate','--to','imported'],badLegacy);assert.equal(badImport.status,1);assert.ok(!badImport.stderr.includes('private-corrupt-value'));
+  const removed=run(['devices','migrate','--to','imported']);assert.equal(removed.status,1);assert.match(removed.stderr,/Use devices list or devices rename/);
   assert.ok(!JSON.stringify(run(['devices','list'])).includes('privateKeyJwk'));
-  console.log('Destination/MCP integration passed: explicit routing, allowlist, pinning, encrypted labels, independent keys, concurrent creation, migration, rename, reply isolation, activity continuity.');
+  console.log('Destination/MCP integration passed: explicit routing, allowlist, pinning, encrypted labels, independent keys, concurrent creation, rename, reply isolation, activity continuity.');
 } finally {for(const client of clients)await client.close();globalThis.fetch=originalFetch;fs.rmSync(root,{recursive:true,force:true});}

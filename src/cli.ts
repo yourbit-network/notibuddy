@@ -36,7 +36,6 @@ Usage:
   nb mcp --to <name> [--sender <label>]
   nb mcp --allow-to <name> --allow-to <name> [--sender <label>]
   nb devices list
-  nb devices migrate --to <name>     Import old pairing; retain keys and replies
   nb devices rename <old> <new>      Change a local alias, keeping its identity
   nb doctor --to <name>             Verify relay, approval, and protocol compatibility
   nb status [--to <name>]
@@ -96,18 +95,14 @@ async function run():Promise<void> {
   if(command==='devices') {
     const action=rest.shift();
     if(action==='list' && !rest.length) {console.log(JSON.stringify(store.list(),null,2));return;}
-    if(action==='migrate' && routing.to && !rest.length) {
-      await store.migrate(routing.to);
-      console.log(`Imported as '${routing.to}'. Keys and pending replies are unchanged; original files remain for rollback. Update MCP to: nb mcp --to ${routing.to}`);return;
-    }
     if(action==='rename' && rest.length===2) {store.rename(rest[0],rest[1]);console.log('Destination renamed; pairing and pending replies are unchanged. Update any CLI/MCP destination arguments.');return;}
-    throw new Error('Use devices list, devices migrate --to <name>, or devices rename <old> <new>');
+    throw new Error('Use devices list or devices rename <old> <new>');
   }
   if(command==='status') {
     if(rest.length)throw new Error('Unknown status arguments');
     const destinations=store.list();
     if(routing.to) {await store.open(routing.to);console.log(JSON.stringify(destinations.find(d=>d.name===routing.to),null,2));}
-    else console.log(destinations.length?JSON.stringify(destinations,null,2):'No named destinations paired. Run nb pair --to <name> and paste the setup code, or nb devices migrate --to <name> to import existing setup.');
+    else console.log(destinations.length?JSON.stringify(destinations,null,2):'No named destinations paired. Run nb pair --to <name> and paste the setup code.');
     return;
   }
   if(command==='files') {

@@ -256,16 +256,6 @@ test('an ambiguous activity start is retried before another revision is sent',()
   assert.deepEqual(f.requests[0],f.requests[1]);assert.equal(f.store.read('activity:retry').pendingDispatch,undefined);
 }));
 
-test('legacy trailing-slash storage migrates atomically without generating a new key',()=>fixture(async(f)=>{
-  const scope=createHash('sha256').update(JSON.stringify([f.config.relay+'/',f.config.token,f.config.device.id,f.config.senderKeyId])).digest('hex');
-  const key='reply:legacy',name=createHash('sha256').update(key).digest('hex')+'.json',directory=path.join(f.root,'pending',scope);
-  fs.mkdirSync(directory,{recursive:true});const saved={privateKeyJwk:await crypto.subtle.exportKey('jwk',f.phone.enc.privateKey),expiresAt:Math.floor(Date.now()/1000)+300};
-  const file=path.join(directory,name);fs.writeFileSync(file,JSON.stringify({value:saved,retainUntil:Date.now()+600000}),{mode:0o644});
-  const store=new PendingStore(f.config,f.root);assert.deepEqual(store.read(key),saved);assert(!fs.existsSync(file));
-  const canonical=fs.readdirSync(path.join(f.root,'pending')).filter(n=>n!==scope)[0];
-  if(process.platform!=='win32')assert.equal(fs.statSync(path.join(f.root,'pending',canonical,name)).mode&0o777,0o600);
-}));
-
 test('failed pending-file replacement cleans temporary key files and prevents dispatch',()=>fixture(async(f)=>{
   const rename=fs.renameSync;let sent=false;
   globalThis.fetch=async()=>{sent=true;throw Error('Must not dispatch');};

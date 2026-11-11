@@ -33,12 +33,10 @@ const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 /** Atomic records preserve the exact request and response key across restarts. */
 export class PendingStore {
   private directory:string;
-  private legacyDirectories:string[];
   constructor(config:NotiBuddyConfig,readonly root=process.env.NOTIBUDDY_HOME || path.join(os.homedir(),'.notibuddy')) {
     const scope=(relay:string)=>hash(JSON.stringify([relay,config.pairingToken ?? config.token,config.device.id,config.senderKeyId]));
     const normalized=normalizeRelay(config.relay);
     this.directory=path.join(root,'pending',scope(normalized));
-    this.legacyDirectories=[...new Set([config.relay,normalized+'/'].map(relay=>path.join(root,'pending',scope(relay))))].filter(d=>d!==this.directory);
     fs.mkdirSync(this.directory,{recursive:true,mode:0o700});fs.chmodSync(this.directory,0o700);this.prune();
   }
   private file(key:string,directory=this.directory) {return path.join(directory,hash(key)+'.json');}
@@ -68,17 +66,7 @@ export class PendingStore {
   read<T>(key:string):T|undefined {
     const target=this.file(key),unlock=acquireFileLock(target+'.lock');
     try {
-    let stored=this.readFile(target);
-    if(!stored)for(const directory of this.legacyDirectories) {
-      const file=this.file(key,directory),legacy=this.readFile(file);
-      if(!legacy)continue;
-      if(legacy.retainUntil<=Date.now()){fs.unlinkSync(file);continue;}
-      // Publish without overwriting a concurrently saved canonical record.
-      let published=false;
-      try{fs.linkSync(file,target);this.syncDirectory();published=true;}
-      catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
-      stored=this.readFile(target);if(published)fs.unlinkSync(file);break;
-    }
+    const stored=this.readFile(target);
     if(!stored)return;
     if(stored.retainUntil<=Date.now()){this.removeUnlocked(key);return;}
     return stored.value as T;
@@ -100,22 +88,21 @@ export class PendingStore {
     try{this.removeUnlocked(key);}finally{unlock();}
   }
   private removeUnlocked(key:string):void {
-    for(const directory of [this.directory,...this.legacyDirectories])fs.rmSync(this.file(key,directory),{force:true});
+    fs.rmSync(this.file(key),{force:true});
     this.syncDirectory();
   }
   private prune():void {
-    for(const directory of [this.directory,...this.legacyDirectories]) {
-      if(!fs.existsSync(directory))continue;
-      for(const name of fs.readdirSync(directory)) {
-        const file=path.join(directory,name);
-        try {
-          if(/^[a-f0-9]{64}\.json\.[a-f0-9-]{36}\.tmp$/.test(name) && Date.now()-fs.statSync(file).mtimeMs>86400000)fs.unlinkSync(file);
-          else if(/^[a-f0-9]{64}\.json$/.test(name)) {
-            const unlock=acquireFileLock(file+'.lock');
-            try{const stored=this.readFile(file);if(stored && stored.retainUntil<=Date.now())fs.unlinkSync(file);}finally{unlock();}
-          }
-        }catch{/* Preserve damaged records; an attempted read reports the failure. */}
-      }
+    const directory=this.directory;
+    if(!fs.existsSync(directory))return;
+    for(const name of fs.readdirSync(directory)) {
+      const file=path.join(directory,name);
+      try {
+        if(/^[a-f0-9]{64}\.json\.[a-f0-9-]{36}\.tmp$/.test(name) && Date.now()-fs.statSync(file).mtimeMs>86400000)fs.unlinkSync(file);
+        else if(/^[a-f0-9]{64}\.json$/.test(name)) {
+          const unlock=acquireFileLock(file+'.lock');
+          try{const stored=this.readFile(file);if(stored && stored.retainUntil<=Date.now())fs.unlinkSync(file);}finally{unlock();}
+        }
+      }catch{/* Preserve damaged records; an attempted read reports the failure. */}
     }
   }
 }

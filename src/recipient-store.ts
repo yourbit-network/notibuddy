@@ -13,13 +13,11 @@ export class RecipientStore {
   private readonly directory:string;
   private readonly file:string;
   private readonly deviceId:string;
-  private readonly legacyFiles:string[];
   constructor(config:NotiBuddyConfig,root=NOTIBUDDY_DIR) {
     this.directory=path.join(root,'recipients');
     const scope=(relay:string)=>createHash('sha256').update(JSON.stringify([relay,config.pairingToken ?? config.token,config.device.id,config.device.encPub,config.device.sigPub])).digest('hex');
     const normalized=normalizeRelay(config.relay);
     this.file=path.join(this.directory,scope(normalized)+'.json');this.deviceId=config.device.id;
-    this.legacyFiles=[...new Set([config.relay,normalized+'/'].map(relay=>path.join(this.directory,scope(relay)+'.json')))].filter(file=>file!==this.file);
   }
   private readFile(file:string):RecipientCheckpoint|undefined {
     let value:any;
@@ -33,10 +31,7 @@ export class RecipientStore {
     return value;
   }
   read():RecipientCheckpoint|undefined {
-    const checkpoints=[this.file,...this.legacyFiles].map(file=>this.readFile(file)).filter((c):c is RecipientCheckpoint=>!!c).sort((a,b)=>b.generation-a.generation);
-    const latest=checkpoints[0];
-    if(latest && checkpoints.some(c=>c.generation===latest.generation && c.fingerprint!==latest.fingerprint))throw Error('Conflicting recipient checkpoints; preserve both records');
-    return latest;
+    return this.readFile(this.file);
   }
   remember(snapshot:VerifiedRecipients):void {
     const checkpoint=recipientCheckpoint(snapshot);

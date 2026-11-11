@@ -43,8 +43,7 @@ export class DestinationStore {
     try { return recordSchema.parse(JSON.parse(fs.readFileSync(file,'utf8'))) as DestinationRecord; }
     catch(error) {
       if ((error as NodeJS.ErrnoException).code==='ENOENT') {
-        const legacy=fs.existsSync(path.join(this.root,'config.json'));
-        throw new Error(legacy ? `Destination '${name}' is not saved. Import the existing pairing with: nb devices migrate --to ${name}` : `Destination '${name}' is not paired. Run: nb pair --to ${name} and paste the setup code`);
+        throw new Error(`Destination '${name}' is not paired. Run: nb pair --to ${name} and paste the setup code`);
       }
       throw new Error(`Destination '${name}' is unreadable. Preserve its file and restore it; keys will not be regenerated automatically.`);
     }
@@ -152,23 +151,6 @@ export class DestinationStore {
       this.replace(name,latest);
       return latest;
     }finally{unlock();}
-  }
-  async migrate(name: string): Promise<void> {
-    destinationName(name);
-    let config:NotiBuddyConfig, keys:SenderKeyPair;
-    try {
-      config=configSchema.parse(JSON.parse(fs.readFileSync(path.join(this.root,'config.json'),'utf8')));
-      keys=keysSchema.parse(JSON.parse(fs.readFileSync(path.join(this.root,'sender.json'),'utf8'))) as SenderKeyPair;
-    } catch { throw new Error('Existing pairing is missing or unreadable. Preserve config.json and sender.json; no files were changed.'); }
-    const record:DestinationRecord={version:2,connectionId:randomUUID(),config,keys};
-    // Validate in memory before publishing the imported record.
-    const signingKey=await importSenderPrivateKey(keys.privateKeyJwk);
-    const challenge=new TextEncoder().encode('notibuddy/local-key-check');
-    if (config.senderKeyId!==keys.senderKeyId || await deriveSenderKeyId(keys.publicKeyB64u)!==keys.senderKeyId ||
-        !await ecdsaVerify(keys.publicKeyB64u,challenge,await ecdsaSign(signingKey,challenge)) ||
-        await deriveDeviceId(config.device.encPub,config.device.sigPub)!==config.device.id) throw new Error('Legacy pairing keys do not match. No files were changed.');
-    this.create(name,record);
-    // Keep original files for rollback. PendingStore uses the unchanged cryptographic scope.
   }
   rename(from:string,to:string):void {
     this.read(from); this.ensure();

@@ -28,7 +28,7 @@ export function parseRoutingArgs(args:string[]): {options:RoutingOptions; rest:s
 export async function createDestinationRouter(options:RoutingOptions,store=new DestinationStore()) {
   const names=options.to ? [destinationName(options.to)] : options.allowTo?.map(destinationName);
   if (options.to && options.allowTo) throw new Error('Choose --to or --allow-to, not both');
-  if (!names?.length) throw new Error('Select a destination explicitly: --to <name>, or repeat --allow-to <name> for MCP. Run nb devices list; import old setup with nb devices migrate --to <name>.');
+  if (!names?.length) throw new Error('Select a destination explicitly: --to <name>, or repeat --allow-to <name> for MCP. Run nb devices list.');
   if(new Set(names).size!==names.length) throw new Error('Destination allowlist contains duplicates');
   const label=senderLabel(options.sender);
   const entries=await Promise.all(names.map(async name=>{
