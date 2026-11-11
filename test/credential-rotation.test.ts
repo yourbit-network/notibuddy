@@ -273,7 +273,7 @@ test('pairing accepts an epoch token: bundle, first-use account binding, malform
 });
 
 test('the Swift app\'s committed sender-credential-record vector opens with the vector\'s token and epoch',async()=>{
-  const v=JSON.parse(fs.readFileSync(new URL('../../test-vectors/sender-credential-record-v1.json',import.meta.url),'utf8'));
+  const v=JSON.parse(fs.readFileSync(new URL('../test-vectors/sender-credential-record-v1.json',import.meta.url),'utf8'));
   const config={token:v.token,senderKeyId:v.senderKeyId,device:{id:v.deviceId,sigPub:v.devicePub}} as unknown as NotiBuddyConfig;
   assert.equal(accountIdOf(v.token),v.accountId);
   const opened=await openCredentialRecord(config,v.senderPrivateJwk,v.body);
