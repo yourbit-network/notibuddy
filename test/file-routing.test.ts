@@ -57,7 +57,8 @@ try {
   serve=async(request,response)=>{
     const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(Buffer.from(chunk));const body=Buffer.concat(chunks);
     assert.equal(request.headers.authorization,'Bearer '+a.record.config.token);
-    assert.equal(request.headers['x-sender-id'],a.record.config.senderKeyId);
+    assert.equal(request.headers['x-sender-key-id'],a.record.config.senderKeyId);
+    assert.equal(request.headers['x-sender-id'],undefined,'the client sends only the v2 header name (S-36)');
     const route=request.url!.replace(/^\/v1/,'');
     const signing=httpSigningInput(a.record.config.token,String(request.method),route,String(request.headers['x-sender-timestamp']),String(request.headers['x-sender-nonce']),hash(body));
     assert.equal(await ecdsaVerify(a.record.keys.publicKeyB64u,signing,String(request.headers['x-sender-signature'])),true);
