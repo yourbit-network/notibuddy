@@ -15,7 +15,7 @@ export function accountIdOf(token:string):string {
 
 export class CredentialRecoveryError extends Error {
   constructor(readonly destination:string) {
-    super(`This computer's NotiBuddy credentials were rotated on the phone and could not be refreshed. Pair again: in NotiBuddy on the phone add this computer, then run: nb pair --to ${destination}`);
+    super(`This computer's NotiBuddy credentials were rotated on the phone and could not be refreshed. Pair it again: run nb unpair --to ${destination}, add this computer in NotiBuddy on the phone, then run nb pair --to ${destination} with the new setup code.`);
     this.name='CredentialRecoveryError';
   }
 }

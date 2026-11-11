@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { normalizeRelay } from './relay-url.js';
 import { validatePairingBundle, validateRequestSettings } from './protocol.js';
+import { accountIdOf } from './credential-recovery.js';
 import { acquireFileLock } from './file-lock.js';
 import { pollPause } from './client-http.js';
 import path from 'node:path';
@@ -102,7 +103,11 @@ export class DestinationStore {
       catch(error) { if ((error as NodeJS.ErrnoException).code!=='EEXIST') throw error; }
     }
     const opened=await this.open(name), config=opened.record.config;
-    if (normalizeRelay(config.relay)!==bundle.relay || (config.pairingToken ?? config.token)!==bundle.token || config.device.id!==bundle.device.id || config.device.encPub!==bundle.device.encPub || config.device.sigPub!==bundle.device.sigPub || config.senderLabel!==label) {
+    const samePhone=normalizeRelay(config.relay)===bundle.relay && config.device.id===bundle.device.id && config.device.encPub===bundle.device.encPub && config.device.sigPub===bundle.device.sigPub && config.senderLabel===label;
+    if (samePhone && bundle.token!==config.token && bundle.token!==config.pairingToken && accountIdOf(bundle.token)===accountIdOf(config.pairingToken ?? config.token)) {
+      throw new Error(`Destination '${name}' has rotated credentials from the phone. Run nb unpair --to ${name}, then nb pair --to ${name} with this setup code.`);
+    }
+    if (normalizeRelay(config.relay)!==bundle.relay || ((config.pairingToken ?? config.token)!==bundle.token && config.token!==bundle.token) || config.device.id!==bundle.device.id || config.device.encPub!==bundle.device.encPub || config.device.sigPub!==bundle.device.sigPub || config.senderLabel!==label) {
       throw new Error(`Destination '${name}' already names a different pairing or connection label. Use a new destination name; existing requests will not be redirected.`);
     }
     const generated=!opened.record.fileKey ? await generateReplyKeyPair() : undefined;

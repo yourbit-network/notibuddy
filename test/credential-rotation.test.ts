@@ -100,7 +100,7 @@ for(const [label,corrupt] of [
   const config=await f.bind(),before=fs.readFileSync(f.file);
   f.fake.credentials=respond(f,1,config,corrupt(f));
   await assert.rejects(f.post(config),(e:any)=>e instanceof CredentialRecoveryError && e.message===
-    "This computer's NotiBuddy credentials were rotated on the phone and could not be refreshed. Pair again: in NotiBuddy on the phone add this computer, then run: nb pair --to phone");
+    "This computer's NotiBuddy credentials were rotated on the phone and could not be refreshed. Pair it again: run nb unpair --to phone, add this computer in NotiBuddy on the phone, then run nb pair --to phone with the new setup code.");
   assert.deepEqual(fs.readFileSync(f.file),before);assert.equal(f.fake.other().length,1);assert.equal(config.token,oldToken);
 }));
 
@@ -283,3 +283,46 @@ test('the Swift app\'s committed sender-credential-record vector opens with the 
   await assert.rejects(openCredentialRecord(config,v.senderPrivateJwk,{...v.body,epoch:v.epoch+1}));
   await assert.rejects(openCredentialRecord({...config,device:{...config.device,id:'dev_'+'0'.repeat(24)}} as NotiBuddyConfig,v.senderPrivateJwk,v.body));
 });
+
+const REPAIR_MSG="This computer's NotiBuddy credentials were rotated on the phone and could not be refreshed. Pair it again: run nb unpair --to phone, add this computer in NotiBuddy on the phone, then run nb pair --to phone with the new setup code.";
+const bundleFor=(f:any,token:string,device=f.device)=>({v:1 as const,relay:'https://relay.test',token,pairSecret:Buffer.alloc(32).toString('base64url'),device});
+
+test('CredentialRecoveryError names the unpair-then-pair path exactly',()=>{
+  assert.equal(new CredentialRecoveryError('phone').message,REPAIR_MSG);
+});
+
+test('a fresh bundle from the same phone and account with a new epoch token gets the rotation guidance',()=>fixture(async f=>{
+  const config=await f.bind();
+  await f.store.rotateCredentials('phone',{senderKeyId:config.senderKeyId,token:f.tokenFor(1,config),epoch:1});
+  const fresh=epochTokenOf(accountIdOf(oldToken),randomBytes(32));
+  await assert.rejects(f.store.prepare('phone',bundleFor(f,fresh),'Sender'),
+    {message:"Destination 'phone' has rotated credentials from the phone. Run nb unpair --to phone, then nb pair --to phone with this setup code."});
+}));
+
+test('a different account or different phone keys keeps the generic mismatch message',()=>fixture(async f=>{
+  const config=await f.bind();
+  await f.store.rotateCredentials('phone',{senderKeyId:config.senderKeyId,token:f.tokenFor(1,config),epoch:1});
+  const generic=/already names a different pairing or connection label/;
+  await assert.rejects(f.store.prepare('phone',bundleFor(f,'nb_snd_'+randomUUID()),'Sender'),generic);
+  const enc=await generateReplyKeyPair(),other=await generateSenderSigningKeyPair();
+  const device={id:await deriveDeviceId(enc.publicKeyB64u,other.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:other.publicKeyB64u};
+  const fresh=epochTokenOf(accountIdOf(oldToken),randomBytes(32));
+  await assert.rejects(f.store.prepare('phone',bundleFor(f,fresh,device),'Sender'),generic);
+}));
+
+test('a bundle carrying the stored current epoch token is accepted',()=>fixture(async f=>{
+  const config=await f.bind(),epochToken=f.tokenFor(1,config);
+  await f.store.rotateCredentials('phone',{senderKeyId:config.senderKeyId,token:epochToken,epoch:1});
+  const opened=await f.store.prepare('phone',bundleFor(f,epochToken),'Sender');
+  assert.equal(opened.record.config.token,epochToken);assert.equal(opened.record.config.pairingToken,oldToken);
+}));
+
+test('unpair then pair with the fresh bundle creates a new sender key and stores the bundle token',()=>fixture(async f=>{
+  const config=await f.bind();
+  await f.store.rotateCredentials('phone',{senderKeyId:config.senderKeyId,token:f.tokenFor(1,config),epoch:1});
+  const before=f.stored().senderKeyId,fresh=epochTokenOf(accountIdOf(oldToken),randomBytes(32));
+  f.store.forget('phone');
+  const opened=await f.store.prepare('phone',bundleFor(f,fresh),'Sender');
+  assert.notEqual(opened.record.config.senderKeyId,before);
+  assert.equal(opened.record.config.token,fresh);assert.equal(opened.record.config.pairingToken,undefined);
+}));
