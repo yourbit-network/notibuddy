@@ -76,6 +76,12 @@ test('actual CLI reports automatic, manual, pending and already-linked outcomes 
       assert(!result.stdout.includes(privateKey)); assert(!result.stderr.includes(privateKey));
       assert(!result.stdout.includes(encoded)); assert(!result.stderr.includes(encoded));
       if (mode === 'registered' || mode === 'automatic') { assert.match(result.stdout, /Pairing confirmed/); assert.doesNotMatch(result.stdout, /then approve the connection/); }
+      if (mode === 'pending_approval' || mode === 'registered') {
+        const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+        const line = result.stdout.split('\n').find(l => l.startsWith('{"mcpServers"'));
+        assert.deepEqual(JSON.parse(line!).mcpServers.notibuddy.args, ['-y', `notibuddy@${version}`, 'mcp', '--to', 'phone']);
+        assert(!result.stdout.includes('notibuddy@^'));
+      }
       if (mode === 'pending_approval') assert.match(result.stdout, /Phone approval required/);
       if (mode === 'waiting') { assert.match(result.stdout, /Connection is not confirmed yet/); assert.doesNotMatch(result.stdout, /Pairing confirmed/); }
       if (mode === 'registered') {

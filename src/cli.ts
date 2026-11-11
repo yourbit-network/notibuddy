@@ -128,7 +128,7 @@ async function main():Promise<void> {
     if(args.positional.length>1)throw new Error('Use nb pair --to <name> and paste the setup code when asked');
     const waitSeconds=args.text('--wait')===undefined?45:Number(args.text('--wait'));
     if(!Number.isFinite(waitSeconds) || waitSeconds<0 || waitSeconds>60)throw Error('Pairing wait must be between 0 and 60 seconds');
-    // The installed, tested release is the minimum for its generated MCP setup.
+    // The installed, tested release is pinned exactly in its generated MCP setup.
     const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     let setupCode=args.positional[0];
     if(setupCode===undefined)setupCode=await readSetupCode(process.stdin,process.stderr);
@@ -154,7 +154,7 @@ Sender Key ID: ${keys.senderKeyId}
 ${guidance}
 
 MCP configuration:
-${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${version}`,'mcp','--to',routing.to]}}})}`);
+${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@${version}`,'mcp','--to',routing.to]}}})}`);
     return;
   }
   if(command==='doctor') {
