@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { registerSenderOnce } from './pairing.js';
 import { senderStatus } from './sender-status.js';
+import { latestNewerVersion } from './update-check.js';
 import { z } from 'zod';
 import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType, SenderRegistrationPayload } from './types.js';
 import { sealRequest, openReply, openError, validateIdentifier } from './protocol.js';
@@ -94,7 +95,8 @@ export class NotiBuddyClient {
   async doctor(options:CallOptions={}) {
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+15000)};
     const report={relay:this.config.relay,reachable:false,requestProtocol:this.config.requestProtocol ?? 1,
-      deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[],clockSkewMs:undefined as number|undefined};
+      deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[],clockSkewMs:undefined as number|undefined,newer:undefined as string|undefined};
+    const update=latestNewerVersion(call);
     try {
       const t0=Date.now();
       const health=await relayJSON(this.config,'/v1/health',{}, {...call,maxResponseBytes:65536});
@@ -116,6 +118,7 @@ export class NotiBuddyClient {
       report.issues.push(error instanceof RelayHTTPError&&error.code==='CLOCK_SKEW'?clockSkewMessage:error instanceof RelayHTTPError?`Relay returned ${error.status}${error.code?' '+error.code:''}`:'Verification did not complete; check connectivity, pairing approval, and client compatibility');
     }
     if(report.clockSkewMs===undefined)delete report.clockSkewMs;
+    report.newer=await update;if(report.newer===undefined)delete report.newer;
     return report;
   }
   async registerSender(payload:SenderRegistrationPayload,options:CallOptions={}):Promise<'registered'|'pending_approval'|'pending_automatic'> {

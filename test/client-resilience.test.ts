@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK='1'; // tests and checks never contact the npm registry
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
