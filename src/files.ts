@@ -165,7 +165,7 @@ export class FileInbox {
       const response=await abortable(()=>fetch(this.record.config.relay.replace(/\/$/,'')+'/v1'+route,{method,
         headers:{Authorization:`Bearer ${this.record.config.token}`,'Content-Type':'application/json',
           'X-Sender-Key-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},
-        body:payload || undefined,signal,redirect:'error'}),signal);
+        ...(payload ? {body:payload} : {}),signal,redirect:'error'}),signal);
       if(!response.ok) { const bytes=await bounded(response,8192,signal);let message=`File relay returned ${response.status}`;
         let rotated=false,upgrade:ClientUpgradeRequiredError|undefined;
         try{const parsed=JSON.parse(bytes.toString());message=parsed.error || message;rotated=response.status===409 && parsed.code==='CREDENTIAL_ROTATED';

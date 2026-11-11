@@ -209,4 +209,4 @@ async function main():Promise<void> {
   lookup.abort();
   if(text)console.error(text);
 }
-main();
+void main();
