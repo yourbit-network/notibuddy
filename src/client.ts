@@ -61,10 +61,12 @@ export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffI
 export type ActivityParams = z.input<typeof activitySchema>;
 export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
 export const clockSkewMessage = 'The relay rejected this computer\'s clock (more than 120 s off). Fix the system clock, then retry; run nb doctor to see the offset.';
+export const requestIdConflictMessage='This request ID was already used for a different request. Send it again with a new request ID.';
 export class DispatchRejectedError extends Error {
   constructor(public status:number, detail:string,public code?:string) { super(`Dispatch failed (${status}): ${detail}`); }
   get definitive():boolean {
     // A conflict may acknowledge an earlier acceptance; timeouts and 5xx are ambiguous.
+    if(this.status===409 && this.code==='REQUEST_ID_CONFLICT')return true;
     return this.status>=400 && this.status<500 && ![408,409,425].includes(this.status);
   }
 }
@@ -230,7 +232,7 @@ export class NotiBuddyClient {
       }catch(error) {
         if(options.signal?.aborted)throw new ResumableRequestError(id);
         if(error instanceof TerminalRequestError){this.store.remove('reply:'+id);return {status:error.status,requestId:id};}
-        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.message};}
+        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.code==='REQUEST_ID_CONFLICT'?requestIdConflictMessage:error.message};}
         return {status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`};
       }
       return {status:'pending',requestId:id,message:`Call notibuddy_ask with resume_id='${id}' to check again, including after restarting this client.`};
@@ -353,6 +355,7 @@ export class NotiBuddyClient {
           if(previousSession)this.writeActivity(params.activityId,previousSession);else this.store.remove(storeId);
           this.store.remove('reply:'+requestId);
           if(error.code==='CLOCK_SKEW')throw Error(clockSkewMessage);
+          if(error.code==='REQUEST_ID_CONFLICT')throw Error(requestIdConflictMessage);
         }
         throw error;
       }

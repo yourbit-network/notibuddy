@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { NotiBuddyClient, ResumableRequestError, clockSkewMessage } from '../src/client.js';
+import { NotiBuddyClient, ResumableRequestError, clockSkewMessage, requestIdConflictMessage } from '../src/client.js';
 import { PendingStore, type PendingReply, type ActivitySession } from '../src/pending-store.js';
 import { DestinationStore } from '../src/config.js';
 import { parsePairingBundle, buildRequestHeader, buildErrorHeader, sealReply } from '../src/protocol.js';
@@ -360,4 +360,17 @@ test('a CLOCK_SKEW dispatch rejection explains itself while keeping its error co
   globalThis.fetch=async()=>Response.json({code:'CLOCK_SKEW',relayTime:new Date().toISOString()},{status:401});
   const result=await f.client().ask({title:'Skewed',waitSeconds:0});
   assert.equal(result.status,'error');assert.equal(result.errorCode,'CLOCK_SKEW');assert.equal(result.message,clockSkewMessage);
+}));
+
+test('a 409 REQUEST_ID_CONFLICT dispatch rejection is definitive after one attempt',()=>fixture(async(f)=>{
+  let calls=0;
+  globalThis.fetch=async()=>{calls++;return Response.json({code:'REQUEST_ID_CONFLICT'},{status:409});};
+  const result=await f.client().ask({title:'Reused',waitSeconds:0});
+  assert.equal(result.status,'error');assert.equal(result.errorCode,'REQUEST_ID_CONFLICT');assert.equal(result.message,requestIdConflictMessage);assert.equal(calls,1);
+}));
+
+test('a 409 without a code stays pending',()=>fixture(async(f)=>{
+  globalThis.fetch=async()=>Response.json({error:'Duplicate request ID'},{status:409});
+  const result=await f.client().ask({title:'Same content',waitSeconds:0});
+  assert.equal(result.status,'pending');
 }));
