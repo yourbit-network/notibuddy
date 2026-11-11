@@ -27,7 +27,7 @@ const presentation = z.object({
   shortTitle: z.string().trim().min(1).max(40).regex(/^[^\r\n]+$/, 'Use a single line').optional(),
   summary: z.string().trim().min(1).max(100).regex(/^[^\r\n]+$/, 'Use a single line').optional(),
 }).strict();
-const askSchema = z.object({
+export const askFields = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
   diff: z.unknown().optional(),
@@ -36,12 +36,13 @@ const askSchema = z.object({
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
   timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
   waitSeconds:z.number().finite().min(0).max(MAX_REPLY_WAIT_SECONDS).default(25), resumeId:z.string().optional(),
-}).refine(p => p.resumeId || p.title, 'A title is required for a new request')
+});
+const askSchema = askFields.refine(p => p.resumeId || p.title, 'A title is required for a new request')
   .refine(p => p.declineOption === undefined || !!p.options?.includes(p.declineOption),'declineOption must be one of options')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
     'A new diff request cannot include form fields, choices, text input or a resume ID');
-const activitySchema = z.object({
+export const activitySchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
   action:z.enum(['start','update','end','poll']), activityId:z.string().min(1).max(64),

@@ -7,7 +7,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { DestinationStore } from './config.js';
 import { createDestinationRouter, type RoutingOptions } from './routing.js';
+import { readFileSync } from 'node:fs';
 import type { PresentationHints, DiffInput } from './types.js';
+
+/** The package's own version, so the server never reports a stale hard-coded number. */
+export const MCP_VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const presentationSchema = {
   type: 'object',
@@ -42,41 +46,50 @@ export const ASK_TOOL_SCHEMA = {
       sensitive: { type: 'boolean', description: 'Hide all request content and choices on notifications and Live Activities; review privately in the app. Use for confidential, personal, or credential-related requests.' },
       title: {
         type: 'string',
+        minLength: 1,
+        maxLength: 500,
         description: 'Primary title displayed on the iOS notification and Lock Screen banner',
       },
       message: {
         type: 'string',
+        maxLength: 50000,
         description: 'Detailed explanation or prompt for the user',
       },
       options: {
         type: 'array',
-        items: { type: 'string' },
+        items: { type: 'string', minLength: 1, maxLength: 200 },
+        maxItems: 20,
         description:
           'Interactive button choices (e.g. ["Approve", "Deny"] or ["Deploy Staging", "Deploy Prod"])',
       },
       decline_option: {
         type: 'string',
+        minLength: 1,
+        maxLength: 200,
         description:
           'One of options that declines. On a requires_auth request only this choice may be answered without device authentication.',
       },
       input_placeholder: {
         type: 'string',
+        maxLength: 500,
         description:
           'If set, displays an inline text input field on the notification banner for quick text replies',
       },
       fields: {
         type: 'array',
+        minItems: 1,
+        maxItems: 50,
         description:
           'If set, renders an in-app dynamic SwiftUI form with text fields, toggles, steppers, and pickers. Use type \'secret\' for passwords or tokens: hidden on current phones and kept out of summaries; older phones show unknown field types as plain text.',
         items: {
           type: 'object',
           properties: {
-            id: { type: 'string' },
+            id: { type: 'string', minLength: 1, maxLength: 80 },
             type: {
               type: 'string',
               enum: ['text', 'email', 'url', 'toggle', 'stepper', 'picker', 'date', 'secret'],
             },
-            label: { type: 'string' },
+            label: { type: 'string', minLength: 1, maxLength: 200 },
             placeholder: { type: 'string' },
             required: { type: 'boolean' },
             default: { type: ['string', 'number', 'boolean'] },
@@ -84,6 +97,7 @@ export const ASK_TOOL_SCHEMA = {
             max: { type: 'number' },
             options: {
               type: 'array',
+              maxItems: 100,
               items: {
                 type: 'object',
                 properties: {
@@ -137,6 +151,8 @@ export const ACTIVITY_TOOL_SCHEMA = {
       sensitive: { type: 'boolean', description: 'Hide all request content and choices on notifications and Live Activities; review privately in the app. Use for confidential, personal, or credential-related requests.' },
       id: {
         type: 'string',
+        minLength: 1,
+        maxLength: 64,
         description: 'Unique session identifier for this activity (e.g. "ci-tests-42" or "sprint-timer")',
       },
       action: {
@@ -146,23 +162,32 @@ export const ACTIVITY_TOOL_SCHEMA = {
       },
       title: {
         type: 'string',
+        minLength: 1,
+        maxLength: 500,
         description: 'Title displayed on the Dynamic Island pill and expanded banner',
       },
-      controls: {type: 'array', items: {type: 'string', enum: ['pause','resume','cancel','add_5m']}},
+      controls: {type: 'array', maxItems: 4, items: {type: 'string', enum: ['pause','resume','cancel','add_5m']}},
       timer_minutes: {
         type: 'number',
+        exclusiveMinimum: 0,
+        maximum: 60,
         description: 'If set, starts a hardware countdown timer on the Dynamic Island',
       },
       step: {
-        type: 'number',
+        type: 'integer',
+        minimum: 0,
+        maximum: 1000000,
         description: 'Current step number for multi-step progress (e.g. 3)',
       },
       total_steps: {
-        type: 'number',
+        type: 'integer',
+        minimum: 1,
+        maximum: 1000000,
         description: 'Total number of steps in progress bar (e.g. 10)',
       },
       status: {
         type: 'string',
+        maxLength: 1000,
         description: 'Short real-time status label (e.g. "Running unit tests...")',
       },
     },
@@ -183,7 +208,7 @@ export async function createMcpServer(options:RoutingOptions = {}, store=new Des
   const server = new Server(
     {
       name: 'notibuddy',
-      version: '0.2.1',
+      version: MCP_VERSION,
     },
     {
       capabilities: {
