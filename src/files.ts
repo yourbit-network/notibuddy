@@ -152,7 +152,7 @@ export class FileInbox {
       const response=await abortable(()=>fetch(this.record.config.relay.replace(/\/$/,'')+'/v1'+route,{method,
         headers:{Authorization:`Bearer ${this.record.config.token}`,'Content-Type':'application/json',
           'X-Sender-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},
-        body:payload || undefined,signal}),signal);
+        body:payload || undefined,signal,redirect:'error'}),signal);
       if(!response.ok) { const bytes=await bounded(response,8192,signal);let message=`File relay returned ${response.status}`;
         try{message=JSON.parse(bytes.toString()).error || message;}catch{} throw new Error(message); }
       return await read(response,signal);

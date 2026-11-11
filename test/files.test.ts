@@ -65,5 +65,14 @@ try {
  const oversized=await seal(Buffer.from('x'));
  globalThis.fetch=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new Uint8Array(10_004_117));controller.close();}}),{headers:{'X-File-Manifest':Buffer.from(JSON.stringify(oversized.m)).toString('base64url')}});
  await assert.rejects(inbox.receive(oversized.m.id),/too large/);assert.ok(!fs.existsSync(path.join(inbox.directory,oversized.m.id)));
+ const inits:RequestInit[]=[];
+ globalThis.fetch=async(_input,init)=>{
+   inits.push(init!);
+   if(init?.redirect==='error')throw new TypeError('fetch failed: redirect');
+   return Response.json({files:[]});
+ };
+ await assert.rejects(inbox.list(),/redirect/);
+ await assert.rejects(inbox.receive('file_'+'a'.repeat(32)),/redirect/);
+ assert.ok(inits.length>=2);assert.ok(inits.every(i=>i.redirect==='error'),'Every file-route fetch refuses redirects');
  console.log('File tests passed: key proof binding, 10 MB boundary, tampering, wrong recipients, safe paths, private durable save, lost receipts, restart, idempotency, bounded download.');
 } finally {globalThis.fetch=originalFetch;fs.rmSync(root,{recursive:true,force:true});}
