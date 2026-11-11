@@ -320,7 +320,7 @@ export async function parsePairingBundle(bundleString: string): Promise<PairingB
 
 const pairingSchema = z.object({
   v: z.literal(1), relay: z.string().min(1).max(2048).refine(value => !/[\u0000-\u001f\u007f]/u.test(value)),
-  token: z.string().max(263).refine(value => /^nb_snd_[A-Za-z0-9_-]{1,256}$/.exec(value)?.[0] === value),
+  token: z.string().max(263).refine(value => /^nb_snd_[A-Za-z0-9_-]{1,256}$/.exec(value)?.[0] === value || /^nb_snd_[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.exec(value)?.[0] === value),
   pairSecret: z.string().max(43),
   device: z.object({ id: z.string().max(64), encPub: z.string().max(87), sigPub: z.string().max(87),
     name: z.string().max(256).refine(value => Buffer.byteLength(value) <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)).optional(),

@@ -190,6 +190,10 @@ export interface NotiBuddyConfig {
   senderLabel: string;
   requestProtocol?: 1 | 2;
   minimumRecipientGeneration?: number;
+  /** Epoch of the rotated sender credential in `token`; absent means the original pairing token. */
+  credentialEpoch?: number;
+  /** The original pairing token, kept so storage scopes survive a rotation. */
+  pairingToken?: string;
 }
 
 export interface SenderKeyPair {

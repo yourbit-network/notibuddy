@@ -2,6 +2,7 @@ import { createECDH, createHash, createPrivateKey, sign } from 'node:crypto';
 import { z } from 'zod';
 import { isValidP256PublicKey } from './crypto.js';
 import { normalizeRelay } from './relay-url.js';
+import { accountIdOf } from './credential-recovery.js';
 import type { FirstUsePairing, PairingBundle, PairingClaimProof, PairingInvitation, SenderRegistrationPayload } from './types.js';
 
 const hex = (prefix: string, size: number) => z.string().length(prefix.length + size).regex(new RegExp(`^${prefix}[a-f0-9]{${size}}$`));
@@ -30,8 +31,8 @@ export function validateFirstUse(value: unknown, scope: Scope, now = Date.now())
     const url = new URL(i.relay);
     if (i.relay !== url.origin || url.username || url.password || url.search || url.hash ||
         (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname))) ||
-        i.relay !== normalizeRelay(scope.relay) || /^nb_snd_[A-Za-z0-9_-]{1,256}$/.exec(scope.token)?.[0] !== scope.token ||
-        i.accountId !== digest(scope.token.slice(7)).slice(0, 32) || i.deviceId !== scope.device.id || i.devicePub !== scope.device.sigPub ||
+        i.relay !== normalizeRelay(scope.relay) || (/^nb_snd_[A-Za-z0-9_-]{1,256}$/.exec(scope.token)?.[0] !== scope.token && /^nb_snd_[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.exec(scope.token)?.[0] !== scope.token) ||
+        i.accountId !== accountIdOf(scope.token) || i.deviceId !== scope.device.id || i.devicePub !== scope.device.sigPub ||
         i.id !== 'pin_' + digest(Buffer.from(i.publicKey, 'base64url')).slice(0, 32) ||
         i.expiresAt <= i.createdAt || i.expiresAt - i.createdAt > 600_000 || !Number.isFinite(now) || i.createdAt > now + 120_000) throw invalid();
     const key = createECDH('prime256v1'); key.setPrivateKey(Buffer.from(result.privateKey, 'base64url'));

@@ -6,7 +6,9 @@ import { z } from 'zod';
 import type { DestinationRecord } from './config.js';
 import { NOTIBUDDY_DIR } from './config.js';
 import { ecdsaSign, ecdsaVerify, hpkeOpenBytes } from './crypto.js';
-import { httpSigningInput, type CallOptions } from './client-http.js';
+import { httpSigningInput, recoverRotatedCredentials, type CallOptions } from './client-http.js';
+import { bindCredentials } from './credential-recovery.js';
+import type { DestinationStore } from './config.js';
 
 export const MAX_FILE_BYTES=10_000_000;
 export const MAX_FILE_CIPHERTEXT=MAX_FILE_BYTES+4+4096+16;
@@ -131,14 +133,25 @@ function replaceReceipt(target:string,saved:SavedFile) {
   } finally {if(fs.existsSync(temporary))fs.unlinkSync(temporary);}
 }
 
+class RotatedCredentialError extends Error {}
+
 /** One authenticated inbox per pairing, independent of sender labels and destination aliases. */
 export class FileInbox {
   readonly directory:string;
-  constructor(private record:DestinationRecord,private signingKey:CryptoKey,root=NOTIBUDDY_DIR) {
+  constructor(private record:DestinationRecord,private signingKey:CryptoKey,root=NOTIBUDDY_DIR,credentials?:{store:DestinationStore;name:string}) {
     const c=record.config;
-    this.directory=path.join(root,'inbox',hash(JSON.stringify([c.relay,c.token,c.device.id,c.senderKeyId])));
+    this.directory=path.join(root,'inbox',hash(JSON.stringify([c.relay,c.pairingToken ?? c.token,c.device.id,c.senderKeyId])));
+    if(credentials)bindCredentials(c,{...credentials,signingKey});
   }
+  /** A 409 CREDENTIAL_ROTATED refreshes a bound credential and redoes the request once. */
   private async request<T>(route:string,options:CallOptions,read:(response:Response,signal:AbortSignal)=>Promise<T>,method='GET',body?:object):Promise<T> {
+    try {return await this.requestOnce(route,options,read,method,body);}
+    catch(error) {
+      if(!(error instanceof RotatedCredentialError) || !await recoverRotatedCredentials(this.record.config,options))throw error;
+      return this.requestOnce(route,options,read,method,body);
+    }
+  }
+  private async requestOnce<T>(route:string,options:CallOptions,read:(response:Response,signal:AbortSignal)=>Promise<T>,method='GET',body?:object):Promise<T> {
     checkCall(options);
     if(!this.record.fileKey) throw new Error('Pair this destination again with a fresh connection document to enable files, then approve it on the phone.');
     const controller=new AbortController(),signal=controller.signal;
@@ -154,7 +167,9 @@ export class FileInbox {
           'X-Sender-Key-ID':this.record.config.senderKeyId,'X-Sender-Timestamp':timestamp,'X-Sender-Nonce':nonce,'X-Sender-Signature':signature},
         body:payload || undefined,signal,redirect:'error'}),signal);
       if(!response.ok) { const bytes=await bounded(response,8192,signal);let message=`File relay returned ${response.status}`;
-        try{message=JSON.parse(bytes.toString()).error || message;}catch{} throw new Error(message); }
+        let rotated=false;
+        try{const parsed=JSON.parse(bytes.toString());message=parsed.error || message;rotated=response.status===409 && parsed.code==='CREDENTIAL_ROTATED';}catch{}
+        throw rotated ? new RotatedCredentialError(message) : new Error(message); }
       return await read(response,signal);
     } finally {
       clearTimeout(timer);options.signal?.removeEventListener('abort',abort);controller.abort();

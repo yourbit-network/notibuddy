@@ -11,6 +11,8 @@ import { registerSenderOnce } from './pairing.js';
 import { senderStatus } from './sender-status.js';
 import { latestNewerVersion } from './update-check.js';
 import { z } from 'zod';
+import { bindCredentials } from './credential-recovery.js';
+import type { DestinationStore } from './config.js';
 import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType, SenderRegistrationPayload } from './types.js';
 import { sealRequest, openReply, openError, validateIdentifier } from './protocol.js';
 import { generateReplyKeyPair } from './crypto.js';
@@ -85,9 +87,10 @@ type ActivityResult={status:string;activityId:string;controls:AnswerPayload[];wa
 export class NotiBuddyClient {
   private store:PendingStore;
   private recipients:RecipientStore;
-  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname()) {
+  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname(),credentials?:{store:DestinationStore;name:string}) {
     validateRequestSettings(config);
     this.config=structuredClone(config);this.config.relay=normalizeRelay(config.relay);
+    if(credentials)bindCredentials(this.config,{...credentials,signingKey});
     this.sender=z.string().trim().min(1).max(100).regex(/^[^\p{Cc}\p{Cf}]+$/u).parse(sender);
     this.store=store ?? new PendingStore(config);
     this.recipients=new RecipientStore(config,this.store.root);

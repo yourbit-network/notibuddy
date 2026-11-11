@@ -16,7 +16,7 @@ export class RecipientStore {
   private readonly legacyFiles:string[];
   constructor(config:NotiBuddyConfig,root=NOTIBUDDY_DIR) {
     this.directory=path.join(root,'recipients');
-    const scope=(relay:string)=>createHash('sha256').update(JSON.stringify([relay,config.token,config.device.id,config.device.encPub,config.device.sigPub])).digest('hex');
+    const scope=(relay:string)=>createHash('sha256').update(JSON.stringify([relay,config.pairingToken ?? config.token,config.device.id,config.device.encPub,config.device.sigPub])).digest('hex');
     const normalized=normalizeRelay(config.relay);
     this.file=path.join(this.directory,scope(normalized)+'.json');this.deviceId=config.device.id;
     this.legacyFiles=[...new Set([config.relay,normalized+'/'].map(relay=>path.join(this.directory,scope(relay)+'.json')))].filter(file=>file!==this.file);

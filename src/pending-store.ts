@@ -35,7 +35,7 @@ export class PendingStore {
   private directory:string;
   private legacyDirectories:string[];
   constructor(config:NotiBuddyConfig,readonly root=process.env.NOTIBUDDY_HOME || path.join(os.homedir(),'.notibuddy')) {
-    const scope=(relay:string)=>hash(JSON.stringify([relay,config.token,config.device.id,config.senderKeyId]));
+    const scope=(relay:string)=>hash(JSON.stringify([relay,config.pairingToken ?? config.token,config.device.id,config.senderKeyId]));
     const normalized=normalizeRelay(config.relay);
     this.directory=path.join(root,'pending',scope(normalized));
     this.legacyDirectories=[...new Set([config.relay,normalized+'/'].map(relay=>path.join(root,'pending',scope(relay))))].filter(d=>d!==this.directory);

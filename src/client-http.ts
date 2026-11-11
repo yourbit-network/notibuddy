@@ -1,11 +1,12 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { ecdsaSign, sha256, toHex } from './crypto.js';
 import { normalizeRelay } from './relay-url.js';
 import type { NotiBuddyConfig } from './types.js';
+import { accountIdOf, credentialBinding, recoverCredentials } from './credential-recovery.js';
 
 /** The 32-hex account the relay edge derives from a sender/device bearer token (sha256 of its secret part). */
 export function httpSigningAccount(token:string):string {
-  return createHash('sha256').update(token.replace(/^nb_(?:snd|dev|usr)_/,''),'utf8').digest('hex').slice(0,32);
+  return accountIdOf(token);
 }
 /** `nb2|http|` input: names the account, then method, route, timestamp, nonce and body hash. */
 export function httpSigningInput(token:string,method:string,route:string,timestamp:string,nonce:string,bodyHashHex:string):Uint8Array {
@@ -18,8 +19,32 @@ export class RelayHTTPError extends Error {
   constructor(readonly status:number,readonly code?:string,readonly hasCode=code!==undefined){super(`Relay request failed (${status})${code?' '+code:''}`);}
 }
 
-/** Bounds headers and response-body consumption with the same caller deadline. */
+const CREDENTIALS_ROUTE='/v1/sender/credentials';
+/** Refreshes a rotated credential for a bound config; false when the config is unbound. */
+export async function recoverRotatedCredentials(config:NotiBuddyConfig,options:CallOptions={}):Promise<boolean> {
+  const binding=credentialBinding(config);
+  if(!binding)return false;
+  return recoverCredentials(config,async()=>{
+    try {return await relayJSONOnce(config,CREDENTIALS_ROUTE,{},{...options,maxResponseBytes:8192},binding.signingKey);}
+    catch(error) {
+      if(error instanceof RelayHTTPError && (error.status===401 || error.status===404))return {status:error.status,body:null};
+      throw error;
+    }
+  });
+}
+
+/** One bounded relay call; on 409 CREDENTIAL_ROTATED a bound config refreshes its credential and retries once. */
 export async function relayJSON(config:NotiBuddyConfig,route:string,init:RequestInit={},options:RelayCallOptions={},signingKey?:CryptoKey):Promise<{status:number;body:any}> {
+  try {return await relayJSONOnce(config,route,init,options,signingKey);}
+  catch(error) {
+    if(!(error instanceof RelayHTTPError) || error.status!==409 || error.code!=='CREDENTIAL_ROTATED' ||
+      route.split('?')[0]===CREDENTIALS_ROUTE || !await recoverRotatedCredentials(config,options))throw error;
+    return relayJSONOnce(config,route,init,options,signingKey);
+  }
+}
+
+/** Bounds headers and response-body consumption with the same caller deadline. */
+export async function relayJSONOnce(config:NotiBuddyConfig,route:string,init:RequestInit={},options:RelayCallOptions={},signingKey?:CryptoKey):Promise<{status:number;body:any}> {
   const maxBytes=options.maxResponseBytes ?? 524288;
   if(!Number.isSafeInteger(maxBytes) || maxBytes<1 || maxBytes>524288)throw Error('Invalid relay response limit');
   const remaining=Math.min(15000,(options.deadline ?? Date.now()+15000)-Date.now());

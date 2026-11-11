@@ -33,7 +33,7 @@ export async function createDestinationRouter(options:RoutingOptions,store=new D
   const label=senderLabel(options.sender);
   const entries=await Promise.all(names.map(async name=>{
     const {record,signingKey}=await store.open(name);
-    return {name,record,files:new FileInbox(record,signingKey,store.root),client:new NotiBuddyClient(record.config,signingKey,new PendingStore(record.config,store.root),label)};
+    return {name,record,files:new FileInbox(record,signingKey,store.root,{store,name}),client:new NotiBuddyClient(record.config,signingKey,new PendingStore(record.config,store.root),label,{store,name})};
   }));
   return {
     selectable:!options.to,
