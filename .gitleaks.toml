@@ -40,6 +40,18 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "Audited synthetic sender-credential-record v1 vector: epoch secret, epoch token and sender scalar"
+targetRules = ["generic-api-key", "private-jwk-material"]
+condition = "AND"
+paths = ['''^test-vectors/sender-credential-record-v1\.json$''']
+regexTarget = "secret"
+regexes = [
+  '''^YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1\-f4A$''',
+  '''^nb_snd_a0fea0c3921939985eb980146e01be91\.YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1\-f4A$''',
+  '''^QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2A$'''
+]
+
+[[allowlists]]
 description = "Explicit dummy token in the protocol test"
 targetRules = ["notibuddy-token", "generic-api-key"]
 condition = "AND"
