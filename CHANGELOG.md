@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Compatibility:** Sign relay HTTP requests with a new `nb2` signature input that names the sender's account, and send the sender key id as `X-Sender-Key-ID` (previously `X-Sender-ID`) on file routes. v1 reply polls are now sender-signed as well. This release needs the current NotiBuddy relay, which accepts both the old and the new format.
+- **Migration:** Drop migration support for installs older than 0.2.0 and remove `nb devices migrate`. Such installs run `npx notibuddy@0.2.10 devices migrate --to <name>` once, or pair again. Installs from 0.2.0 or later are unaffected.
+- Change `nb pair` to read the setup code from a hidden prompt or from stdin (`pbpaste | nb pair --to <name>`) instead of the command line, so it stays out of shell history. A code passed as an argument still works but prints a warning. Reject codes over 64 KiB.
+- Pin the exact installed release (`notibuddy@<version>`) in the MCP configuration and phone setup text that pairing prints, instead of a `^` range. Update an existing MCP entry to the release you installed; no re-pairing is needed.
+- Recover automatically when the phone rotates this computer's sender credentials: the client refreshes them and retries once, with no re-pairing. If refresh fails, or a fresh setup code from the same phone arrives for a rotated destination, the error says to run `nb unpair --to <name>`, add the computer in NotiBuddy, then run `nb pair --to <name>` with the new setup code.
+- Add `nb doctor` checks for clock skew against the relay (reported as `clockSkewMs`, with an issue when it exceeds 60 s) and for a newer published release (reported as `newer`). Show a clear clock-fix message instead of a generic relay error when the relay rejects a request for clock skew (`CLOCK_SKEW`).
+- Print a one-line update notice on stderr at most once a day for CLI commands (other than `mcp` and `doctor`), and add it once per session as an extra item in an MCP tool result. Set `NOTIBUDDY_NO_UPDATE_CHECK=1` to turn the check off. Explain a relay HTTP 426 `CLIENT_UPGRADE_REQUIRED` answer with the upgrade command.
+- Add `--decline-option` (CLI) and `decline_option` (MCP, `declineOption` in the library) to mark which of `options` declines. With `--requires-auth`, only that choice may be answered without device authentication; without options, only the phone's own Reject skips it. Describe `requires_auth` as device-owner authentication (Face ID, Touch ID, passcode or an unlocked Apple Watch).
+- Add a `secret` form field type for passwords and tokens: hidden on current phones and kept out of summaries. Older phones show an unknown field type as plain text.
+- Advertise the validated bounds (lengths, item counts, integer ranges) in the MCP tool schemas, report the real package version from the MCP server instead of a stale `0.2.1`, and trim MCP `options` choices as the CLI does.
+- Stop keeping request plaintext in the pending record on disk, and scrub it from records saved by earlier versions. A resumed request whose phone recipients changed now fails with a "send it again" message instead of silently re-sealing.
+- Recover a stale file lock without manual deletion: locks record the owner's start time, so a dead or reused PID is reclaimed, and an empty crashed lock is reclaimed after 5 s. A held lock is never taken by age alone.
+- Refuse redirects on file routes like every other client route, and treat a 409 `REQUEST_ID_CONFLICT` (reused request id with different content) as final with a "send it again with a new request ID" message instead of retrying.
+- Run the npm publish job in a protected `npm-release` environment.
+
 ## 0.2.10 — 2026-10-20
 
 - Remove private temporary destination records after partial disk-full or I/O write failures. Preserve existing pairings, legacy migration files, and temporary files owned by another writer. Retry after fixing the storage problem; existing keys and connections do not need to change.
