@@ -67,6 +67,11 @@ try {
   assert.equal(notifyPayload.sensitive,true);
   assert.deepEqual(notifyPayload.presentation,{shortTitle:'Bead closed',summary:'crucible-123 done'});
   await assert.rejects(client().ask({resumeId:delivered.requestId,waitSeconds:0}),/No saved response key/);
+  const askPassive=await client().ask({title:'Passive ask',options:[],waitSeconds:25});
+  assert.equal(askPassive.status,'delivered');
+  assert.equal(gets,getsBeforeNotify,'ask with options:[] delegates to one-way notify without polling');
+  await assert.rejects(client().ask({resumeId:askPassive.requestId,waitSeconds:0}),/No saved response key/);
+  await assert.rejects(client().ask({title:'Invalid passive auth',options:[],requiresAuth:true,waitSeconds:0}),/cannot require authentication/);
 
   const protectedPending=await client().ask({title:'Another',waitSeconds:0});
   await reply(bodies.at(-1)!,'approve');const authentic=answers.get(protectedPending.requestId)![0];

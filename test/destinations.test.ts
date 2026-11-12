@@ -130,6 +130,8 @@ try {
   assert.equal(run(['status','--to','phone']).status,0);
   const unspecified=run(['ask','Never send']);assert.equal(unspecified.status,1);assert.match(unspecified.stderr,/--to/);
   const unsupported=run(['ask','Never send','--to','phone','--profile','hidden']);assert.equal(unsupported.status,1);assert.match(unsupported.stderr,/Unknown option/);
+  const emptyOptionLabel=run(['ask','Never send','--to','phone','--options',',']);assert.equal(emptyOptionLabel.status,1);
+  const trailingCommaOption=run(['ask','Never send','--to','phone','--options','Approve,']);assert.equal(trailingCommaOption.status,1);
   const noMcpRoute=run(['mcp']);assert.equal(noMcpRoute.status,1);assert.match(noMcpRoute.stderr,/explicitly/);
   const badLegacy=path.join(root,'bad-legacy');fs.mkdirSync(badLegacy);fs.writeFileSync(path.join(badLegacy,'config.json'),'private-corrupt-value');
   const badImport=run(['devices','migrate','--to','imported'],badLegacy);assert.equal(badImport.status,1);assert.ok(!badImport.stderr.includes('private-corrupt-value'));

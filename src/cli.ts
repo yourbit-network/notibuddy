@@ -167,7 +167,7 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@^${
       throw new Error('--diff cannot be combined with --options, --placeholder or --resume');
     const diff=diffFile === undefined ? undefined : readDiffFile(diffFile);
     const rawOptions=args.text('--options');
-    const options=rawOptions===undefined?undefined:rawOptions===''?[]:rawOptions.split(',').map(s=>s.trim()).filter(Boolean);
+    const options=rawOptions===undefined?undefined:rawOptions===''?[]:rawOptions.split(',').map(s=>s.trim());
     const route=(await createDestinationRouter(routing,store)).resolve();
     const result=await withShutdown(signal=>route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
       options,inputPlaceholder:args.text('--placeholder'),

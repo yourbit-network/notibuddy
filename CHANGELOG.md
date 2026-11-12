@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.11 — 2026-11-09
+
+- Add one-way encrypted informational notifications through CLI `nb notify`, MCP `notibuddy_notify`, and library `client.notify(...)`. Notifications use an `approval` envelope with `options: []`, return `status: "delivered"` immediately after dispatch without polling or storing a pending reply key, and support single-device and group delivery.
+- Route `ask` calls with `options: []` (including `nb ask --options ""` and `notibuddy_ask` with `options: []`) through one-way notification delivery, reject `requiresAuth` on passive notifications, and reject empty option labels in comma-separated CLI `--options` lists.
+
 ## 0.2.10 — 2026-10-20
 
 - Remove private temporary destination records after partial disk-full or I/O write failures. Preserve existing pairings, legacy migration files, and temporary files owned by another writer. Retry after fixing the storage problem; existing keys and connections do not need to change.

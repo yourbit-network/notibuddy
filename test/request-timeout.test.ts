@@ -45,7 +45,8 @@ const ordinary: AskParams[] = [{ title: 'Approval' }, { title: 'Protected approv
   { title: 'Diff', diff: { filename: 'review.txt', original: 'before', modified: 'after' } }];
 
 test('both request protocols default every ordinary ask to three hours and retain one-hour activities', async () => {
-  const f = await fixture(), original = globalThis.fetch;
+  const f = await fixture(), original = globalThis.fetch, originalNow = Date.now, now = originalNow();
+  Date.now = () => now;
   try {
     globalThis.fetch = f.fetch;
     for (const version of [1, 2] as const) {
@@ -65,7 +66,7 @@ test('both request protocols default every ordinary ask to three hours and retai
     for (const timeoutSeconds of [0, -1, 1.5, 10801, NaN, Infinity]) await assert.rejects(f.client().ask({ title: 'Invalid', timeoutSeconds, waitSeconds: 0 }));
     await assert.rejects(f.client().ask({ title: 'Invalid wait', waitSeconds: 56 }));
     assert.equal(f.requests.length, before);
-  } finally { globalThis.fetch = original; f.close(); }
+  } finally { globalThis.fetch = original; Date.now = originalNow; f.close(); }
 });
 
 test('low-level v1/v2 sealers enforce ordinary/activity bounds while retaining activity defaults', async () => {

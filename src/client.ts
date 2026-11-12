@@ -39,7 +39,9 @@ const askSchema = z.object({
 }).refine(p => p.resumeId || p.title, 'A title is required for a new request')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
-    'A new diff request cannot include form fields, choices, text input or a resume ID');
+    'A new diff request cannot include form fields, choices, text input or a resume ID')
+  .refine(p => !(p.options?.length === 0 && !p.fields && p.inputPlaceholder === undefined && p.requiresAuth),
+    'Passive notifications with empty options cannot require authentication');
 const activitySchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
@@ -58,7 +60,7 @@ const notifySchema = z.object({
 export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffInput };
 export type ActivityParams = z.input<typeof activitySchema>;
 export type NotifyParams = z.input<typeof notifySchema>;
-export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
+export type AskResult = {status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
 export type NotifyResult = {status:'delivered';requestId:string};
 export class DispatchRejectedError extends Error {
   constructor(public status:number, detail:string,public code?:string) { super(`Dispatch failed (${status}): ${detail}`); }
@@ -219,6 +221,9 @@ export class NotiBuddyClient {
   }
   async ask(input:AskParams,options:CallOptions={}):Promise<AskResult> {
     const params=askSchema.parse(input),diff=params.diff === undefined ? undefined : parseDiff(params.diff);
+    if(!params.resumeId && !diff && !params.fields?.length && params.inputPlaceholder===undefined && params.options?.length===0) {
+      return this.notify({title:params.title!,message:params.message,timeoutSeconds:params.timeoutSeconds,sensitive:params.sensitive,presentation:params.presentation},options);
+    }
     const id=params.resumeId ?? 'req_'+randomUUID().replaceAll('-','');validateIdentifier(id,'resumeId');
     // wait=0 means one lookup with a bounded network budget; positive waits are
     // one end-to-end deadline including discovery, dispatch and response bytes.
