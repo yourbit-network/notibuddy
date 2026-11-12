@@ -1,10 +1,11 @@
 # Published client acceptance
 
-The published-client workflow installs the exact public `notibuddy@0.2.9` archive
-on Linux (Node 20) and Windows (Node 24), each with a fresh temporary directory,
-cache and profile. `test-vectors/published-0.2.9.json`
-pins the registry archive hash, integrity and file count; it contains public
-release metadata only. This lane is separate from tests of the current source.
+The published-client workflow installs the exact archive of the latest public
+release on Linux (Node 20), Windows (Node 24) and macOS (Node 24), each with a
+fresh temporary directory, cache and profile. The workflow names its
+`test-vectors/published-<version>.json`, which pins the registry archive hash,
+integrity and file count; it contains public release metadata only. Move it to
+each new release after publishing (CONTRIBUTING.md, Releases). This lane is separate from tests of the current source.
 
 It checks generated MCP setup, two destinations, CLI and MCP encrypted requests,
 verified replies, invalid-signature recovery, and encrypted file collection with
@@ -18,8 +19,8 @@ On Windows with Node 24 and its npm installation:
 
 ```sh
 node --test scripts/tests/installed-client-acceptance.test.mjs
-node scripts/check-installed-client.mjs --release test-vectors/published-0.2.9.json --output .build/windows-public-029 --expected-platform win32
-node scripts/check-windows-console.mjs test-vectors/published-0.2.9.json .build/windows-console win32
+node scripts/check-installed-client.mjs --release test-vectors/published-<version>.json --output .build/windows-public --expected-platform win32
+node scripts/check-windows-console.mjs test-vectors/published-<version>.json .build/windows-console win32
 ```
 
 For Linux with Node 20 or newer, use `--expected-platform linux`; for macOS,

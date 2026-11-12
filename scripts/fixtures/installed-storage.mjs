@@ -70,9 +70,32 @@ export async function fixture({installed, temporary, env, run, inspectStorage}) 
     await reopen('renamed');
     await permissions('existing-after');
 
+    // Published releases up to 0.2.11 still migrate pre-0.2.0 installs, the documented path for
+    // them (`npx notibuddy@0.2.10 devices migrate`). The current source no longer migrates, so these
+    // checks run only when the installed package still has store.migrate.
+    const migrationChecked = typeof store.migrate === 'function';
+    const legacy = migrationChecked ? [['config.json',record.config], ['sender.json',record.keys]].map(([name,value]) => {
+      const bytes = Buffer.from(JSON.stringify(value) + '\n'), file = path.join(root,name);
+      fs.writeFileSync(file,bytes,{mode:0o600,flag:'wx'}); return {file,bytes};
+    }) : [];
     const originalsUnchanged = () => {
-      assert(fs.readFileSync(recordFile('renamed')).equals(original), 'Existing pairing must survive a failed pairing of another destination');
+      assert(fs.readFileSync(recordFile('renamed')).equals(original), 'Existing pairing must survive migration and failed pairing');
+      for (const {file,bytes} of legacy) assert(fs.readFileSync(file).equals(bytes), 'Legacy rollback originals must remain byte-identical');
     };
+    if (migrationChecked) {
+      await permissions('migration-before');
+      assert.match(await cli('storage-migrate', ['devices','migrate','--to','imported']), /original files remain for rollback/);
+      const importedBytes = fs.readFileSync(recordFile('imported')), imported = store.read('imported');
+      assert(JSON.stringify(imported.config) === JSON.stringify(record.config), 'Migration must retain configuration');
+      assert(JSON.stringify(imported.keys) === JSON.stringify(record.keys), 'Migration must retain signing keys');
+      assert.notEqual(imported.connectionId,record.connectionId);
+      assert.equal(imported.fileKey,undefined, 'Legacy format has no file-receiving key');
+      await reopen('imported');
+      await assert.rejects(store.migrate('imported'), {code:'EEXIST'});
+      assert(fs.readFileSync(recordFile('imported')).equals(importedBytes), 'Duplicate import must preserve the imported identity');
+      originalsUnchanged();
+      await permissions('migration-after');
+    }
     await permissions('pairing-before');
     for (const code of ['ENOSPC','EIO']) {
       const open = fs.openSync, write = fs.writeFileSync;
@@ -101,7 +124,8 @@ export async function fixture({installed, temporary, env, run, inspectStorage}) 
     assert.equal(store.read('retry').keys.senderKeyId, retried.record.keys.senderKeyId, 'Retry must persist the generated signing keys');
     originalsUnchanged();
     await permissions('retry-after');
-    return {existingIdentityAndBytesPreserved:true,
+    return {existingIdentityAndBytesPreserved:true, migrationChecked,
+      ...(migrationChecked ? {legacyOriginalsAndKeysPreserved:true, duplicateImportPreserved:true} : {}),
       partialWritesCleaned:['ENOSPC','EIO'], retrySucceeded:true,
       cliCredentialCanariesAbsent:true, observations,
       limits:['Normal private store only; externally widened permissions, custom/shared directories and power loss are not covered.']};
