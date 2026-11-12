@@ -50,7 +50,7 @@ export async function fixture({installed, temporary, env, version, expected, ins
   const {default:spawn} = await import(pathToFileURL(require.resolve('cross-spawn')).href);
   const registrations = new Map(), requests = [], replies = new Map(), clients = [], outputs = [], protocolErrors = [];
   const modes = new Map(), stalls = new Map(), dispatchSnapshots = new Map(), failures = [], commands = [], secrets = [], executedPaths=[],shutdowns=[];
-  let relay, server, delayedDispatch=false,httpCalls=0,phase='setup',shutdownUnconfirmed=false;
+  let relay, server, delayedDispatch=false,httpCalls=0,phase='setup',shutdownUnconfirmed=false,result,failed=false,failure,cleanupFailure;
   const lifecycle=path.join(temporary,'launcher-processes.jsonl');
   const childEnv = {...env, npm_config_ignore_scripts:'true',NB_ACCEPTANCE_LIFECYCLE:lifecycle};
   // Use the installed npm's actual shim. Do not replace npx with node npx-cli.js.
@@ -269,14 +269,14 @@ export async function fixture({installed, temporary, env, version, expected, ins
     }
     assert(cacheRecords.length>=1);
     assert.deepEqual(executedPaths,[],'Executed package paths must belong to fully verified npx caches');
-    return {actualNpxShim:true,npxShimSHA256:sha(fs.readFileSync(npx)),generatedMcpConfigurationUsedUnchanged:true,
+    result={actualNpxShim:true,npxShimSHA256:sha(fs.readFileSync(npx)),generatedMcpConfigurationUsedUnchanged:true,
       selectableAllowlistAndPinnedIsolation:true,spaceContainingSenderPreserved:true,signedRequests:requests.length,
       waitDeadlineMilliseconds:elapsed,cancellationAndVerifiedRetryMilliseconds:cancellationMs,
       timedAndCancelledBodiesClosed:true,originalKeyEnvelopeExpiryPreserved:true,verifiedReplyAfterCancellation:true,
       protocolFrames:frames,protocolErrors:0,rawTrailingJunkNegativeControlRejected:true,syntheticCredentialLeaks:0,npxCacheRecords:cacheRecords,commands,
       limits:['Synthetic v1 relay; no physical Apple device or hosted relay.','Supported routing examples only, not every shell or arbitrary quoting syntax.','Windows executes the real npx.cmd via cross-spawn, the same launcher used by the SDK.']};
   } catch(error) {
-    error.launcherStage=phase;throw error;
+    error.launcherStage=phase;failed=true;failure=error;
   } finally {
     for(const item of clients)await item.client.close().catch(()=>{});
     if(server){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
@@ -293,7 +293,10 @@ export async function fixture({installed, temporary, env, version, expected, ins
       }
     } catch {shutdownUnconfirmed=true;}
     if(shutdownUnconfirmed){
-      const error=Error('Launched process exit unconfirmed');error.launcherStage='cleanup';error.cleanupUnconfirmed=true;throw error;
+      const error=Error('Launched process exit unconfirmed');error.launcherStage='cleanup';error.cleanupUnconfirmed=true;cleanupFailure=error;
     }
   }
+  if(failed)throw failure;
+  if(cleanupFailure)throw cleanupFailure;
+  return result;
 }

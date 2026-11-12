@@ -1,0 +1,10 @@
+{
+  "publicRelease": {
+    "version": "0.2.11"
+  },
+  "archive": {
+    "sha256": "54028c97b801fadc8889c6451b55d728b0582b97971e0f2315348544e62cb827",
+    "integrity": "sha512-It8fAP1uZXgd1jKa2c9LseJwsDCLXL2zwMH3Qdux47kys0RALOqsphLQGG2nNkxZXaAgSBKjYCOmJuVwuMWE6A==",
+    "files": 116
+  }
+}

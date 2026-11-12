@@ -1,4 +1,5 @@
 import { MAX_ACTIVITY_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, requestTimeoutSeconds } from './request-timeout.js';
+import { accountIdOf } from './credential-recovery.js';
 import { answerSchema } from './answer-validation.js';
 import type { NotiBuddyConfig, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType } from './types.js';
 import { deriveDeviceId, ecdsaSign, ecdsaVerify, fromB64u, hpkeOpen, hpkeSeal, sha256, toB64u, toHex } from './crypto.js';
@@ -29,7 +30,7 @@ export async function verifyRecipients(input:unknown,config:NotiBuddyConfig,chec
     await deriveDeviceId(config.device.encPub,config.device.sigPub)!==config.device.id)throw invalid();
   const generation=input.generation as number;
   if(checkpoint && generation<checkpoint.generation)throw invalid();
-  const realm=config.token.replace(/^nb_(?:snd|dev|usr)_/,''),accountId=toHex(await sha256(new TextEncoder().encode(realm))).slice(0,32);
+  const accountId=accountIdOf(config.token);
   const recipients:GroupRecipient[]=[{deviceId:config.device.id,encPub:config.device.encPub,sigPub:config.device.sigPub,capabilities:[]}];
   for(const record of input.companions) {
     if(!exact(record,'childSignature,grant,parentSignature') || !validCompanionGrant(record.grant) ||

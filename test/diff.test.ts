@@ -17,6 +17,7 @@ import { readDiffFile, MAX_DIFF_FILE_BYTES } from '../src/diff-file.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, hpkeOpen, ecdsaVerify } from '../src/crypto.js';
 import { buildRequestHeader, sealReply } from '../src/protocol.js';
 import type { RequestEnvelope, ReplyEnvelope, DiffInput, PairingBundle } from '../src/types.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-diff-'));
 const originalFetch = globalThis.fetch;
@@ -117,7 +118,7 @@ try {
   const interrupted = await client().ask({ title: 'Retry same diff', diff, waitSeconds: 0 });
   const interruptedWire = requests.at(-1)!;
   assert.equal(interrupted.status, 'pending');
-  assert.equal(pending().read<any>('reply:' + interrupted.requestId).payload.original, diff.original);
+  assert.equal(pending().read<any>('reply:' + interrupted.requestId).payload, undefined, 'D46: the plaintext is never stored');
   loseAcknowledgement = false;
   await reply(interruptedWire, 'reject');
   assert.equal((await client().ask({ resumeId: interrupted.requestId, waitSeconds: 0 })).answer?.action, 'reject');

@@ -105,7 +105,7 @@ Do not combine a diff with choices, text input, forms, or a resume ID. If the re
 
 ## 🛠️ Model Context Protocol (MCP) Setup
 
-You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration requiring at least the installed package version. When updating an existing configuration, change its package version to `notibuddy@^0.2.11` and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
+You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.2.11`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
 
 ### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -114,7 +114,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@^0.2.11", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.2.11", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -127,11 +127,14 @@ Run as a local stdio MCP server:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@^0.2.11", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.2.11", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
 ```
+
+### Update notices
+The CLI checks npm for a newer release at most once a day (an anonymous request to registry.npmjs.org) and prints a one-line notice on stderr; stdout and exit codes are unchanged. MCP sessions show the notice once, as an extra item in a tool result. Set `NOTIBUDDY_NO_UPDATE_CHECK=1` to turn the check off.
 
 ---
 
@@ -232,13 +235,9 @@ nb mcp --allow-to personal --allow-to work-phone --sender "Coding assistant"
 
 Use `notibuddy_list_destinations` to discover only the destinations exposed by that server. A saved pairing is not an online/approval check. In selectable mode, call `notibuddy_ask` with `{"to":"work-phone","title":"Deploy?","options":["Approve","Cancel"]}` or `notibuddy_notify` with `{"to":"work-phone","title":"Build finished","message":"All checks passed."}` for one-way informational alerts. Include `to` when resuming and when starting, updating, ending, or polling activities. Responses include `to` and a stable `connectionId`. Missing, unknown, or unexposed destinations fail before network activity. There is no active global destination, automatic fallback, or broadcast. Running MCP servers retain their original connection bindings until restarted.
 
-### Migrate an existing installation
+### Older installations
 
-```sh
-npx notibuddy@^0.2.11 devices migrate --to personal
-```
-
-This imports the old `~/.notibuddy/config.json` and `sender.json` without re-pairing or changing keys. Pending replies retain their original cryptographic storage scope. Original files remain for rollback; keep them private. Update every MCP entry to include `--to personal`, then restart it. Old unqualified `mcp`, `ask`, and `activity` commands do not silently choose a destination. Unreadable credentials are reported, never replaced with new keys. Aliases cannot overwrite an existing pairing; a replacement phone gets a new alias (rename the previous alias first if needed).
+Installs older than 0.2.0 run `npx notibuddy@0.2.10 devices migrate --to <name>` once, or pair again.
 
 `nb unpair --to personal` removes that destination's local credentials; it does not revoke the phone's approval. Disconnect on the phone to revoke the key. Preserve credentials if you need to resume pending requests before their expiry. Named destination files are private credentials, not configuration to commit or share. Unix directories use mode 0700 and files 0600; Windows relies on the user's private-directory ACLs.
 

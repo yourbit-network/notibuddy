@@ -9,7 +9,10 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { registerSenderOnce } from './pairing.js';
 import { senderStatus } from './sender-status.js';
+import { latestNewerVersion } from './update-check.js';
 import { z } from 'zod';
+import { bindCredentials } from './credential-recovery.js';
+import type { DestinationStore } from './config.js';
 import type { NotiBuddyConfig, RequestEnvelope, ReplyEnvelope, ErrorEnvelope, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType, SenderRegistrationPayload } from './types.js';
 import { sealRequest, openReply, openError, validateIdentifier } from './protocol.js';
 import { generateReplyKeyPair } from './crypto.js';
@@ -18,7 +21,7 @@ import { parseDiff } from './diff.js';
 import type { DiffInput } from './types.js';
 
 const field = z.object({
-  id:z.string().min(1).max(80), type:z.enum(['text','email','url','toggle','stepper','picker','date']),
+  id:z.string().min(1).max(80), type:z.enum(['text','email','url','toggle','stepper','picker','date','secret']),
   label:z.string().min(1).max(200), placeholder:z.string().optional(), required:z.boolean().optional(),
   default:z.union([z.string(),z.number().finite(),z.boolean()]).optional(), min:z.number().finite().optional(), max:z.number().finite().optional(),
   options:z.array(z.object({id:z.string(),label:z.string()})).max(100).optional(),
@@ -27,22 +30,24 @@ const presentation = z.object({
   shortTitle: z.string().trim().min(1).max(40).regex(/^[^\r\n]+$/, 'Use a single line').optional(),
   summary: z.string().trim().min(1).max(100).regex(/^[^\r\n]+$/, 'Use a single line').optional(),
 }).strict();
-const askSchema = z.object({
+export const askFields = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
   diff: z.unknown().optional(),
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
-  options:z.array(z.string().min(1).max(200)).max(20).optional(), inputPlaceholder:z.string().max(500).optional(),
+  options:z.array(z.string().trim().min(1).max(200)).max(20).optional(), declineOption:z.string().trim().min(1).max(200).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
   timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
   waitSeconds:z.number().finite().min(0).max(MAX_REPLY_WAIT_SECONDS).default(25), resumeId:z.string().optional(),
-}).refine(p => p.resumeId || p.title, 'A title is required for a new request')
+});
+const askSchema = askFields.refine(p => p.resumeId || p.title, 'A title is required for a new request')
+  .refine(p => p.declineOption === undefined || !!p.options?.includes(p.declineOption),'declineOption must be one of options')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
     'A new diff request cannot include form fields, choices, text input or a resume ID')
   .refine(p => !(p.options?.length === 0 && !p.fields && p.inputPlaceholder === undefined && p.requiresAuth),
     'Passive notifications with empty options cannot require authentication');
-const activitySchema = z.object({
+export const activitySchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
   action:z.enum(['start','update','end','poll']), activityId:z.string().min(1).max(64),
@@ -51,7 +56,13 @@ const activitySchema = z.object({
   timerMinutes:z.number().positive().max(60).optional(),
   controls:z.array(z.enum(['pause','resume','cancel','add_5m'])).max(4).optional(),
 });
-const notifySchema = z.object({
+/** Marks the one chosen option as the sender's decline; the phone lets only that choice skip authentication. */
+function declineMarked(options:string[]|undefined,decline:string|undefined):AskPayload['options'] {
+  if(!options||decline===undefined) return options;
+  const index=options.indexOf(decline);
+  return options.map((label,i)=>i===index?{id:label,label,role:'decline' as const}:label);
+}
+export const notifySchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
   title:z.string().min(1).max(500), message:z.string().max(50000).optional(),
@@ -62,10 +73,16 @@ export type ActivityParams = z.input<typeof activitySchema>;
 export type NotifyParams = z.input<typeof notifySchema>;
 export type AskResult = {status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
 export type NotifyResult = {status:'delivered';requestId:string};
+export const clockSkewMessage = 'The relay rejected this computer\'s clock (more than 120 s off). Fix the system clock, then retry; run nb doctor to see the offset.';
+export const requestIdConflictMessage='This request ID was already used for a different request. Send it again with a new request ID.';
 export class DispatchRejectedError extends Error {
-  constructor(public status:number, detail:string,public code?:string) { super(`Dispatch failed (${status}): ${detail}`); }
+  /** `resend`: the saved request can never be delivered as it is (a resumed request whose recipients
+   * changed, with no plaintext kept to re-seal it); the caller must send a new one. */
+  constructor(public status:number, detail:string,public code?:string,readonly resend=false) { super(`Dispatch failed (${status}): ${detail}`); }
   get definitive():boolean {
+    if(this.resend)return true;
     // A conflict may acknowledge an earlier acceptance; timeouts and 5xx are ambiguous.
+    if(this.status===409 && this.code==='REQUEST_ID_CONFLICT')return true;
     return this.status>=400 && this.status<500 && ![408,409,425].includes(this.status);
   }
 }
@@ -83,9 +100,10 @@ type ActivityResult={status:string;activityId:string;controls:AnswerPayload[];wa
 export class NotiBuddyClient {
   private store:PendingStore;
   private recipients:RecipientStore;
-  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname()) {
+  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname(),credentials?:{store:DestinationStore;name:string}) {
     validateRequestSettings(config);
     this.config=structuredClone(config);this.config.relay=normalizeRelay(config.relay);
+    if(credentials)bindCredentials(this.config,{...credentials,signingKey});
     this.sender=z.string().trim().min(1).max(100).regex(/^[^\p{Cc}\p{Cf}]+$/u).parse(sender);
     this.store=store ?? new PendingStore(config);
     this.recipients=new RecipientStore(config,this.store.root);
@@ -93,9 +111,16 @@ export class NotiBuddyClient {
   async doctor(options:CallOptions={}) {
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+15000)};
     const report={relay:this.config.relay,reachable:false,requestProtocol:this.config.requestProtocol ?? 1,
-      deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[]};
+      deviceId:this.config.device.id,sender:'unverified',recipientCount:null as number|null,issues:[] as string[],clockSkewMs:undefined as number|undefined,newer:undefined as string|undefined};
+    const update=latestNewerVersion(call);
     try {
+      const t0=Date.now();
       const health=await relayJSON(this.config,'/v1/health',{}, {...call,maxResponseBytes:65536});
+      const t1=Date.now(),edge=typeof health.body?.edgeTime==='string'?Date.parse(health.body.edgeTime):NaN;
+      if(Number.isFinite(edge)) {
+        const skew=Math.round(edge-(t0+t1)/2);report.clockSkewMs=skew;
+        if(Math.abs(skew)>60000)report.issues.push(`This computer's clock is ${Math.round(Math.abs(skew)/1000)} s ${skew>0?'behind':'ahead of'} the relay; requests are rejected beyond 120 s. Fix the system clock.`);
+      }
       report.reachable=health.body?.status==='healthy';if(!report.reachable)report.issues.push('Relay health response was not recognized');
       report.sender=await senderStatus(this.config,this.signingKey,call);
       if(report.requestProtocol===2) {
@@ -106,8 +131,10 @@ export class NotiBuddyClient {
       }else report.recipientCount=1;
     }catch(error) {
       options.signal?.throwIfAborted();
-      report.issues.push(error instanceof RelayHTTPError?`Relay returned ${error.status}${error.code?' '+error.code:''}`:'Verification did not complete; check connectivity, pairing approval, and client compatibility');
+      report.issues.push(error instanceof RelayHTTPError&&error.code==='CLOCK_SKEW'?clockSkewMessage:error instanceof RelayHTTPError?`Relay returned ${error.status}${error.code?' '+error.code:''}`:'Verification did not complete; check connectivity, pairing approval, and client compatibility');
     }
+    if(report.clockSkewMs===undefined)delete report.clockSkewMs;
+    report.newer=await update;if(report.newer===undefined)delete report.newer;
     return report;
   }
   async registerSender(payload:SenderRegistrationPayload,options:CallOptions={}):Promise<'registered'|'pending_approval'|'pending_automatic'> {
@@ -132,7 +159,7 @@ export class NotiBuddyClient {
     if(!Number.isSafeInteger(afterSeq) || afterSeq<0)throw Error('Invalid reply cursor');
     const version=saved?.envelope?.v ?? 1;
     try {
-      const {status,body}=await relayJSON(this.config,`/v${version}/replies/${encodeURIComponent(id)}?afterSeq=${afterSeq}`,{},options,version===2?this.signingKey:undefined);
+      const {status,body}=await relayJSON(this.config,`/v${version}/replies/${encodeURIComponent(id)}?afterSeq=${afterSeq}`,{},options,this.signingKey);
       if(status===204)return null;
       const envelope=version===2 ? body?.envelope : body,seq=body?.seq;
       if(!envelope || envelope.requestId!==id || envelope.v!==version || !Number.isSafeInteger(seq) || seq<1 || seq<=afterSeq)throw Error('Invalid reply binding or sequence');
@@ -166,19 +193,26 @@ export class NotiBuddyClient {
   }
   private async prepare(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload,key:CryptoKey,timeout:number,options:CallOptions,version?:1|2):Promise<PendingReply> {
     const prepared=await this.seal(id,primitive,payload,timeout,options,version);
-    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,payload,dispatch:'pending'};
+    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,dispatch:'pending'};
     this.savePending(id,saved);return saved;
   }
-  private async dispatchSaved(id:string,saved:PendingReply,options:CallOptions):Promise<PendingReply> {
+  /** `plaintext` lives in memory only; a record saved by an earlier process has none. */
+  private async dispatchSaved(id:string,saved:PendingReply,options:CallOptions,plaintext?:AskPayload|ActivityPayload):Promise<PendingReply> {
     if(saved.dispatch!=='pending' || !saved.envelope || saved.expiresAt<=Math.floor(Date.now()/1000))return saved;
+    if(saved.payload!==undefined) {
+      // Legacy record: scrub the plaintext from disk before posting; use it in memory for this call only.
+      plaintext??=saved.payload;
+      const {payload:_legacy,...scrubbed}=saved;saved=scrubbed;this.savePending(id,saved);
+    }
     for(let attempt=0;attempt<2;attempt++) {
       try {
         await this.postRequest(saved.envelope!,options);
-        const accepted={...saved,dispatch:'accepted' as const,payload:undefined};this.savePending(id,accepted);return accepted;
+        const accepted={...saved,dispatch:'accepted' as const};this.savePending(id,accepted);return accepted;
       }catch(error) {
-        if(attempt===0 && error instanceof DispatchRejectedError && error.code==='RECIPIENTS_CHANGED' && saved.envelope!.v===2 && saved.payload) {
+        if(attempt===0 && error instanceof DispatchRejectedError && error.code==='RECIPIENTS_CHANGED' && saved.envelope!.v===2) {
+          if(!plaintext)throw new DispatchRejectedError(error.status,'the phone\'s recipients changed while this request was waiting to be sent; send it again',error.code,true);
           const remaining=saved.expiresAt-Math.floor(Date.now()/1000);if(remaining<=0)return saved;
-          const refreshed=await this.seal(id,saved.envelope!.primitive as PrimitiveType,saved.payload,remaining,options,2,saved.expiresAt);
+          const refreshed=await this.seal(id,saved.envelope!.primitive as PrimitiveType,plaintext,remaining,options,2,saved.expiresAt);
           saved={...saved,...refreshed,expiresAt:refreshed.envelope.expiresAt};this.savePending(id,saved);continue;
         }
         throw error;
@@ -229,16 +263,16 @@ export class NotiBuddyClient {
     // one end-to-end deadline including discovery, dispatch and response bytes.
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+(params.waitSeconds===0?15000:params.waitSeconds*1000))};
     return this.store.withOperation('reply:'+id,async()=>{
-      let saved:PendingReply;
+      let saved:PendingReply,sealed:AskPayload|undefined;
       if(params.resumeId) {saved=this.readPending(id);if(saved.envelope?.primitive.startsWith('activity_'))throw Error('Use activity poll to resume activity controls');}
       else {
         const pair=await generateReplyKeyPair(),primitive:PrimitiveType=diff?'diff':params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
         const payload:AskPayload={type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
-          options:params.options,inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
-        saved=await this.prepare(id,primitive,payload,pair.privateKey,params.timeoutSeconds,call);
+          options:declineMarked(params.options,params.declineOption),inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
+        saved=await this.prepare(id,primitive,payload,pair.privateKey,params.timeoutSeconds,call);sealed=payload;
       }
       try {
-        saved=await this.dispatchSaved(id,saved,call);
+        saved=await this.dispatchSaved(id,saved,call,sealed);
         do {
           const response=await this.getSavedReply(id,saved,0,call);
           if(response){const result=await this.open(id,response.envelope,saved);this.store.remove('reply:'+id);return result;}
@@ -248,7 +282,7 @@ export class NotiBuddyClient {
       }catch(error) {
         if(options.signal?.aborted)throw new ResumableRequestError(id);
         if(error instanceof TerminalRequestError){this.store.remove('reply:'+id);return {status:error.status,requestId:id};}
-        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.message};}
+        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.code==='REQUEST_ID_CONFLICT'?requestIdConflictMessage:error.message};}
         return {status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`};
       }
       return {status:'pending',requestId:id,message:`Call notibuddy_ask with resume_id='${id}' to check again, including after restarting this client.`};
@@ -364,12 +398,14 @@ export class NotiBuddyClient {
         lastControlSeq:previous?previousSession?.lastControlSeq:undefined,pollOffset:previous?previousSession?.pollOffset:undefined};
       this.writeActivity(params.activityId,session);
       try {
-        await this.dispatchSaved(requestId,saved,call);
+        await this.dispatchSaved(requestId,saved,call,payload);
         delete session.pendingDispatch;delete session.previous;this.writeActivity(params.activityId,session);
       }catch(error) {
         if(error instanceof DispatchRejectedError && error.definitive) {
           if(previousSession)this.writeActivity(params.activityId,previousSession);else this.store.remove(storeId);
           this.store.remove('reply:'+requestId);
+          if(error.code==='CLOCK_SKEW')throw Error(clockSkewMessage);
+          if(error.code==='REQUEST_ID_CONFLICT')throw Error(requestIdConflictMessage);
         }
         throw error;
       }

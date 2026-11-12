@@ -19,7 +19,7 @@ export interface FormFieldOption {
 
 export interface FormField {
   id: string;
-  type: 'text' | 'email' | 'url' | 'toggle' | 'stepper' | 'picker' | 'date';
+  type: 'text' | 'email' | 'url' | 'toggle' | 'stepper' | 'picker' | 'date' | 'secret';
   label: string;
   placeholder?: string;
   required?: boolean;
@@ -54,7 +54,7 @@ export interface AskPayload extends Partial<DiffInput> {
   replyPub: string; // Base64url SEC1 uncompressed P-256 public key (65 bytes)
   title: string;
   message?: string;
-  options?: string[];
+  options?: (string | { id: string; label: string; role: 'decline' })[];
   inputPlaceholder?: string;
   fields?: FormField[];
   requiresAuth?: boolean;
@@ -190,6 +190,10 @@ export interface NotiBuddyConfig {
   senderLabel: string;
   requestProtocol?: 1 | 2;
   minimumRecipientGeneration?: number;
+  /** Epoch of the rotated sender credential in `token`; absent means the original pairing token. */
+  credentialEpoch?: number;
+  /** The original pairing token, kept so storage scopes survive a rotation. */
+  pairingToken?: string;
 }
 
 export interface SenderKeyPair {

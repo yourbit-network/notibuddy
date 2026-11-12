@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { DestinationStore } from '../src/config.js';
 import { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, hpkeSealBytes, ecdsaSign, ecdsaVerify, computePairingMac } from '../src/crypto.js';
 import { FileInbox, openFile, fileHeader, fileSignatureInput, MAX_FILE_BYTES, type FileManifest } from '../src/files.js';
+import { httpSigningInput } from '../src/client-http.js';
 import { signSenderRegistration } from '../src/sender-registration.js';
 
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'nb-files-')),originalFetch=globalThis.fetch;
@@ -15,7 +16,7 @@ const hash=(v:Uint8Array|string)=>createHash('sha256').update(v).digest('hex');
 try {
  const abandoned=path.join(root,'abandoned.lock');
  const child=spawnSync(process.execPath,['-e',"require('node:fs').writeFileSync(process.argv[1],String(process.pid),{mode:0o600});",abandoned]);
- assert.equal(child.status,0);const unlock=acquireFileLock(abandoned);assert.equal(fs.readFileSync(abandoned,'utf8'),String(process.pid));unlock();
+ assert.equal(child.status,0);const unlock=acquireFileLock(abandoned);assert.equal((JSON.parse(fs.readFileSync(abandoned,'utf8')) as {pid:number}).pid,process.pid);unlock();
  const phone=await generateSenderSigningKeyPair(),enc=await generateReplyKeyPair(),store=new DestinationStore(root);
  const bundle={v:1 as const,relay:'https://fixture.test',token:'nb_snd_'+randomUUID(),pairSecret:Buffer.alloc(32).toString('base64url'),device:{id:await deriveDeviceId(enc.publicKeyB64u,phone.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:phone.publicKeyB64u}};
  const {record,signingKey}=await store.prepare('phone',bundle,'Fixture');
@@ -46,8 +47,8 @@ try {
  const inbox=new FileInbox(record,signingKey,root);let downloads=0,acks=0;
  globalThis.fetch=async(input,init)=>{
    const url=new URL(String(input)),route=url.pathname.slice(3),headers=new Headers(init?.headers),body=String(init?.body || '');
-   const signatureInput=`nb1|http|${init?.method}|${route}|${headers.get('X-Sender-Timestamp')}|${headers.get('X-Sender-Nonce')}|${hash(body)}`;
-   assert.ok(await ecdsaVerify(record.keys.publicKeyB64u,new TextEncoder().encode(signatureInput),headers.get('X-Sender-Signature')!));
+   const signatureInput=httpSigningInput(record.config.token,String(init?.method),route,headers.get('X-Sender-Timestamp')!,headers.get('X-Sender-Nonce')!,hash(body));
+   assert.ok(await ecdsaVerify(record.keys.publicKeyB64u,signatureInput,headers.get('X-Sender-Signature')!));
    if(route==='/files')return Response.json({files:[{id:f.m.id,status:'ready',expiresAt:f.m.expiresAt,size:f.m.size}]});
    if(route.endsWith('/ack')) {
      acks++;assert.equal(JSON.parse(body).sha256,f.m.sha256);
@@ -65,5 +66,14 @@ try {
  const oversized=await seal(Buffer.from('x'));
  globalThis.fetch=async()=>new Response(new ReadableStream({start(controller){controller.enqueue(new Uint8Array(10_004_117));controller.close();}}),{headers:{'X-File-Manifest':Buffer.from(JSON.stringify(oversized.m)).toString('base64url')}});
  await assert.rejects(inbox.receive(oversized.m.id),/too large/);assert.ok(!fs.existsSync(path.join(inbox.directory,oversized.m.id)));
+ const inits:RequestInit[]=[];
+ globalThis.fetch=async(_input,init)=>{
+   inits.push(init!);
+   if(init?.redirect==='error')throw new TypeError('fetch failed: redirect');
+   return Response.json({files:[]});
+ };
+ await assert.rejects(inbox.list(),/redirect/);
+ await assert.rejects(inbox.receive('file_'+'a'.repeat(32)),/redirect/);
+ assert.ok(inits.length>=2);assert.ok(inits.every(i=>i.redirect==='error'),'Every file-route fetch refuses redirects');
  console.log('File tests passed: key proof binding, 10 MB boundary, tampering, wrong recipients, safe paths, private durable save, lost receipts, restart, idempotency, bounded download.');
 } finally {globalThis.fetch=originalFetch;fs.rmSync(root,{recursive:true,force:true});}

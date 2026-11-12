@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { DestinationStore } from '../src/config.js';
 import { resolveFileDestination } from '../src/file-routing.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, hpkeSealBytes, ecdsaSign, ecdsaVerify } from '../src/crypto.js';
+import { httpSigningInput } from '../src/client-http.js';
 import { fileHeader, fileSignatureInput, type FileManifest } from '../src/files.js';
 
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'nb-file-routing-'));
@@ -56,9 +57,10 @@ try {
   serve=async(request,response)=>{
     const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(Buffer.from(chunk));const body=Buffer.concat(chunks);
     assert.equal(request.headers.authorization,'Bearer '+a.record.config.token);
-    assert.equal(request.headers['x-sender-id'],a.record.config.senderKeyId);
+    assert.equal(request.headers['x-sender-key-id'],a.record.config.senderKeyId);
+    assert.equal(request.headers['x-sender-id'],undefined,'the client sends only the v2 header name (S-36)');
     const route=request.url!.replace(/^\/v1/,'');
-    const signing=new TextEncoder().encode(`nb1|http|${request.method}|${route}|${request.headers['x-sender-timestamp']}|${request.headers['x-sender-nonce']}|${hash(body)}`);
+    const signing=httpSigningInput(a.record.config.token,String(request.method),route,String(request.headers['x-sender-timestamp']),String(request.headers['x-sender-nonce']),hash(body));
     assert.equal(await ecdsaVerify(a.record.keys.publicKeyB64u,signing,String(request.headers['x-sender-signature'])),true);
     if(request.method==='GET' && route==='/files/'+manifest.id) {
       downloads++;response.setHeader('X-File-Manifest',Buffer.from(JSON.stringify(manifest)).toString('base64url'));response.end(ciphertext);

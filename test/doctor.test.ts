@@ -5,13 +5,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
-import { NotiBuddyClient } from '../src/client.js';
+import { NotiBuddyClient, clockSkewMessage } from '../src/client.js';
 import { PendingStore } from '../src/pending-store.js';
 import { RecipientStore } from '../src/recipient-store.js';
-import { relayJSON } from '../src/client-http.js';
+import { relayJSON, httpSigningInput } from '../src/client-http.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaVerify, sha256, toHex } from '../src/crypto.js';
 import { DestinationStore } from '../src/config.js';
 import type { NotiBuddyConfig } from '../src/types.js';
+import { CLIENT_VERSION } from '../src/update-check.js';
+
+// The update lookup is opt-in per test below; the relay-route assertions elsewhere expect only relay requests.
+process.env.NOTIBUDDY_NO_UPDATE_CHECK='1';
 
 async function fixture(run:(f:Awaited<ReturnType<typeof setup>>)=>Promise<void>) {
   const f=await setup(),original=globalThis.fetch;
@@ -206,9 +210,9 @@ test('v2 diagnostics preserve signed recipient discovery and saved rollback prot
     const u=new URL(String(url));routes.push(u.pathname);
     if(u.pathname==='/v1/health')return health();if(u.pathname===f.route)return Response.json({sender:f.row()});
     assert.equal(u.pathname,'/v2/recipients');assert.equal(u.searchParams.get('deviceId'),f.config.device.id);
-    const h=new Headers(init?.headers),input=`nb1|http|GET|${u.pathname}${u.search}|${h.get('X-Sender-Timestamp')}|${h.get('X-Sender-Nonce')}|${toHex(await sha256(new Uint8Array()))}`;
+    const h=new Headers(init?.headers),input=httpSigningInput(f.config.token,'GET',`${u.pathname}${u.search}`,h.get('X-Sender-Timestamp')!,h.get('X-Sender-Nonce')!,toHex(await sha256(new Uint8Array())));
     assert.equal(h.get('X-Sender-Key-ID'),f.sender.senderKeyId);
-    assert(await ecdsaVerify(f.sender.publicKeyB64u,new TextEncoder().encode(input),h.get('X-Sender-Signature')!));signatures++;
+    assert(await ecdsaVerify(f.sender.publicKeyB64u,input,h.get('X-Sender-Signature')!));signatures++;
     if(failDiscovery)return Response.json({code:'GROUP_DELIVERY_NOT_ENABLED'},{status:426});
     return Response.json({v:2,deviceId:f.config.device.id,generation,
       primary:{deviceId:badBinding?'dev_'+'0'.repeat(24):f.config.device.id,encPub:f.config.device.encPub,sigPub:f.config.device.sigPub},companions:[]});
@@ -322,4 +326,85 @@ test('a deadline expiring while signing cannot start the diagnostic request',{ti
   });
   globalThis.fetch=async url=>{routes.push(new URL(String(url)).pathname);return health();};
   unavailable(await f.client().doctor({deadline:Date.now()+120}));assert.deepEqual(routes,['/v1/health']);
+}));
+
+test('doctor reports clock skew from the relay edge time and explains CLOCK_SKEW rejections',()=>fixture(async f=>{
+  const serve=(edge:string|undefined)=>{globalThis.fetch=async url=>{
+    const route=new URL(String(url)).pathname;
+    if(route==='/v1/health')return Response.json(edge===undefined?{status:'healthy'}:{status:'healthy',edgeTime:edge});
+    return Response.json({sender:f.row()});
+  };};
+  serve(new Date().toISOString());
+  let report=await f.client().doctor();
+  assert(Math.abs(report.clockSkewMs!)<=2000);assert(!report.issues.some(i=>i.includes('clock')));
+  serve(new Date(Date.now()+300000).toISOString());
+  report=await f.client().doctor();
+  assert(report.clockSkewMs!>240000);assert(report.issues.some(i=>i.includes('behind')));
+  serve(new Date(Date.now()-300000).toISOString());
+  report=await f.client().doctor();
+  assert(report.clockSkewMs!<-240000);assert(report.issues.some(i=>i.includes('ahead of')));
+  serve(undefined);
+  report=await f.client().doctor();
+  assert(!('clockSkewMs' in report));assert(!report.issues.some(i=>i.includes('clock')));
+  globalThis.fetch=async url=>new URL(String(url)).pathname==='/v1/health'?health():Response.json({code:'CLOCK_SKEW',relayTime:new Date().toISOString()},{status:401});
+  report=await f.client().doctor();
+  assert(report.issues.includes(clockSkewMessage));assert(!report.issues.some(i=>i.includes('Relay returned')));
+}));
+
+const REGISTRY='https://registry.npmjs.org/notibuddy/latest';
+const bump=(part:number,by:number)=>CLIENT_VERSION.split('.').map((n,i)=>i===part?Number(n)+by:i>part?0:Number(n)).join('.');
+async function withUpdateCheck(run:()=>Promise<void>) {
+  const saved=process.env.NOTIBUDDY_NO_UPDATE_CHECK;delete process.env.NOTIBUDDY_NO_UPDATE_CHECK;
+  try {await run();} finally {if(saved===undefined)delete process.env.NOTIBUDDY_NO_UPDATE_CHECK;else process.env.NOTIBUDDY_NO_UPDATE_CHECK=saved;}
+}
+const serveRegistry=(f:Awaited<ReturnType<typeof setup>>,registry:(init?:RequestInit)=>Promise<Response>|Response,seen:{url:string;init?:RequestInit}[]=[])=>{
+  globalThis.fetch=async(url,init)=>{
+    if(String(url)===REGISTRY){seen.push({url:String(url),init});return registry(init);}
+    const route=new URL(String(url)).pathname;
+    return route==='/v1/health'?health():Response.json({sender:f.row()});
+  };
+};
+
+test('doctor reports a newer published client version with a bare, credential-free request',()=>fixture(async f=>withUpdateCheck(async()=>{
+  const seen:{url:string;init?:RequestInit}[]=[];
+  for(const version of [bump(2,1),bump(1,1),bump(0,1)]) {
+    seen.length=0;serveRegistry(f,()=>Response.json({version}),seen);
+    const report=await f.client().doctor();
+    assert.equal(report.newer,version);assert.deepEqual(report.issues,[]);
+    assert.equal(seen.length,1);assert.equal(seen[0]!.url,REGISTRY);
+    const headers=new Headers(seen[0]!.init?.headers);
+    assert.equal(headers.get('authorization'),null);assert.equal(headers.get('accept'),'application/json');
+    assert.deepEqual([...headers.keys()],['accept']);assert.equal(seen[0]!.init?.redirect,'error');
+    assert(!JSON.stringify(seen[0]).includes(f.config.token));assert(!JSON.stringify(seen[0]).includes(f.config.device.id));
+  }
+})));
+
+test('doctor adds nothing when the registry version is the same, older, malformed or unavailable',()=>fixture(async f=>withUpdateCheck(async()=>{
+  const cases:(()=>Response)[]=[()=>Response.json({version:CLIENT_VERSION}),()=>Response.json({version:'0.0.1'}),
+    ()=>Response.json({version:'99.0.0-beta.1'}),()=>Response.json({version:'v99.0.0'}),()=>Response.json({version:99}),()=>Response.json({}),
+    ()=>new Response('not json'),()=>new Response('{"version":"99.0.0"}',{status:500}),()=>new Response('{"version":"99.0.0"}',{status:404}),
+    ()=>{throw Error('offline');},()=>new Response(padding({version:'99.0.0'},65537))];
+  for(const respond of cases) {
+    serveRegistry(f,respond);
+    const report=await f.client().doctor();
+    assert(!('newer' in report));assert.deepEqual(report.issues,[]);assert.equal(report.sender,'approved');
+  }
+})));
+
+test('a registry request that never resolves cannot delay doctor beyond its deadline',{timeout:10000},()=>fixture(async f=>withUpdateCheck(async()=>{
+  serveRegistry(f,()=>new Promise<Response>(()=>{}));
+  const start=Date.now(),report=await f.client().doctor();
+  assert(Date.now()-start<4000);assert(!('newer' in report));assert.deepEqual(report.issues,[]);
+  const short=Date.now();
+  const bounded=await f.client().doctor({deadline:short+300});
+  assert(Date.now()-short<1500);assert(!('newer' in bounded));
+})));
+
+test('NOTIBUDDY_NO_UPDATE_CHECK=1 never requests the registry',()=>fixture(async f=>{
+  const saved=process.env.NOTIBUDDY_NO_UPDATE_CHECK;process.env.NOTIBUDDY_NO_UPDATE_CHECK='1';
+  try {
+    const seen:{url:string}[]=[];serveRegistry(f,()=>Response.json({version:'99.0.0'}),seen);
+    const report=await f.client().doctor();
+    assert.equal(seen.length,0);assert(!('newer' in report));
+  } finally {if(saved===undefined)delete process.env.NOTIBUDDY_NO_UPDATE_CHECK;else process.env.NOTIBUDDY_NO_UPDATE_CHECK=saved;}
 }));

@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createECDH, createHash } from 'node:crypto';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
+process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 test('actual CLI reports automatic, manual, pending and already-linked outcomes without retaining the code', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy-pairing-cli-'));
@@ -51,13 +52,14 @@ test('actual CLI reports automatic, manual, pending and already-linked outcomes 
       process.on('exit', () => assert.equal(calls, process.env.PAIRING_FIXTURE_MODE === 'automatic' ? 2 : 1));
     `);
     const encoded = 'nbpair1.' + Buffer.from(JSON.stringify(bundle)).toString('base64url');
-    const run = (mode: string) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const run = (mode: string, viaStdin = false) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), '--import', pathToFileURL(fixture).href,
-        fileURLToPath(new URL('../src/cli.ts', import.meta.url)), 'pair', encoded, '--to', 'phone', '--label', 'CLI fixture',
+        fileURLToPath(new URL('../src/cli.ts', import.meta.url)), 'pair', ...(viaStdin ? [] : [encoded]), '--to', 'phone', '--label', 'CLI fixture',
         '--wait', mode === 'waiting' ? '0' : '3'], {
         env: { ...process.env, NOTIBUDDY_HOME: path.join(root, 'profile'), PAIRING_FIXTURE_MODE: mode, PAIRING_FIXTURE_EXPIRY: String(bundle.firstUse.invitation.expiresAt) },
-        cwd: root, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], timeout: 15_000,
+        cwd: root, stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe', 'ipc'], timeout: 15_000,
       });
+      if (viaStdin) child.stdin!.end(encoded + '\n');
       let stdout = '', stderr = '';
       child.stdout!.on('data', chunk => {
         stdout += chunk;
@@ -75,8 +77,21 @@ test('actual CLI reports automatic, manual, pending and already-linked outcomes 
       assert(!result.stdout.includes(privateKey)); assert(!result.stderr.includes(privateKey));
       assert(!result.stdout.includes(encoded)); assert(!result.stderr.includes(encoded));
       if (mode === 'registered' || mode === 'automatic') { assert.match(result.stdout, /Pairing confirmed/); assert.doesNotMatch(result.stdout, /then approve the connection/); }
+      if (mode === 'pending_approval' || mode === 'registered') {
+        const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+        const line = result.stdout.split('\n').find(l => l.startsWith('{"mcpServers"'));
+        assert.deepEqual(JSON.parse(line!).mcpServers.notibuddy.args, ['-y', `notibuddy@${version}`, 'mcp', '--to', 'phone']);
+        assert(!result.stdout.includes('notibuddy@^'));
+      }
       if (mode === 'pending_approval') assert.match(result.stdout, /Phone approval required/);
       if (mode === 'waiting') { assert.match(result.stdout, /Connection is not confirmed yet/); assert.doesNotMatch(result.stdout, /Pairing confirmed/); }
+      if (mode === 'registered') {
+        // The same bundle piped on stdin reaches the same outcome and never prints the argv-history warning.
+        const piped = await run('registered', true);
+        assert.equal(piped.code, 0, piped.stderr); assert.match(piped.stdout, /Pairing confirmed/);
+        assert.doesNotMatch(piped.stderr, /shell history/); assert(!piped.stderr.includes(encoded) && !piped.stdout.includes(encoded));
+        assert.match(result.stderr, /shell history/);
+      }
       const bytes = fs.readFileSync(path.join(root, 'profile/destinations/phone.json'));
       assert(!bytes.toString().includes(privateKey)); assert(!bytes.toString().includes('firstUse'));
       if (saved) assert.deepEqual(bytes, saved); saved = bytes;

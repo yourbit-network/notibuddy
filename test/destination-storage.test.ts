@@ -3,20 +3,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import { DestinationStore } from '../src/config.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
 
 async function fixture() {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'nb-destination-storage-'));
   try {
-    const enc=await generateReplyKeyPair(), phone=await generateSenderSigningKeyPair(), sender=await generateSenderSigningKeyPair();
-    const config={relay:'https://relay.test',token:'local-storage-fixture',
-      device:{id:await deriveDeviceId(enc.publicKeyB64u,phone.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:phone.publicKeyB64u},
-      senderKeyId:sender.senderKeyId,senderLabel:'Storage test'};
-    const keys={senderKeyId:sender.senderKeyId,publicKeyB64u:sender.publicKeyB64u,privateKeyJwk:sender.privateKeyJwk};
-    const originals=new Map([['config.json',JSON.stringify(config)],['sender.json',JSON.stringify(keys)]]);
-    for(const [name,contents] of originals)fs.writeFileSync(path.join(root,name),contents,{mode:0o600});
-    return {root,directory:path.join(root,'destinations'),store:new DestinationStore(root),sender,originals};
+    const enc=await generateReplyKeyPair(), phone=await generateSenderSigningKeyPair();
+    const bundle={v:1 as const,relay:'https://relay.test',token:'nb_snd_'+randomUUID(),pairSecret:Buffer.alloc(32).toString('base64url'),
+      device:{id:await deriveDeviceId(enc.publicKeyB64u,phone.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:phone.publicKeyB64u}};
+    return {root,directory:path.join(root,'destinations'),store:new DestinationStore(root),bundle,label:'Storage test'};
   } catch(error) {fs.rmSync(root,{recursive:true,force:true});throw error;}
 }
 
@@ -37,13 +34,12 @@ for(const code of ['ENOSPC','EIO'])test('failed destination write removes its pa
       }
       (originalWrite as any)(file,data,...args);
     }) as typeof fs.writeFileSync;
-    await assert.rejects(f.store.migrate('phone'),error=>(error as NodeJS.ErrnoException).code===code);
+    await assert.rejects(f.store.prepare('phone',f.bundle,f.label),error=>(error as NodeJS.ErrnoException).code===code);
     assert.ok(injected);
     assert.deepEqual(fs.readdirSync(f.directory),[],'Failed creation must not retain a partial credential record');
-    for(const [name,contents] of f.originals)assert.equal(fs.readFileSync(path.join(f.root,name),'utf8'),contents);
     fs.openSync=originalOpen;fs.writeFileSync=originalWrite;
-    await f.store.migrate('phone');
-    assert.equal((await f.store.open('phone')).record.keys.senderKeyId,f.sender.senderKeyId);
+    const created=await f.store.prepare('phone',f.bundle,f.label);
+    assert.equal((await f.store.open('phone')).record.keys.senderKeyId,created.record.keys.senderKeyId);
     assert.deepEqual(fs.readdirSync(f.directory),['phone.json']);
   } finally {
     fs.openSync=originalOpen;fs.writeFileSync=originalWrite;
@@ -51,7 +47,7 @@ for(const code of ['ENOSPC','EIO'])test('failed destination write removes its pa
   }
 });
 
-test('a destination publish failure removes staging without changing the legacy pairing',async()=>{
+test('a destination publish failure removes its staging file and a retry creates the pairing',async()=>{
   const f=await fixture(), originalLink=fs.linkSync;let injected=false;
   try {
     fs.linkSync=(from,to)=>{
@@ -60,14 +56,14 @@ test('a destination publish failure removes staging without changing the legacy 
       }
       originalLink(from,to);
     };
-    await assert.rejects(f.store.migrate('phone'),error=>(error as NodeJS.ErrnoException).code==='EIO');
+    await assert.rejects(f.store.prepare('phone',f.bundle,f.label),error=>(error as NodeJS.ErrnoException).code==='EIO');
     assert.ok(injected);assert.deepEqual(fs.readdirSync(f.directory),[]);
-    for(const [name,contents] of f.originals)assert.equal(fs.readFileSync(path.join(f.root,name),'utf8'),contents);
     fs.linkSync=originalLink;
-    await f.store.migrate('phone');
-    const saved=fs.readFileSync(path.join(f.directory,'phone.json'));
-    await assert.rejects(f.store.migrate('phone'),error=>(error as NodeJS.ErrnoException).code==='EEXIST');
-    assert.deepEqual(fs.readFileSync(path.join(f.directory,'phone.json')),saved);
+    const first=await f.store.prepare('phone',f.bundle,f.label);
+    // prepare is idempotent: it never replaces an existing pairing's keys or connection.
+    const again=await f.store.prepare('phone',f.bundle,f.label);
+    assert.equal(again.record.connectionId,first.record.connectionId);
+    assert.equal(again.record.keys.senderKeyId,first.record.keys.senderKeyId);
     assert.deepEqual(fs.readdirSync(f.directory),['phone.json']);
   } finally {fs.linkSync=originalLink;fs.rmSync(f.root,{recursive:true,force:true});}
 });
@@ -84,7 +80,8 @@ test('exclusive creation failure never removes a temporary file owned by another
       }
       return (originalOpen as any)(file,...args);
     }) as typeof fs.openSync;
-    await assert.rejects(f.store.migrate('phone'),error=>(error as NodeJS.ErrnoException).code==='EEXIST');
+    // prepare treats a lost create race as benign, then finds no pairing to open.
+    await assert.rejects(f.store.prepare('phone',f.bundle,f.label),/not paired/);
     assert.ok(occupied);assert.equal(fs.readFileSync(occupied,'utf8'),'another writer');
     assert.equal(fs.existsSync(path.join(f.directory,'phone.json')),false);
   } finally {fs.openSync=originalOpen;fs.rmSync(f.root,{recursive:true,force:true});}

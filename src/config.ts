@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import { normalizeRelay } from './relay-url.js';
 import { validatePairingBundle, validateRequestSettings } from './protocol.js';
+import { accountIdOf } from './credential-recovery.js';
 import { acquireFileLock } from './file-lock.js';
+import { pollPause } from './client-http.js';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -20,6 +22,7 @@ const configSchema = z.object({
   device: z.object({id:z.string().min(1),encPub:z.string().min(1),sigPub:z.string().min(1),name:z.string().optional()}),
   senderKeyId:z.string().min(1), senderLabel:z.string().min(1),
   requestProtocol:z.union([z.literal(1),z.literal(2)]).optional(),minimumRecipientGeneration:z.number().int().safe().nonnegative().optional(),
+  credentialEpoch:z.number().int().safe().min(1).optional(),pairingToken:z.string().min(1).optional(),
 });
 const keysSchema = z.object({senderKeyId:z.string(),publicKeyB64u:z.string(),privateKeyJwk:z.record(z.string(),z.unknown())});
 const recordSchema = z.object({version:z.literal(2),connectionId:z.string().uuid(),config:configSchema,keys:keysSchema,fileKey:z.object({publicKeyB64u:z.string(),privateKeyJwk:z.record(z.string(),z.unknown())}).optional()});
@@ -40,8 +43,7 @@ export class DestinationStore {
     try { return recordSchema.parse(JSON.parse(fs.readFileSync(file,'utf8'))) as DestinationRecord; }
     catch(error) {
       if ((error as NodeJS.ErrnoException).code==='ENOENT') {
-        const legacy=fs.existsSync(path.join(this.root,'config.json'));
-        throw new Error(legacy ? `Destination '${name}' is not saved. Import the existing pairing with: nb devices migrate --to ${name}` : `Destination '${name}' is not paired. Run: nb pair <bundle> --to ${name}`);
+        throw new Error(`Destination '${name}' is not paired. Run: nb pair --to ${name} and paste the setup code`);
       }
       throw new Error(`Destination '${name}' is unreadable. Preserve its file and restore it; keys will not be regenerated automatically.`);
     }
@@ -100,7 +102,11 @@ export class DestinationStore {
       catch(error) { if ((error as NodeJS.ErrnoException).code!=='EEXIST') throw error; }
     }
     const opened=await this.open(name), config=opened.record.config;
-    if (normalizeRelay(config.relay)!==bundle.relay || config.token!==bundle.token || config.device.id!==bundle.device.id || config.device.encPub!==bundle.device.encPub || config.device.sigPub!==bundle.device.sigPub || config.senderLabel!==label) {
+    const samePhone=normalizeRelay(config.relay)===bundle.relay && config.device.id===bundle.device.id && config.device.encPub===bundle.device.encPub && config.device.sigPub===bundle.device.sigPub && config.senderLabel===label;
+    if (samePhone && bundle.token!==config.token && bundle.token!==config.pairingToken && accountIdOf(bundle.token)===accountIdOf(config.pairingToken ?? config.token)) {
+      throw new Error(`Destination '${name}' has rotated credentials from the phone. Run nb unpair --to ${name}, then nb pair --to ${name} with this setup code.`);
+    }
+    if (normalizeRelay(config.relay)!==bundle.relay || ((config.pairingToken ?? config.token)!==bundle.token && config.token!==bundle.token) || config.device.id!==bundle.device.id || config.device.encPub!==bundle.device.encPub || config.device.sigPub!==bundle.device.sigPub || config.senderLabel!==label) {
       throw new Error(`Destination '${name}' already names a different pairing or connection label. Use a new destination name; existing requests will not be redirected.`);
     }
     const generated=!opened.record.fileKey ? await generateReplyKeyPair() : undefined;
@@ -113,32 +119,38 @@ export class DestinationStore {
         (latest.config.minimumRecipientGeneration ?? 0)>(bundle.minimumRecipientGeneration ?? 0))throw Error('Pairing data would downgrade the destination. Share fresh setup data from the phone.');
       latest.fileKey ??= fileKey;latest.config.relay=bundle.relay;
       latest.config.requestProtocol=bundle.requestProtocol;latest.config.minimumRecipientGeneration=bundle.minimumRecipientGeneration;
-      const temp=this.file(name)+'.'+randomUUID()+'.tmp';
-      try {
-        const fd=fs.openSync(temp,'wx',0o600);
-        try {fs.writeFileSync(fd,JSON.stringify(latest,null,2)+'\n');fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
-        fs.renameSync(temp,this.file(name));
-        if(process.platform!=='win32'){const directory=fs.openSync(path.dirname(this.file(name)),'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
-      }finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}
+      this.replace(name,latest);
     }finally{unlock();}
     return this.open(name);
   }
-  async migrate(name: string): Promise<void> {
-    destinationName(name);
-    let config:NotiBuddyConfig, keys:SenderKeyPair;
+  /** Temp, fsync and rename: a reader sees the old record or the new one, never a partial file. */
+  private replace(name:string,record:DestinationRecord):void {
+    const temp=this.file(name)+'.'+randomUUID()+'.tmp';
     try {
-      config=configSchema.parse(JSON.parse(fs.readFileSync(path.join(this.root,'config.json'),'utf8')));
-      keys=keysSchema.parse(JSON.parse(fs.readFileSync(path.join(this.root,'sender.json'),'utf8'))) as SenderKeyPair;
-    } catch { throw new Error('Existing pairing is missing or unreadable. Preserve config.json and sender.json; no files were changed.'); }
-    const record:DestinationRecord={version:2,connectionId:randomUUID(),config,keys};
-    // Validate in memory before publishing the imported record.
-    const signingKey=await importSenderPrivateKey(keys.privateKeyJwk);
-    const challenge=new TextEncoder().encode('notibuddy/local-key-check');
-    if (config.senderKeyId!==keys.senderKeyId || await deriveSenderKeyId(keys.publicKeyB64u)!==keys.senderKeyId ||
-        !await ecdsaVerify(keys.publicKeyB64u,challenge,await ecdsaSign(signingKey,challenge)) ||
-        await deriveDeviceId(config.device.encPub,config.device.sigPub)!==config.device.id) throw new Error('Legacy pairing keys do not match. No files were changed.');
-    this.create(name,record);
-    // Keep original files for rollback. PendingStore uses the unchanged cryptographic scope.
+      const fd=fs.openSync(temp,'wx',0o600);
+      try {fs.writeFileSync(fd,JSON.stringify(record,null,2)+'\n');fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+      fs.renameSync(temp,this.file(name));
+      if(process.platform!=='win32'){const directory=fs.openSync(path.dirname(this.file(name)),'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
+    }finally{if(fs.existsSync(temp))fs.unlinkSync(temp);}
+  }
+  /** Persists a rotated sender credential. Never lowers or repeats an epoch; a concurrent winner's record is returned unchanged. */
+  async rotateCredentials(name:string,next:{senderKeyId:string;token:string;epoch:number}):Promise<DestinationRecord> {
+    if(!Number.isSafeInteger(next.epoch) || next.epoch<1 || !next.token)throw Error('Invalid credential rotation');
+    this.read(name);
+    let unlock:(()=>void)|undefined;
+    for(let attempt=0;!unlock;attempt++) {
+      try {unlock=acquireFileLock(this.file(name)+'.lock');}
+      catch(error) {if(attempt>=49)throw error;await pollPause(100);}
+    }
+    try {
+      const latest=this.read(name);
+      if(latest.config.senderKeyId!==next.senderKeyId)throw Error(`Destination '${name}' belongs to a different sender key; credentials were not changed.`);
+      if((latest.config.credentialEpoch ?? 0)>=next.epoch)return latest;
+      latest.config.pairingToken??=latest.config.token;
+      latest.config.token=next.token;latest.config.credentialEpoch=next.epoch;
+      this.replace(name,latest);
+      return latest;
+    }finally{unlock();}
   }
   rename(from:string,to:string):void {
     this.read(from); this.ensure();

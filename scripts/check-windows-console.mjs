@@ -107,8 +107,10 @@ try {
       assert(active);
       if (active.protocol === 2 && request.method === 'GET') {
         const sender = registrations.get(request.headers['x-sender-key-id']); assert(sender);
-        const input = `nb1|http|GET|${url.pathname}${url.search}|${request.headers['x-sender-timestamp']}|${request.headers['x-sender-nonce']}|${hash(wire)}`;
-        assert(await api.ecdsaVerify(sender.senderPub, Buffer.from(input), request.headers['x-sender-signature']));
+        // Like the relay: the account-bound nb2 input first, then the legacy nb1 one that released clients sign.
+        const signed = `GET|${url.pathname}${url.search}|${request.headers['x-sender-timestamp']}|${request.headers['x-sender-nonce']}|${hash(wire)}`;
+        const verify = (input) => api.ecdsaVerify(sender.senderPub, Buffer.from(input), request.headers['x-sender-signature']);
+        assert(await verify(`nb2|http|${hash(token.slice(7)).slice(0, 32)}|${signed}`) || await verify(`nb1|http|${signed}`));
         active.signedLookups++;
       }
       if (request.method === 'GET' && url.pathname === '/v2/recipients') {

@@ -23,5 +23,5 @@ export async function resolveFileDestination(options:{to?:string;pairing?:string
   // Re-read/validate through open: an alias replacement during async key checks
   // must never turn identity selection into authority for another destination.
   if(expected && (record.config.device.id!==expected.deviceId || record.config.senderKeyId!==expected.senderKeyId))throw Error('The destination changed while selecting this pairing. Copy the command again and retry.');
-  return {name:name!,record,files:new FileInbox(record,signingKey,store.root)};
+  return {name:name!,record,files:new FileInbox(record,signingKey,store.root,{store,name:name!})};
 }
