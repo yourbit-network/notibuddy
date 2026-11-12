@@ -13,6 +13,12 @@ async function within(promise,phase) {
  try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error('Installed file cancellation did not finish'),{name:phase+'Timeout'})),3000);})]);}
  finally{clearTimeout(timer);}
 }
+// MCP cancellation is a notification: the server process releases the lock after its
+// download aborts, which can follow the relay seeing the connection close.
+async function released(file,phase) {
+ const deadline=Date.now()+3000;
+ while(fs.existsSync(file)){if(Date.now()>deadline)throw Object.assign(Error('Installed file cancellation kept its lock'),{name:phase+'Timeout'});await new Promise(resolve=>setTimeout(resolve,10));}
+}
 export async function fixture({installed,temporary,env,run,version,inspectStorage}) {
  const sha=b=>createHash('sha256').update(b).digest('hex'),api=await import(pathToFileURL(path.join(installed,'dist/index.js')).href);
  const req=createRequire(path.join(installed,'package.json'));const {Client}=await import(pathToFileURL(req.resolve('@modelcontextprotocol/sdk/client/index.js')).href);const {StdioClientTransport}=await import(pathToFileURL(req.resolve('@modelcontextprotocol/sdk/client/stdio.js')).href);
@@ -91,7 +97,7 @@ export async function fixture({installed,temporary,env,run,version,inspectStorag
   await within(cancelledFile.holdDownload.closed.promise,'DownloadCancel');
   const workInbox=new api.FileInbox(work.record,null,env.NOTIBUDDY_HOME);
   assert.equal(cancelledFile.acks,0);assert(!fs.existsSync(path.join(workInbox.directory,cancelledFile.m.id)));
-  assert(!fs.existsSync(path.join(workInbox.directory,cancelledFile.m.id+'.lock')));
+  await released(path.join(workInbox.directory,cancelledFile.m.id+'.lock'),'DownloadUnlock');
   delete cancelledFile.holdDownload;
   assert.equal((await call('notibuddy_files_receive',{id:cancelledFile.m.id})).result.status,'delivered');
   assert.equal(cancelledFile.downloads,2);assert.equal(cancelledFile.acks,1);
