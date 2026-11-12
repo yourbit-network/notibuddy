@@ -45,7 +45,7 @@ test('a newer release notifies once a day', async () => {
   const stored = f.cache();
   assert.deepEqual(Object.keys(stored).sort(), ['checkedAt', 'latest', 'notifiedAt', 'v']);
   assert.equal(stored.latest, NEWER);
-  assert.equal((fs.statSync(path.join(f.home, 'update-check.json')).mode & 0o777), 0o600);
+  if (process.platform !== 'win32') assert.equal((fs.statSync(path.join(f.home, 'update-check.json')).mode & 0o777), 0o600);
   assert.deepEqual(fs.readdirSync(f.home), ['update-check.json']);
   f.advance(DAY - 1000);
   assert.equal(await f.notifier.cliNotice(Date.now() + 1000), undefined);
