@@ -32,6 +32,7 @@ Usage:
   nb files receive <file_id> --pairing <device_id>:<sender_key_id>
   nb ask "<title>" --to <name> [--sender <label>] [options]
   nb ask --resume <request-id> --to <name>
+  nb notify "<title>" --to <name> [--sender <label>] [--message <text>] [--timeout <seconds>] [--sensitive]
   nb activity <id> <start|update|end|poll> --to <name> [options]
   nb mcp --to <name> [--sender <label>]
   nb mcp --allow-to <name> --allow-to <name> [--sender <label>]
@@ -167,10 +168,20 @@ ${JSON.stringify({mcpServers:{notibuddy:{command:'npx',args:['-y',`notibuddy@${v
     if(diffFile !== undefined && ['--options','--placeholder','--resume'].some(flag=>args.text(flag)!==undefined))
       throw new Error('--diff cannot be combined with --options, --placeholder or --resume');
     const diff=diffFile === undefined ? undefined : readDiffFile(diffFile);
+    const rawOptions=args.text('--options');
+    const options=rawOptions===undefined?undefined:rawOptions===''?[]:rawOptions.split(',').map(s=>s.trim());
     const route=(await createDestinationRouter(routing,store)).resolve();
     const result=await withShutdown(signal=>route.client.ask({title:args.positional[0],resumeId:args.text('--resume'),message:args.text('--message'),
-      options:args.text('--options')?.split(',').map(s=>s.trim()),declineOption:args.text('--decline-option')?.trim(),inputPlaceholder:args.text('--placeholder'),
+      options,declineOption:args.text('--decline-option')?.trim(),inputPlaceholder:args.text('--placeholder'),
       timeoutSeconds:args.number('--timeout'),waitSeconds:args.number('--wait')??45,requiresAuth:args.flag('--requires-auth'),sensitive:args.flag('--sensitive'),diff},{signal}));
+    console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
+  }
+  if(command==='notify') {
+    const args=argumentsFor(rest,['--message','--timeout'],['--sensitive']);
+    if(args.positional.length!==1)throw new Error('Use nb notify "<title>" --to <name>');
+    const route=(await createDestinationRouter(routing,store)).resolve();
+    const result=await withShutdown(signal=>route.client.notify({title:args.positional[0],message:args.text('--message'),
+      timeoutSeconds:args.number('--timeout'),sensitive:args.flag('--sensitive')||undefined},{signal}));
     console.log(JSON.stringify({...result,to:route.name,connectionId:route.record.connectionId},null,2));return;
   }
   if(command==='activity') {

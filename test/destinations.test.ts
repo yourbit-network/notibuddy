@@ -67,6 +67,7 @@ try {
   const mcp=await connect({allowTo:['personal','work'],sender:'Deployment script'});
   const tools=await mcp.listTools();
   assert.ok(tools.tools.find(t=>t.name==='notibuddy_ask')!.inputSchema.required!.includes('to'));
+  assert.ok(tools.tools.find(t=>t.name==='notibuddy_notify')!.inputSchema.required!.includes('to'));
   const call=async(client:Client,name:string,args:Record<string,unknown>)=>client.callTool({name,arguments:args});
   const json=(result:any)=>JSON.parse(result.content[0].text);
   const listed=json(await call(mcp,'notibuddy_list_destinations',{}));
@@ -90,7 +91,11 @@ try {
   const pinned=await connect({to:'personal',sender:'Coding assistant'});
   assert.equal((await call(pinned,'notibuddy_ask',{to:'work',title:'Escape',wait_seconds:0})).isError,true);
   assert.equal(json(await call(pinned,'notibuddy_ask',{title:'Pinned',wait_seconds:0})).to,'personal');
-  const beforeRename=requests.at(-1)!;
+  const notified=json(await call(pinned,'notibuddy_notify',{title:'Bead closed',message:'crucible-123'}));
+  assert.equal(notified.to,'personal');
+  assert.equal(notified.status,'delivered');
+  assert.deepEqual((await payload(requests.at(-1)!)).options,[]);
+  const beforeRename=requests.at(-2)!;
   store.rename('personal','phone');
   await store.prepare('personal',work.bundle,'Replacement');
   await call(pinned,'notibuddy_ask',{title:'Still pinned',wait_seconds:0});
@@ -116,6 +121,8 @@ try {
   assert.equal(run(['status','--to','phone']).status,0);
   const unspecified=run(['ask','Never send']);assert.equal(unspecified.status,1);assert.match(unspecified.stderr,/--to/);
   const unsupported=run(['ask','Never send','--to','phone','--profile','hidden']);assert.equal(unsupported.status,1);assert.match(unsupported.stderr,/Unknown option/);
+  const emptyOptionLabel=run(['ask','Never send','--to','phone','--options',',']);assert.equal(emptyOptionLabel.status,1);
+  const trailingCommaOption=run(['ask','Never send','--to','phone','--options','Approve,']);assert.equal(trailingCommaOption.status,1);
   const noMcpRoute=run(['mcp']);assert.equal(noMcpRoute.status,1);assert.match(noMcpRoute.stderr,/explicitly/);
   const removed=run(['devices','migrate','--to','imported']);assert.equal(removed.status,1);assert.match(removed.stderr,/Use devices list or devices rename/);
   assert.ok(!JSON.stringify(run(['devices','list'])).includes('privateKeyJwk'));

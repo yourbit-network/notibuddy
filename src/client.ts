@@ -44,7 +44,9 @@ const askSchema = askFields.refine(p => p.resumeId || p.title, 'A title is requi
   .refine(p => p.declineOption === undefined || !!p.options?.includes(p.declineOption),'declineOption must be one of options')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
-    'A new diff request cannot include form fields, choices, text input or a resume ID');
+    'A new diff request cannot include form fields, choices, text input or a resume ID')
+  .refine(p => !(p.options?.length === 0 && !p.fields && p.inputPlaceholder === undefined && p.requiresAuth),
+    'Passive notifications with empty options cannot require authentication');
 export const activitySchema = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
@@ -60,9 +62,17 @@ function declineMarked(options:string[]|undefined,decline:string|undefined):AskP
   const index=options.indexOf(decline);
   return options.map((label,i)=>i===index?{id:label,label,role:'decline' as const}:label);
 }
+export const notifySchema = z.object({
+  presentation: presentation.optional(),
+  sensitive: z.boolean().optional(),
+  title:z.string().min(1).max(500), message:z.string().max(50000).optional(),
+  timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
+});
 export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffInput };
 export type ActivityParams = z.input<typeof activitySchema>;
-export type AskResult = {status:'resolved'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
+export type NotifyParams = z.input<typeof notifySchema>;
+export type AskResult = {status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
+export type NotifyResult = {status:'delivered';requestId:string};
 export const clockSkewMessage = 'The relay rejected this computer\'s clock (more than 120 s off). Fix the system clock, then retry; run nb doctor to see the offset.';
 export const requestIdConflictMessage='This request ID was already used for a different request. Send it again with a new request ID.';
 export class DispatchRejectedError extends Error {
@@ -222,8 +232,32 @@ export class NotiBuddyClient {
     if(envelope.kind==='error')return {status:'error',requestId:envelope.requestId,errorCode:await openError({...expected,envelope})};
     return {status:'resolved',requestId:envelope.requestId,answer:await openReply({...expected,envelope,replyPrivateKey:key})};
   }
+  async notify(input:NotifyParams,options:CallOptions={}):Promise<NotifyResult> {
+    const params=notifySchema.parse(input),id='req_'+randomUUID().replaceAll('-','');
+    const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+15000)};
+    const pair=await generateReplyKeyPair();
+    const payload:AskPayload={type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title,message:params.message,
+      options:[],sensitive:params.sensitive,presentation:params.presentation};
+    let prepared=await this.seal(id,'approval',payload,params.timeoutSeconds,call);
+    for(let attempt=0;attempt<2;attempt++) {
+      try {
+        await this.postRequest(prepared.envelope,call);
+        return {status:'delivered',requestId:id};
+      }catch(error) {
+        if(attempt===0 && error instanceof DispatchRejectedError && error.code==='RECIPIENTS_CHANGED' && prepared.envelope.v===2) {
+          const remaining=prepared.envelope.expiresAt-Math.floor(Date.now()/1000);if(remaining<=0)throw error;
+          prepared=await this.seal(id,'approval',payload,remaining,call,2,prepared.envelope.expiresAt);continue;
+        }
+        throw error;
+      }
+    }
+    return {status:'delivered',requestId:id};
+  }
   async ask(input:AskParams,options:CallOptions={}):Promise<AskResult> {
     const params=askSchema.parse(input),diff=params.diff === undefined ? undefined : parseDiff(params.diff);
+    if(!params.resumeId && !diff && !params.fields?.length && params.inputPlaceholder===undefined && params.options?.length===0) {
+      return this.notify({title:params.title!,message:params.message,timeoutSeconds:params.timeoutSeconds,sensitive:params.sensitive,presentation:params.presentation},options);
+    }
     const id=params.resumeId ?? 'req_'+randomUUID().replaceAll('-','');validateIdentifier(id,'resumeId');
     // wait=0 means one lookup with a bounded network budget; positive waits are
     // one end-to-end deadline including discovery, dispatch and response bytes.

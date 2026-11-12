@@ -8,8 +8,8 @@ import { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId } fr
 import type { PairingBundle } from '../src/types.js';
 import { DestinationStore } from '../src/config.js';
 import { z } from 'zod';
-import { askFields, activitySchema } from '../src/client.js';
-import { ASK_TOOL_SCHEMA, ACTIVITY_TOOL_SCHEMA, createMcpServer, MCP_VERSION } from '../src/mcp.js';
+import { askFields, activitySchema, notifySchema } from '../src/client.js';
+import { ASK_TOOL_SCHEMA, ACTIVITY_TOOL_SCHEMA, NOTIFY_TOOL_SCHEMA, createMcpServer, MCP_VERSION } from '../src/mcp.js';
 process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 // Zod property (camelCase) -> advertised property (snake_case).
@@ -46,6 +46,7 @@ function check(name: string, schema: z.ZodType, advertised: Json): void {
 
 check('ask', askFields, ASK_TOOL_SCHEMA);
 check('activity', activitySchema, ACTIVITY_TOOL_SCHEMA);
+check('notify', notifySchema, NOTIFY_TOOL_SCHEMA);
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 assert.equal(MCP_VERSION, pkg);

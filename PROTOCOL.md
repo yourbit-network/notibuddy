@@ -197,7 +197,7 @@ The sender MUST encrypt a separate envelope for each target device.
 
 | `primitive` | Payload `type` | Expects an answer |
 |---|---|---|
-| `approval` | `ask` | yes |
+| `approval` | `ask` | yes (unless `options` is `[]`, which is a one-way notification) |
 | `text_input` | `ask` | yes |
 | `form` | `ask` | yes |
 | `diff` | `ask` | yes |
@@ -217,6 +217,8 @@ The sender MUST encrypt a separate envelope for each target device.
   "requiresAuth": true
 }
 ```
+
+When `primitive` is `approval` and `options` is an empty array (`[]`) with no form `fields`, `inputPlaceholder`, or `diff`, the request is a one-way informational notification (`nb notify`, `notibuddy_notify`, or `ask` with `options: []`). The recipient renders the alert without action buttons, attention badges, or answer controls; the sender returns `{status: "delivered", requestId}` after dispatch without saving a pending reply key or polling for a response, and rejects `requiresAuth: true`.
 
 For `diff`, the encrypted `ask` payload instead includes flat `filename`, optional `language`, `original`, and `modified` fields. These are not a nested `diff` object on the wire. `filename` is display-only; no recipient reads or writes that path. Default action IDs are `reject` (Discard) and `approve` (Apply). Approval is a decision, not execution or file mutation. An applying caller must still check that the current source matches the reviewed original.
 
