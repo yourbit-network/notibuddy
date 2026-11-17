@@ -12,7 +12,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { NotiBuddyClient, type AskParams } from '../src/client.js';
 import { DestinationStore } from '../src/config.js';
 import { PendingStore, type PendingReply } from '../src/pending-store.js';
-import { ASK_TOOL_SCHEMA, createMcpServer } from '../src/mcp.js';
+import { NOTIFY_TOOL_SCHEMA, createMcpServer } from '../src/mcp.js';
 import { sealRequest } from '../src/protocol.js';
 import { sealGroupRequest, verifyRecipients } from '../src/groups.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
@@ -140,18 +140,18 @@ test('MCP exposes independent timeout/wait bounds and forwards the selected requ
   try {
     globalThis.fetch = f.fetch;
     const [left, right] = InMemoryTransport.createLinkedPair(); await server.connect(right); await client.connect(left);
-    const schema = (await client.listTools()).tools.find(tool => tool.name === 'notibuddy_ask')!.inputSchema;
-    assert.deepEqual(schema.properties?.timeout_seconds, ASK_TOOL_SCHEMA.inputSchema.properties.timeout_seconds);
-    assert.equal(ASK_TOOL_SCHEMA.inputSchema.properties.timeout_seconds.maximum, 10800);
-    assert.equal(ASK_TOOL_SCHEMA.inputSchema.properties.wait_seconds.maximum, 55);
+    const schema = (await client.listTools()).tools.find(tool => tool.name === 'notibuddy_notify')!.inputSchema;
+    assert.deepEqual(schema.properties?.timeout_seconds, NOTIFY_TOOL_SCHEMA.inputSchema.properties.timeout_seconds);
+    assert.equal(NOTIFY_TOOL_SCHEMA.inputSchema.properties.timeout_seconds.maximum, 10800);
+    assert.equal(NOTIFY_TOOL_SCHEMA.inputSchema.properties.wait_seconds.maximum, 55);
     for (const timeout_seconds of [undefined, 1800, 10800]) {
-      const result = await client.callTool({ name: 'notibuddy_ask', arguments: { title: 'MCP request', wait_seconds: 0,
+      const result = await client.callTool({ name: 'notibuddy_notify', arguments: { title: 'MCP request', options: ['Approve', 'Reject'], wait_seconds: 0,
         ...(timeout_seconds === undefined ? {} : { timeout_seconds }) } });
       assert(!result.isError); assert.equal(f.requests.at(-1)!.expiresAt - f.requests.at(-1)!.createdAt, timeout_seconds ?? 10800);
     }
     const before = f.requests.length;
     for (const args of [{ timeout_seconds: 10801 }, { timeout_seconds: 1.5 }, { wait_seconds: 56 }]) {
-      assert.equal((await client.callTool({ name: 'notibuddy_ask', arguments: { title: 'Invalid', wait_seconds: 0, ...args } })).isError, true);
+      assert.equal((await client.callTool({ name: 'notibuddy_notify', arguments: { title: 'Invalid', options: ['Approve', 'Reject'], wait_seconds: 0, ...args } })).isError, true);
     }
     assert.equal(f.requests.length, before); assert(paired.record.keys.senderKeyId);
   } finally { await client.close(); await server.close(); globalThis.fetch = original; f.close(); }
@@ -182,13 +182,13 @@ test('CLI --timeout controls signed lifetime while --wait stays a short operatio
       child.once('error', reject); child.once('exit', code => resolve({ code, stdout, stderr }));
     });
     for (const timeout of [undefined, '1800', '10800']) {
-      const result = await run(['ask', 'CLI request', '--to', 'test', '--wait', '0', ...(timeout ? ['--timeout', timeout] : [])]);
+      const result = await run(['notify', 'CLI request', '--to', 'test', '--options', 'Approve,Reject', '--wait', '0', ...(timeout ? ['--timeout', timeout] : [])]);
       assert.equal(result.code, 0, result.stderr); assert.equal(JSON.parse(result.stdout).status, 'pending');
       assert.equal(f.requests.at(-1)!.expiresAt - f.requests.at(-1)!.createdAt, timeout ? Number(timeout) : 10800);
     }
     const before = f.requests.length;
     for (const args of [['--timeout', '10801'], ['--timeout', '1.5'], ['--timeout', '0'], ['--wait', '56']]) {
-      const result = await run(['ask', 'Invalid', '--to', 'test', ...args]); assert.equal(result.code, 1);
+      const result = await run(['notify', 'Invalid', '--to', 'test', '--options', 'Approve,Reject', ...args]); assert.equal(result.code, 1);
     }
     assert.equal(f.requests.length, before); if (failure) throw failure;
     const help = await run(['help']); assert.match(help.stdout, /--timeout/); assert.match(help.stdout, /10800/); assert.match(help.stdout, /does not change expiry/); assert.match(help.stdout, /--requires-auth\s+Require device-owner authentication.*passcode/);
@@ -196,7 +196,7 @@ test('CLI --timeout controls signed lifetime while --wait stays a short operatio
 });
 
 test('requires_auth description does not claim biometrics only', () => {
-  const props = (ASK_TOOL_SCHEMA as any).properties ?? (ASK_TOOL_SCHEMA as any).inputSchema?.properties;
+  const props = (NOTIFY_TOOL_SCHEMA as any).properties ?? (NOTIFY_TOOL_SCHEMA as any).inputSchema?.properties;
   const description: string = props.requires_auth.description;
   assert.match(description, /passcode/);
   assert.match(description, /Watch/);

@@ -4,14 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { NotiBuddyClient } from '../src/client.js';
 import { PendingStore } from '../src/pending-store.js';
-import { ASK_TOOL_SCHEMA } from '../src/mcp.js';
+import { NOTIFY_TOOL_SCHEMA } from '../src/mcp.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
 import type { NotiBuddyConfig } from '../src/types.js';
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'notibuddy-secret-'));
 const originalFetch = globalThis.fetch;
 try {
-  const description = JSON.stringify(ASK_TOOL_SCHEMA);
+  const description = JSON.stringify(NOTIFY_TOOL_SCHEMA);
   assert.ok(description.includes('older phones show unknown field types as plain text'));
   assert.ok(description.includes('"secret"'));
 

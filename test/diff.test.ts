@@ -127,18 +127,18 @@ try {
   const mcpServer = await createMcpServer({ allowTo: ['review'], sender: 'MCP reviewer' }, store);
   const mcp = new Client({ name: 'diff-fixture', version: '1' }, { capabilities: {} });
   const [left, right] = InMemoryTransport.createLinkedPair(); await mcpServer.connect(right); await mcp.connect(left); clients.push(mcp);
-  const schema = (await mcp.listTools()).tools.find(tool => tool.name === 'notibuddy_ask')!.inputSchema;
+  const schema = (await mcp.listTools()).tools.find(tool => tool.name === 'notibuddy_notify')!.inputSchema;
   assert(schema.properties?.diff); assert(schema.required?.includes('to'));
-  const result = await mcp.callTool({ name: 'notibuddy_ask', arguments: { to: 'review', title: 'MCP diff', diff, sensitive: true, requires_auth: true, wait_seconds: 0 } });
+  const result = await mcp.callTool({ name: 'notibuddy_notify', arguments: { to: 'review', title: 'MCP diff', diff, sensitive: true, requires_auth: true, wait_seconds: 0 } });
   assert(!result.isError); const mcpPending = JSON.parse((result.content as any)[0].text);
   assert.equal(mcpPending.status, 'pending'); assert.equal((await open(requests.at(-1)!)).original, diff.original);
   await reply(requests.at(-1)!);
-  const resumed = await mcp.callTool({ name: 'notibuddy_ask', arguments: { to: 'review', resume_id: mcpPending.requestId, wait_seconds: 0 } });
+  const resumed = await mcp.callTool({ name: 'notibuddy_notify', arguments: { to: 'review', resume_id: mcpPending.requestId, wait_seconds: 0 } });
   assert.equal(JSON.parse((resumed.content as any)[0].text).answer.action, 'approve');
   const beforeMcpInvalid = calls;
   for (const args of [{ title: 'Missing destination', diff }, { to: 'review', title: 'Conflicting', diff, fields: [{ id: 'x', type: 'text', label: 'x' }] },
     { to: 'review', title: 'Invalid source', diff: { ...diff, original: 5 } }]) {
-    assert.equal((await mcp.callTool({ name: 'notibuddy_ask', arguments: { ...args, wait_seconds: 0 } })).isError, true);
+    assert.equal((await mcp.callTool({ name: 'notibuddy_notify', arguments: { ...args, wait_seconds: 0 } })).isError, true);
   }
   assert.equal(calls, beforeMcpInvalid); checks++;
 
@@ -167,13 +167,13 @@ try {
     let stdout = '', stderr = ''; child.stdout.on('data', bytes => stdout += bytes); child.stderr.on('data', bytes => stderr += bytes);
     child.once('error', reject); child.once('exit', code => resolve({ code, stdout, stderr }));
   });
-  const cliResult = await run(['ask', 'CLI diff', '--to', 'review', '--diff', inputFile, '--requires-auth', '--sensitive', '--wait', '2']);
+  const cliResult = await run(['notify', 'CLI diff', '--to', 'review', '--diff', inputFile, '--requires-auth', '--sensitive', '--wait', '2']);
   if (serverFailure) throw serverFailure;
   assert.equal(cliResult.code, 0, cliResult.stderr); assert.equal(JSON.parse(cliResult.stdout).answer.action, 'approve');
   assert(!cliResult.stdout.includes(diff.original)); checks++;
-  const conflict = await run(['ask', 'Conflict', '--to', 'review', '--diff', path.join(root, 'missing'), '--options', 'Yes']);
+  const conflict = await run(['notify', 'Conflict', '--to', 'review', '--diff', path.join(root, 'missing'), '--options', 'Yes']);
   assert.equal(conflict.code, 1); assert.match(conflict.stderr, /cannot be combined/);
-  const invalidCli = await run(['ask', 'Bad source', '--to', 'review', '--diff', path.join(root, 'invalid.json')]);
+  const invalidCli = await run(['notify', 'Bad source', '--to', 'review', '--diff', path.join(root, 'invalid.json')]);
   assert.equal(invalidCli.code, 1); assert(!invalidCli.stderr.includes('secret')); checks++;
   console.log(`${checks} diff validation, encryption, resume, MCP and CLI checks passed`);
 } finally {

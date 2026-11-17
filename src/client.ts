@@ -285,7 +285,7 @@ export class NotiBuddyClient {
         if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.code==='REQUEST_ID_CONFLICT'?requestIdConflictMessage:error.message};}
         return {status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`};
       }
-      return {status:'pending',requestId:id,message:`Call notibuddy_ask with resume_id='${id}' to check again, including after restarting this client.`};
+      return {status:'pending',requestId:id,message:`Call notibuddy_notify with resume_id='${id}' (or run nb notify --resume '${id}') to check again, including after restarting this client.`};
     });
   }
   private writeActivity(id:string,session:ActivitySession) {

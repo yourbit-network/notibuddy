@@ -110,12 +110,12 @@ test('real MCP cancellation stops a download and the same server can retry its f
       env:{...process.env,NOTIBUDDY_HOME:f.root},stderr:'pipe'});
     let stderr='';transport.stderr?.on('data',chunk=>{stderr+=chunk;});
     await client.connect(transport,{timeout:10_000});
-    const controller=new AbortController(),call=client.callTool({name:'notibuddy_files_receive',arguments:{id:f.manifest.id}},undefined,{signal:controller.signal,timeout:10_000});
+    const controller=new AbortController(),call=client.callTool({name:'notibuddy_files',arguments:{action:'receive',id:f.manifest.id}},undefined,{signal:controller.signal,timeout:10_000});
     void call.catch(()=>{});await bounded(ready,10_000);controller.abort();await assert.rejects(call);
     await bounded(disconnected);
     assert.equal(acks,0);assert.deepEqual(fs.readdirSync(inbox.directory),[]);
     complete=true;
-    const result=await client.callTool({name:'notibuddy_files_receive',arguments:{id:f.manifest.id}},undefined,{timeout:10_000});
+    const result=await client.callTool({name:'notibuddy_files',arguments:{action:'receive',id:f.manifest.id}},undefined,{timeout:10_000});
     assert(!result.isError);assert.equal(JSON.parse((result.content as {text:string}[])[0].text).result.status,'delivered');
     assert.equal(downloads,2);assert.equal(acks,1);assert.equal(serverFailure,undefined);assert.equal(stderr,'');
   } finally {
