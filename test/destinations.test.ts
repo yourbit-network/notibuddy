@@ -66,31 +66,44 @@ try {
   };
   const mcp=await connect({allowTo:['personal','work'],sender:'Deployment script'});
   const tools=await mcp.listTools();
-  assert.ok(tools.tools.find(t=>t.name==='notibuddy_ask')!.inputSchema.required!.includes('to'));
+  assert.deepEqual(tools.tools.map(t=>t.name),['notibuddy_notify','notibuddy_activity','notibuddy_files','notibuddy_list_destinations']);
   assert.ok(tools.tools.find(t=>t.name==='notibuddy_notify')!.inputSchema.required!.includes('to'));
+  assert.ok(tools.tools.find(t=>t.name==='notibuddy_files')!.inputSchema.required!.includes('to'));
   const call=async(client:Client,name:string,args:Record<string,unknown>)=>client.callTool({name,arguments:args});
   const json=(result:any)=>JSON.parse(result.content[0].text);
+  const text=(result:any)=>result.content[0].text as string;
   const listed=json(await call(mcp,'notibuddy_list_destinations',{}));
   assert.deepEqual(listed.map((d:any)=>d.to),['personal','work']);assert.ok(listed.every((d:any)=>d.acceptsNewMessages===false));
-  for(const args of [{title:'No destination',wait_seconds:0},{to:'race',title:'Hidden',wait_seconds:0},{to:5,title:'Bad',wait_seconds:0}]) {
-    assert.equal((await call(mcp,'notibuddy_ask',args)).isError,true);
+  for(const args of [{title:'No destination',options:['Go'],wait_seconds:0},{to:'race',title:'Hidden',options:['Go'],wait_seconds:0},{to:5,title:'Bad',options:['Go'],wait_seconds:0}]) {
+    assert.equal((await call(mcp,'notibuddy_notify',args)).isError,true);
   }
-  assert.equal((await call(mcp,'notibuddy_files_list',{to:'race'})).isError,true);
-  assert.equal((await call(mcp,'notibuddy_files_receive',{id:'file_'+'a'.repeat(32)})).isError,true);
-  assert.ok(tools.tools.find(t=>t.name==='notibuddy_files_receive')!.inputSchema.required!.includes('to'));
-  assert.equal(fetches,0,'Routing errors never dispatch or poll');
-  const pending=json(await call(mcp,'notibuddy_ask',{to:'work',title:'Deploy?',wait_seconds:0}));
+  assert.equal((await call(mcp,'notibuddy_files',{action:'list',to:'race'})).isError,true);
+  assert.equal((await call(mcp,'notibuddy_files',{action:'receive',id:'file_'+'a'.repeat(32)})).isError,true);
+  const retiredAsk=await call(mcp,'notibuddy_ask',{to:'work',title:'Old'});
+  assert.equal(retiredAsk.isError,true);assert.match(text(retiredAsk),/notibuddy_notify/);
+  const retiredList=await call(mcp,'notibuddy_files_list',{to:'work'});
+  assert.equal(retiredList.isError,true);assert.match(text(retiredList),/notibuddy_files.*"action": "list"/);
+  const retiredReceive=await call(mcp,'notibuddy_files_receive',{to:'work',id:'file_'+'a'.repeat(32)});
+  assert.equal(retiredReceive.isError,true);assert.match(text(retiredReceive),/notibuddy_files.*"action": "receive"/);
+  const waitOnOneWay=await call(mcp,'notibuddy_notify',{to:'work',title:'One-way?',wait_seconds:10});
+  assert.equal(waitOnOneWay.isError,true);assert.match(text(waitOnOneWay),/options|fields/);
+  const badTimeout=await call(mcp,'notibuddy_notify',{to:'work',title:'Too long',timeout_seconds:99999});
+  assert.equal(badTimeout.isError,true);assert.match(text(badTimeout),/Invalid timeout_seconds:/);assert.ok(!text(badTimeout).includes('"origin"'));
+  assert.equal(fetches,0,'Routing and validation errors never dispatch or poll');
+  const pending=json(await call(mcp,'notibuddy_notify',{to:'work',title:'Deploy?',options:['Approve','Deny'],wait_seconds:0}));
   assert.equal(pending.to,'work'); assert.equal(requests[0].deviceId,work.bundle.device.id);
   assert.deepEqual((await payload(requests[0])).source,{label:'Deployment script'});
   assert.ok(!JSON.stringify(requests[0]).includes('Deployment script'),'Sender label remains encrypted');
   await reply(requests[0]);
   const before=fetches;
-  assert.equal((await call(mcp,'notibuddy_ask',{to:'personal',resume_id:pending.requestId,wait_seconds:0})).isError,true);
+  assert.equal((await call(mcp,'notibuddy_notify',{to:'personal',resume_id:pending.requestId,wait_seconds:0})).isError,true);
   assert.equal(fetches,before,'Wrong destination cannot poll or consume another connection reply');
-  assert.equal(json(await call(mcp,'notibuddy_ask',{to:'work',resume_id:pending.requestId,wait_seconds:0})).status,'resolved');
+  assert.equal(json(await call(mcp,'notibuddy_notify',{to:'work',resume_id:pending.requestId,wait_seconds:0})).status,'resolved');
   const pinned=await connect({to:'personal',sender:'Coding assistant'});
-  assert.equal((await call(pinned,'notibuddy_ask',{to:'work',title:'Escape',wait_seconds:0})).isError,true);
-  assert.equal(json(await call(pinned,'notibuddy_ask',{title:'Pinned',wait_seconds:0})).to,'personal');
+  const pinnedTools=await pinned.listTools();
+  assert.equal('to' in (pinnedTools.tools.find(t=>t.name==='notibuddy_notify')!.inputSchema.properties ?? {}),false,'Pinned mode omits to from advertised schema');
+  assert.equal((await call(pinned,'notibuddy_notify',{to:'work',title:'Escape',options:['Approve'],wait_seconds:0})).isError,true);
+  assert.equal(json(await call(pinned,'notibuddy_notify',{title:'Pinned',options:['Approve'],wait_seconds:0})).to,'personal');
   const notified=json(await call(pinned,'notibuddy_notify',{title:'Bead closed',message:'crucible-123'}));
   assert.equal(notified.to,'personal');
   assert.equal(notified.status,'delivered');
@@ -98,7 +111,7 @@ try {
   const beforeRename=requests.at(-2)!;
   store.rename('personal','phone');
   await store.prepare('personal',work.bundle,'Replacement');
-  await call(pinned,'notibuddy_ask',{title:'Still pinned',wait_seconds:0});
+  await call(pinned,'notibuddy_notify',{title:'Still pinned',options:['Approve'],wait_seconds:0});
   assert.equal(requests.at(-1)!.deviceId,beforeRename.deviceId,'Running MCP keeps its original binding after alias reuse');
   await reply(beforeRename);
   const renamed=(await createDestinationRouter({to:'phone'},store)).resolve();
@@ -116,15 +129,30 @@ try {
   assert.equal(fs.readFileSync(path.join(brokenRoot,'destinations','broken.json'),'utf8'),'invalid','Corrupt credentials are never overwritten');
   if(process.platform!=='win32') for(const name of fs.readdirSync(path.join(root,'destinations'))) assert.equal(fs.statSync(path.join(root,'destinations',name)).mode&0o777,0o600);
   const cli=fileURLToPath(new URL('../src/cli.ts',import.meta.url));
-  const run=(args:string[],home=root)=>spawnSync(process.execPath,['--import','tsx',cli,...args],{env:{...process.env,NOTIBUDDY_HOME:home},encoding:'utf8',timeout:15000});
+  const run=(args:string[],home=root)=>spawnSync(process.execPath,['--import','tsx',cli,...args],{env:{...process.env,NOTIBUDDY_HOME:home,NOTIBUDDY_NO_UPDATE_CHECK:'1'},encoding:'utf8',timeout:15000});
+  assert.equal(run(['--version']).status,0);assert.match(run(['--version']).stdout,/^notibuddy \d+\.\d+\.\d+/);
+  assert.equal(run(['notify','--help']).status,0);assert.match(run(['notify','--help']).stdout,/nb notify/);
   assert.equal(run(['devices','list']).status,0);
-  assert.equal(run(['status','--to','phone']).status,0);
-  const unspecified=run(['ask','Never send']);assert.equal(unspecified.status,1);assert.match(unspecified.stderr,/--to/);
-  const unsupported=run(['ask','Never send','--to','phone','--profile','hidden']);assert.equal(unsupported.status,1);assert.match(unsupported.stderr,/Unknown option/);
-  const emptyOptionLabel=run(['ask','Never send','--to','phone','--options',',']);assert.equal(emptyOptionLabel.status,1);
-  const trailingCommaOption=run(['ask','Never send','--to','phone','--options','Approve,']);assert.equal(trailingCommaOption.status,1);
+  const statusOut=run(['status','--to','phone']);assert.equal(statusOut.status,0);assert.equal(JSON.parse(statusOut.stdout).fileReceiving,true);
+  const unspecified=run(['notify','Never send']);assert.equal(unspecified.status,1);assert.match(unspecified.stderr,/--to/);
+  const retiredCli=run(['ask','Deploy?','--to','phone']);assert.equal(retiredCli.status,1);assert.match(retiredCli.stderr,/nb notify --to phone "Deploy\?" --options "Approve,Reject"/);
+  const guessedCmd=run(['ping']);assert.equal(guessedCmd.status,1);assert.match(guessedCmd.stderr,/nb doctor/);
+  const unsupported=run(['notify','Never send','--to','phone','--profile','hidden']);assert.equal(unsupported.status,1);assert.match(unsupported.stderr,/Unknown option/);
+  const badTimeoutCli=run(['notify','Hi','--to','phone','--timeout','99999']);assert.equal(badTimeoutCli.status,1);assert.match(badTimeoutCli.stderr,/Invalid --timeout:/);assert.ok(!badTimeoutCli.stderr.includes('"origin"'));
+  const badNameCli=run(['pair','--to','BAD_NAME']);assert.equal(badNameCli.status,1);assert.ok(!badNameCli.stderr.includes('"origin"'));assert.match(badNameCli.stderr,/lowercase letters/);
+  const emptyOptionLabel=run(['notify','Never send','--to','phone','--options',',']);assert.equal(emptyOptionLabel.status,1);
+  const trailingCommaOption=run(['notify','Never send','--to','phone','--options','Approve,']);assert.equal(trailingCommaOption.status,1);
   const noMcpRoute=run(['mcp']);assert.equal(noMcpRoute.status,1);assert.match(noMcpRoute.stderr,/explicitly/);
-  const removed=run(['devices','migrate','--to','imported']);assert.equal(removed.status,1);assert.match(removed.stderr,/Use devices list or devices rename/);
+  const removed=run(['devices','migrate','--to','imported']);assert.equal(removed.status,1);assert.match(removed.stderr,/nb pair --to imported/);
   assert.ok(!JSON.stringify(run(['devices','list'])).includes('privateKeyJwk'));
+
+  // Single-destination CLI auto-selection (when only 1 phone is paired) keeps stderr clean.
+  const singleHome=path.join(root,'single'), singleStore=new DestinationStore(singleHome);
+  await singleStore.prepare('solo',personal.bundle,'Solo Mac');
+  const soloStatus=run(['doctor'],singleHome); // fails network because relay.test is unreachable, but auto-selected 'solo'
+  assert.equal(soloStatus.stderr,'');
+  assert.equal(JSON.parse(soloStatus.stdout).to,'solo');
+  // --message value starting with -- is accepted instead of rejected as missing value.
+  assert.match(run(['notify','Dash msg','--message','--flag-value','--wait','10'],singleHome).stderr,/One-way notifications/);
   console.log('Destination/MCP integration passed: explicit routing, allowlist, pinning, encrypted labels, independent keys, concurrent creation, rename, reply isolation, activity continuity.');
 } finally {for(const client of clients)await client.close();globalThis.fetch=originalFetch;fs.rmSync(root,{recursive:true,force:true});}

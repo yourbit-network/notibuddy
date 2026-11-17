@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-16
 
+- **MCP & CLI simplification:** Retire `notibuddy_ask` and `nb ask` in favor of unified `notibuddy_notify` / `nb notify` (one-way by default; interactive when `options`, `input_placeholder`, `fields`, `diff`, `requires_auth`, or `resume_id` is supplied), and merge `notibuddy_files_list` + `notibuddy_files_receive` into `notibuddy_files` (`action: "list" | "receive"`). Calling retired or guessed tools/commands returns an immediate error with the working replacement.
+- **Compact MCP surface:** Trim schema prose, omit `to` from advertised tool schemas when pinned with `--to`, and return compact JSON tool results and 1-line validation errors.
+- **CLI usability:** Add `--version` and per-command `--help`, validate commands before destination routing, auto-select the sole paired destination on everyday CLI commands when `--to` is omitted, add `--short-title`, `--summary`, `--fields` (on `notify`), and `--controls` (on `activity`), and allow flag values beginning with `--`.
 - **Compatibility:** Sign relay HTTP requests with a new `nb2` signature input that names the sender's account, and send the sender key id as `X-Sender-Key-ID` (previously `X-Sender-ID`) on file routes. v1 reply polls are now sender-signed as well. This release needs the current NotiBuddy relay, which accepts both the old and the new format.
 - **Migration:** Drop migration support for installs older than 0.2.0 and remove `nb devices migrate`. Such installs run `npx notibuddy@0.2.10 devices migrate --to <name>` once, or pair again. Installs from 0.2.0 or later are unaffected.
 - Change `nb pair` to read the setup code from a hidden prompt or from stdin (`pbpaste | nb pair --to <name>`) instead of the command line, so it stays out of shell history. A code passed as an argument still works but prints a warning. Reject codes over 64 KiB.

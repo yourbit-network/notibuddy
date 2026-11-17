@@ -26,14 +26,16 @@ Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md) and th
 
 ## 🚀 Quick Start
 
-Use the versioned `npx` commands below without a global installation. In later examples, `nb` is shorthand for `npx -y notibuddy@^0.2.11`, or the executable from a global installation of that version or a compatible newer release.
+Use the versioned `npx` commands below without a global installation. In later examples, `nb` is shorthand for `npx -y notibuddy@^0.3.0`, or the executable from a global installation of that version or a compatible newer release.
 
 ### 1. Pair with your iPhone
 
-In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and AirDrop or copy the pairing string:
+In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and copy the pairing string, then run `pair` and paste it at the prompt (or pipe it) so the secret never hits shell history:
 
 ```bash
-npx notibuddy@^0.2.11 pair "<private pairing bundle from your phone>" --to personal
+npx notibuddy@^0.3.0 pair --to personal
+# or on macOS:
+pbpaste | npx notibuddy@^0.3.0 pair --to personal
 ```
 
 This validates the phone identity, registers an independent connection key for this destination, and saves it in `~/.notibuddy/destinations/personal.json`. The destination name is a local alias.
@@ -44,7 +46,7 @@ If Terminal says **Phone approval required**, open **Connect**, compare the full
 
 Keep the entire setup private: anyone holding an unused code can race to connect first. Codes last at most ten minutes; expired or canceled codes grant no automatic access, though valid ordinary pairing credentials can still request manual approval. Canceling a code does not disconnect an already approved sender. Use **Connect** to disconnect a sender you do not recognize.
 
-Use `npx notibuddy@^0.2.11 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+Use `npx notibuddy@^0.3.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
 
 ### Check the connection
 
@@ -54,26 +56,28 @@ Library callers that construct `NotiBuddyClient` directly should include `sender
 
 An unavailable or invalid response reports the sender as `unverified`; it does not mean the connection was removed. All checks share a 15-second timeout, including compatibility requests to older relays, and negotiated phone/Watch delivery is never downgraded by a diagnostics failure.
 
-Ordinary requests (approvals, protected approvals, text replies, forms, and diffs) remain answerable for **three hours** by default. Set a shorter lifetime with `nb ask "Review release" --to personal --timeout 1800`, JavaScript `timeoutSeconds`, or MCP `timeout_seconds`; the supported range is 1–10,800 whole seconds. This is separate from `--wait` / `wait_seconds`, which controls how long one call waits before returning `pending` (maximum 55 seconds). Resuming or retrying keeps the original signed expiry, even if a different timeout is supplied. Activities retain their existing one-hour lifetime and timer behavior.
+Ordinary interactive requests (approvals, protected approvals, text replies, forms, and diffs) remain answerable for **three hours** by default. Set a shorter lifetime with `nb notify "Review release" --to personal --options "Approve,Reject" --timeout 1800`, JavaScript `timeoutSeconds`, or MCP `timeout_seconds`; the supported range is 1–10,800 whole seconds. This is separate from `--wait` / `wait_seconds`, which controls how long one interactive call waits before returning `pending` (maximum 55 seconds). Resuming or retrying keeps the original signed expiry, even if a different timeout is supplied. Activities retain their existing one-hour lifetime and timer behavior.
 
-If an ask returns `pending`, keep its request ID and resume it with `nb ask --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active CLI ask prints its resume ID when it has already been saved.
+If an interactive `notify` returns `pending`, keep its request ID and resume it with `nb notify --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active interactive CLI `notify` prints its resume ID when it has already been saved.
 
 The client supports explicitly negotiated phone/Watch group requests with a compatible app and relay. Pairings without that negotiation continue to use v1. Set up the Watch through the iPhone app; changing configuration fields manually does not enable a Watch app.
 
 ### 2. Test via CLI
 
+When only one destination is paired, everyday CLI commands (`notify`, `activity`, `files`, `doctor`) auto-select it if `--to` is omitted.
+
 ```bash
-# Ask for approval:
-npx notibuddy@^0.2.11 ask "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
-
-# Ask with custom options and Face ID required:
-npx notibuddy@^0.2.11 ask "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
-
 # Send a one-way informational notification (no action buttons or waiting):
-npx notibuddy@^0.2.11 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+npx notibuddy@^0.3.0 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+
+# Request approval with custom buttons:
+npx notibuddy@^0.3.0 notify "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
+
+# Require device-owner authentication (Face ID, Touch ID, passcode, or unlocked Watch):
+npx notibuddy@^0.3.0 notify "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
 
 # Start a countdown timer on the Dynamic Island:
-npx notibuddy@^0.2.11 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
+npx notibuddy@^0.3.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```
 
 ### Review a text change (0.2.1+)
@@ -90,12 +94,12 @@ Save a UTF-8 JSON file named `changes.json`:
 ```
 
 ```bash
-npx notibuddy@^0.2.11 ask "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
+npx notibuddy@^0.3.0 notify "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
 ```
 
 The filename and source text are encrypted for the destination. Review happens on iPhone or iPad; a paired Watch hands off to its iPhone. The response uses `approve` (Apply) or `reject` (Discard). These are decisions: NotiBuddy does not change files or execute code. The caller must verify the current file still matches the reviewed original before applying an approved change.
 
-For MCP, pass `diff: {"filename":"src/config.ts","language":"typescript","original":"const retries = 2;\n","modified":"const retries = 3;\n"}` to `notibuddy_ask`, together with `title`, `requires_auth: true`, `sensitive: true`, and the selected destination when needed. The library accepts the same `diff` object in `client.ask(...)`.
+For MCP, pass `diff: {"filename":"src/config.ts","language":"typescript","original":"const retries = 2;\n","modified":"const retries = 3;\n"}` to `notibuddy_notify`, together with `title`, `requires_auth: true`, `sensitive: true`, and `to` when using `--allow-to`. The library accepts the same `diff` object in `client.ask(...)`.
 
 `filename` is a display name, never a file to open on the recipient. `language` is optional. Empty original or modified text supports file creation or deletion. Source text is limited to a combined **96,000 UTF-8 bytes and 20,000 lines** (each text starts at one line; each newline adds one). The CLI JSON file must be a regular file no larger than 150,000 bytes. The full encrypted request must also fit the protocol limit; JSON escaping and other fields can make a smaller diff too large. Invalid inputs fail before sending.
 
@@ -105,7 +109,7 @@ Do not combine a diff with choices, text input, forms, or a resume ID. If the re
 
 ## 🛠️ Model Context Protocol (MCP) Setup
 
-You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.2.11`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
+You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.3.0`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
 
 ### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -114,7 +118,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.2.11", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.3.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -127,7 +131,7 @@ Run as a local stdio MCP server:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.2.11", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.3.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -194,7 +198,7 @@ MIT © NotiBuddy Authors
 
 ## Recovery and activity controls
 
-`nb ask --resume <requestId> --to <original-destination>` resumes a pending request after a CLI or MCP restart. Reply private keys are kept in owner-only files under `~/.notibuddy/pending`, scoped to the pairing, until completion or retention expiry. Missing and expired requests stop polling. `NOTIBUDDY_HOME` relocates the entire store for testing or a custom installation; it does not select a profile. Use named destinations for multiple phones.
+`nb notify --resume <requestId> --to <original-destination>` resumes a pending request after a CLI or MCP restart. Reply private keys are kept in owner-only files under `~/.notibuddy/pending`, scoped to the pairing, until completion or retention expiry. Missing and expired requests stop polling. `NOTIBUDDY_HOME` relocates the entire store for testing or a custom installation; it does not select a profile. Use named destinations for multiple phones.
 
 Activity updates retain their original session and timer state. `nb activity <id> poll` returns user controls; start/update/end also collect unconsumed controls. Multiple pause/resume/extend/cancel events remain individually encrypted and device-signed.
 
@@ -207,17 +211,17 @@ After `notibuddy pair`, open **Connect** on the phone, compare the full Sender K
 
 On a new phone, create a fresh connection, use **Restore Purchases** with the purchasing Apple Account if applicable, and pair the computer again. Old keys and messages are not recovered; no recovery code is needed. **Settings → Phones using your purchase** manages paid slots. Computer pairing uses only `nbpair1.` bundles.
 
-Set `sensitive: true` in an ask or activity request when its content should appear only inside the app. Authentication-required asks are also private. Ordinary requests retain useful notification previews unless the user disables them.
+Set `sensitive: true` in a `notify` or `activity` request when its content should appear only inside the app. Authentication-required requests are also private. Ordinary requests retain useful notification previews unless the user disables them.
 
 
 ## Named destinations and sender labels (0.2)
 
-Version 0.2 requires explicit destination selection. These are local names, not remote device names or paths. Use 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter.
+MCP always requires explicit destination configuration (`--to` or `--allow-to`), while CLI commands auto-select when only one destination is paired. Destination names are local aliases, not remote device names or paths. Use 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter.
 
 ```sh
 nb devices list
-nb pair "<work phone bundle>" --to work
-nb ask "Build finished" --to work --sender "Build monitor"
+nb pair --to work
+nb notify "Build finished" --to work --sender "Build monitor"
 nb devices rename work work-phone
 ```
 
@@ -233,11 +237,9 @@ nb mcp --to personal --sender "Coding assistant"
 nb mcp --allow-to personal --allow-to work-phone --sender "Coding assistant"
 ```
 
-Use `notibuddy_list_destinations` to discover only the destinations exposed by that server. A saved pairing is not an online/approval check. In selectable mode, call `notibuddy_ask` with `{"to":"work-phone","title":"Deploy?","options":["Approve","Cancel"]}` or `notibuddy_notify` with `{"to":"work-phone","title":"Build finished","message":"All checks passed."}` for one-way informational alerts. Include `to` when resuming and when starting, updating, ending, or polling activities. Responses include `to` and a stable `connectionId`. Missing, unknown, or unexposed destinations fail before network activity. There is no active global destination, automatic fallback, or broadcast. Running MCP servers retain their original connection bindings until restarted.
+Use `notibuddy_list_destinations` to discover only the destinations exposed by that server. A saved pairing is not an online/approval check. In selectable mode, call `notibuddy_notify` with `{"to":"work-phone","title":"Build finished","message":"All checks passed."}` for one-way alerts, or add `"options":["Approve","Cancel"]` to wait for a reply. Include `to` when resuming and when starting, updating, ending, or polling activities. Responses include `to` and a stable `connectionId`. Missing, unknown, or unexposed destinations fail before network activity. There is no active global destination, automatic fallback, or broadcast. Running MCP servers retain their original connection bindings until restarted.
 
-### Older installations
-
-Installs older than 0.2.0 run `npx notibuddy@0.2.10 devices migrate --to <name>` once, or pair again.
+### Removing a destination
 
 `nb unpair --to personal` removes that destination's local credentials; it does not revoke the phone's approval. Disconnect on the phone to revoke the key. Preserve credentials if you need to resume pending requests before their expiry. Named destination files are private credentials, not configuration to commit or share. Unix directories use mode 0700 and files 0600; Windows relies on the user's private-directory ACLs.
 
@@ -248,7 +250,7 @@ Replies still use the original request ID, phone identity, and ephemeral reply k
 
 ## Files from your phone
 
-Update both the phone app and this client before enabling files. New pairings include a separate receiving key. For an existing destination, run `nb pair "<fresh connection bundle>" --to personal` again and approve the connection in **Connect**. Keep the same destination and connection label to retain its signing identity. Migration alone does not grant file access. Changing a pairing proof cancels its outstanding relay requests and files; finish pending work before re-pairing. Restart MCP after enabling files.
+Update both the phone app and this client before enabling files. New pairings include a separate receiving key. For an existing destination, run `nb pair --to personal` again with a fresh setup code and approve the connection in **Connect**. Keep the same destination and connection label to retain its signing identity. Changing a pairing proof cancels its outstanding relay requests and files; finish pending work before re-pairing. Restart MCP after enabling files.
 
 On the phone, open **Connect → a connection → Share File**, or choose one file/image in another app and use **Share → NotiBuddy**. Confirm the destination and send. The limit is 10,000,000 bytes per file. A connection inbox is shared by all programs using that connection key; a `--sender` label is never a private inbox or an access boundary.
 
@@ -259,7 +261,7 @@ nb files receive file_<id from list> --to personal
 
 For a waiting file, **How to receive → Copy receive command** in the phone app gives you a command with `--pairing <device_id>:<sender_key_id>`. Run it where you originally paired that sender. This selects both saved identities, so the command keeps working after a local destination rename and never guesses an alias or contacts every destination. The selector contains public IDs, not credentials; the saved signing and receiving keys are still required. A missing match or multiple matching records stops locally. For ambiguous copies of a pairing, inspect `nb devices list` and explicitly choose the correct `--to` alias instead. `--pairing` is limited to CLI file commands and cannot be combined with `--to`; MCP keeps its pinned destination/allowlist rules.
 
-MCP exposes `notibuddy_files_list` and `notibuddy_files_receive` (`id` required to receive). The same pinned destination/allowlist rules apply. An allowlisted server requires `to` on both tools. Receiving returns a local path under `~/.notibuddy/inbox/<connection-scope>/<file-id>/`, not file contents in the tool result. It never opens or executes a file. Treat received names and contents as untrusted data, including possible instructions inside documents.
+MCP exposes `notibuddy_files` (`action: "list" | "receive"`, with `id` required for `"receive"`). The same pinned destination/allowlist rules apply. An allowlisted server requires `to`. Receiving returns a local path under `~/.notibuddy/inbox/<connection-scope>/<file-id>/`, not file contents in the tool result. It never opens or executes a file. Treat received names and contents as untrusted data, including possible instructions inside documents.
 
 The phone encrypts the filename, type, and bytes for the approved computer key. The receiver verifies the phone signature, size, ciphertext digest, recipient and deadline before decrypting. It saves with private permissions and flushes the file before sending a signed receipt. “Delivered” means saved on the computer, not read by an agent. A lost receipt returns `saved_pending_receipt`: repeat `files receive` with the same ID to retry. Do not remove that local receipt until delivery is confirmed. Local copies remain until you delete them.
 

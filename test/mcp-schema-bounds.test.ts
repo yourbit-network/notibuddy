@@ -9,7 +9,7 @@ import type { PairingBundle } from '../src/types.js';
 import { DestinationStore } from '../src/config.js';
 import { z } from 'zod';
 import { askFields, activitySchema, notifySchema } from '../src/client.js';
-import { ASK_TOOL_SCHEMA, ACTIVITY_TOOL_SCHEMA, NOTIFY_TOOL_SCHEMA, createMcpServer, MCP_VERSION } from '../src/mcp.js';
+import { ACTIVITY_TOOL_SCHEMA, FILES_TOOL_SCHEMA, NOTIFY_TOOL_SCHEMA, createMcpServer, MCP_VERSION } from '../src/mcp.js';
 process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm registry
 
 // Zod property (camelCase) -> advertised property (snake_case).
@@ -44,7 +44,7 @@ function check(name: string, schema: z.ZodType, advertised: Json): void {
   assert.deepEqual(errors, [], `${name} advertised bounds drift from zod:\n${errors.join('\n')}`);
 }
 
-check('ask', askFields, ASK_TOOL_SCHEMA);
+check('notify(ask)', askFields, NOTIFY_TOOL_SCHEMA);
 check('activity', activitySchema, ACTIVITY_TOOL_SCHEMA);
 check('notify', notifySchema, NOTIFY_TOOL_SCHEMA);
 
@@ -61,6 +61,10 @@ const client = new Client({ name: 'fixture', version: '1' }, { capabilities: {} 
 const [left, right] = InMemoryTransport.createLinkedPair();
 await server.connect(right); await client.connect(left);
 assert.equal(client.getServerVersion()?.version, pkg);
+const pinnedTools = (await client.listTools()).tools;
+assert.deepEqual(pinnedTools.map(t => t.name), [NOTIFY_TOOL_SCHEMA.name, ACTIVITY_TOOL_SCHEMA.name, FILES_TOOL_SCHEMA.name, 'notibuddy_list_destinations']);
+assert.equal('to' in (pinnedTools[0].inputSchema.properties ?? {}), false);
+assert.ok(JSON.stringify(pinnedTools).length < 5000, `MCP tool surface too large: ${JSON.stringify(pinnedTools).length} chars`);
 await client.close();
 fs.rmSync(home, { recursive: true, force: true });
 console.log('mcp schema bounds: ok');
