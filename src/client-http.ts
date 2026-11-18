@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ecdsaSign, sha256, toHex } from './crypto.js';
 import { normalizeRelay } from './relay-url.js';
 import type { NotiBuddyConfig } from './types.js';
-import { CLIENT_VERSION } from './update-check.js';
+import { CLIENT_VERSION, isHomebrewInstall } from './update-check.js';
 import { accountIdOf, credentialBinding, recoverCredentials } from './credential-recovery.js';
 
 /** The 32-hex account the relay edge derives from a sender/device bearer token (sha256 of its secret part). */
@@ -24,7 +24,8 @@ export class RelayHTTPError extends Error {
 export class ClientUpgradeRequiredError extends Error {
   constructor(minimumVersion?:unknown) {
     const minimum=typeof minimumVersion==='string' && /^\d+\.\d+\.\d+$/.test(minimumVersion)?minimumVersion:undefined;
-    super(`The NotiBuddy relay no longer supports this client (${CLIENT_VERSION}${minimum?`; the minimum is ${minimum}`:''}). Update with: npm install -g notibuddy@latest — or change notibuddy@${CLIENT_VERSION} to notibuddy@latest in your npx command or MCP configuration.`);
+    const upgradeCmd = isHomebrewInstall() ? 'brew upgrade notibuddy' : 'npm install -g notibuddy@latest';
+    super(`The NotiBuddy relay no longer supports this client (${CLIENT_VERSION}${minimum?`; the minimum is ${minimum}`:''}). Update with: ${upgradeCmd} — or change notibuddy@${CLIENT_VERSION} to notibuddy@latest in your npx command or MCP configuration.`);
     this.name='ClientUpgradeRequiredError';
   }
 }

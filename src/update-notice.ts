@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { NOTIBUDDY_DIR } from './config.js';
-import { CLIENT_VERSION, latestRelease, newer, type ReleaseLookup } from './update-check.js';
+import { CLIENT_VERSION, isHomebrewInstall, latestRelease, newer, type ReleaseLookup } from './update-check.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CACHE_FILE = 'update-check.json';
@@ -10,8 +10,9 @@ const CACHE_FILE = 'update-check.json';
 export type ReleaseLookupFn = (options: { signal?: AbortSignal; deadline?: number }) => Promise<ReleaseLookup>;
 
 /** The one-line notice shown on stderr (CLI) or as an extra tool-result item (MCP). */
-export function updateNotice(current: string, latest: string): string {
-  return `NotiBuddy ${latest} is available (this is ${current}). Update with: npm install -g notibuddy@${latest} — or, if you run it through npx or an MCP configuration, change notibuddy@${current} to notibuddy@${latest}.`;
+export function updateNotice(current: string, latest: string, homebrew = isHomebrewInstall()): string {
+  const upgradeCmd = homebrew ? 'brew upgrade notibuddy' : `npm install -g notibuddy@${latest}`;
+  return `NotiBuddy ${latest} is available (this is ${current}). Update with: ${upgradeCmd} — or, if you run it through npx or an MCP configuration, change notibuddy@${current} to notibuddy@${latest}.`;
 }
 
 const optedOut = (): boolean => process.env.NOTIBUDDY_NO_UPDATE_CHECK === '1';

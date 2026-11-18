@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Detect Homebrew Cellar installations (`Cellar/notibuddy`) and suggest `brew upgrade notibuddy` in update notices and upgrade errors; document Homebrew tap installation in README.
+
 ## 0.3.1 — 2026-11-17
 
 - **Hibernating sender WebSocket stream:** Wait for interactive request replies over an authenticated, sender-scoped WebSocket stream (`GET /v2/sender/ws`) instead of fixed 1-second polling, keeping the stream warm across MCP tool calls and automatically falling back to adaptive polling when WebSockets are unavailable.

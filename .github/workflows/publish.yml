@@ -72,3 +72,89 @@ jobs:
           npm publish ".build/release/$archive" --ignore-scripts --access public --provenance --tag latest
       - name: Verify public registry contents and integrity
         run: npm run check:publication -- --wait
+
+  homebrew:
+    name: Update Homebrew tap formula
+    needs: publish
+    if: ${{ github.repository == 'yourbit-network/notibuddy' && secrets.HOMEBREW_TAP_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yourbit-network/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: true
+      - name: Update Formula/notibuddy.rb
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const version = (process.env.TAG_NAME ?? '').replace(/^v/, '');
+          assert.match(version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+
+          const metaRes = await fetch(`https://registry.npmjs.org/notibuddy/${version}`, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(30_000),
+          });
+          assert.equal(metaRes.ok, true, `Failed to query registry metadata: HTTP ${metaRes.status}`);
+          const meta = await metaRes.json();
+          const url = `https://registry.npmjs.org/notibuddy/-/notibuddy-${version}.tgz`;
+          assert.equal(meta.dist?.tarball, url, 'Unexpected tarball URL in npm metadata');
+
+          const tgzRes = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+          assert.equal(tgzRes.ok, true, `Failed to download ${url}: HTTP ${tgzRes.status}`);
+          const bytes = Buffer.from(await tgzRes.arrayBuffer());
+          const sha512 = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+          assert.equal(sha512, meta.dist?.integrity, 'Tarball sha512 mismatch against npm registry metadata');
+          const sha256 = createHash('sha256').update(bytes).digest('hex');
+
+          const formulaPath = 'Formula/notibuddy.rb';
+          const original = readFileSync(formulaPath, 'utf8');
+          const urlRe = /^(\s*url\s+)"[^"]+"$/m;
+          const shaRe = /^(\s*sha256\s+)"[a-f0-9]{64}"$/m;
+          assert.ok(urlRe.test(original), 'Missing url line in Formula/notibuddy.rb');
+          assert.ok(shaRe.test(original), 'Missing sha256 line in Formula/notibuddy.rb');
+
+          const updated = original
+            .replace(urlRe, `$1"${url}"`)
+            .replace(shaRe, `$1"${sha256}"`);
+          if (updated === original) {
+            console.log(`Formula/notibuddy.rb already targets ${version}`);
+            process.exit(0);
+          }
+
+          writeFileSync(formulaPath, updated);
+          const git = (...args) => execFileSync('git', args, { stdio: 'inherit' });
+          git('config', 'user.name', 'Yourbit, LLC');
+          git('config', 'user.email', 'github@yourbit.network');
+          git('add', formulaPath);
+          git('commit', '-m', `notibuddy ${version}`);
+          try {
+            git('push', 'origin', 'main');
+          } catch {
+            const branch = `bump-notibuddy-${version}`;
+            git('checkout', '-B', branch);
+            git('push', '-f', '-u', 'origin', branch);
+            execFileSync('gh', [
+              'pr', 'create',
+              '--repo', 'yourbit-network/homebrew-tap',
+              '--head', branch,
+              '--base', 'main',
+              '--title', `notibuddy ${version}`,
+              '--body', `Automated Homebrew formula update for \`notibuddy@${version}\` published to npm.`,
+            ], { stdio: 'inherit' });
+          }
+          NODE

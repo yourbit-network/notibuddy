@@ -12,7 +12,7 @@ import { DestinationStore } from '../src/config.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair } from '../src/crypto.js';
 import { createMcpServer } from '../src/mcp.js';
 import { UpdateNotifier, updateNotice } from '../src/update-notice.js';
-import { CLIENT_VERSION, type ReleaseLookup } from '../src/update-check.js';
+import { CLIENT_VERSION, isHomebrewInstall, type ReleaseLookup } from '../src/update-check.js';
 import { ClientUpgradeRequiredError, relayJSONOnce, RelayHTTPError } from '../src/client-http.js';
 import { FileInbox } from '../src/files.js';
 
@@ -34,8 +34,12 @@ function fixture(latest: ReleaseLookup = { ok: true, latest: NEWER }) {
 }
 
 test('the notice text is exact', () => {
-  assert.equal(updateNotice('0.2.10', '0.3.0'),
+  assert.equal(updateNotice('0.2.10', '0.3.0', false),
     'NotiBuddy 0.3.0 is available (this is 0.2.10). Update with: npm install -g notibuddy@0.3.0 — or, if you run it through npx or an MCP configuration, change notibuddy@0.2.10 to notibuddy@0.3.0.');
+  assert.equal(updateNotice('0.3.1', '0.3.2', true),
+    'NotiBuddy 0.3.2 is available (this is 0.3.1). Update with: brew upgrade notibuddy — or, if you run it through npx or an MCP configuration, change notibuddy@0.3.1 to notibuddy@0.3.2.');
+  assert.equal(isHomebrewInstall('/opt/homebrew/Cellar/notibuddy/0.3.1/libexec/bin/nb'), true);
+  assert.equal(isHomebrewInstall('/usr/local/lib/node_modules/notibuddy/dist/cli.js'), false);
 });
 
 test('a newer release notifies once a day', async () => {
