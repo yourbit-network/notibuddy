@@ -316,6 +316,7 @@ All calls use `Authorization: Bearer <token>`. Tokens in query strings MUST be r
 | `GET`  | `/v1/requests/{id}` | device | Fetch a request envelope |
 | `POST` | `/v1/replies` | device | Submit a reply or error envelope |
 | `GET`  | `/v1/replies/{id}?wait=0..25` | sender | Long-poll for the answer. Responses: `200` envelope, `204` not yet, `404`, `410` expired |
+| `GET`  | `/v2/sender/ws` | sender | Signed sender-scoped WebSocket push stream for reply/activity hints (falls back to `/replies` polling) |
 
 On compatible relays, an exact retry of a stored, unexpired v1 request returns its original sequence without another charge or push, even after the initial 120-second freshness window. The complete signed envelope must match, including its signature and ciphertext; re-signing or changing any field is a conflict. Current sender approval and destination authorization still apply. The original expiration never changes; an expired retry is terminal, and a purged ID cannot create a new request.
 

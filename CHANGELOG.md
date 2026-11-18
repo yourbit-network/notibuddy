@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+## 0.3.1 — 2026-11-17
+
+- **Hibernating sender WebSocket stream:** Wait for interactive request replies over an authenticated, sender-scoped WebSocket stream (`GET /v2/sender/ws`) instead of fixed 1-second polling, keeping the stream warm across MCP tool calls and automatically falling back to adaptive polling when WebSockets are unavailable.
+
 ## 0.3.0 — 2026-11-16
 
 - **MCP & CLI simplification:** Retire `notibuddy_ask` and `nb ask` in favor of unified `notibuddy_notify` / `nb notify` (one-way by default; interactive when `options`, `input_placeholder`, `fields`, `diff`, `requires_auth`, or `resume_id` is supplied), and merge `notibuddy_files_list` + `notibuddy_files_receive` into `notibuddy_files` (`action: "list" | "receive"`). Calling retired or guessed tools/commands returns an immediate error with the working replacement.

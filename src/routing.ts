@@ -25,7 +25,7 @@ export function parseRoutingArgs(args:string[]): {options:RoutingOptions; rest:s
 }
 
 /** Snapshot only explicitly exposed connections; later config edits cannot redirect this process. */
-export async function createDestinationRouter(options:RoutingOptions,store=new DestinationStore()) {
+export async function createDestinationRouter(options:RoutingOptions,store=new DestinationStore(),keepStreamAlive=false) {
   const names=options.to ? [destinationName(options.to)] : options.allowTo?.map(destinationName);
   if (options.to && options.allowTo) throw new Error('Choose --to or --allow-to, not both');
   if (!names?.length) throw new Error('Select a destination explicitly: --to <name>, or repeat --allow-to <name> for MCP. Run nb devices list.');
@@ -33,11 +33,12 @@ export async function createDestinationRouter(options:RoutingOptions,store=new D
   const label=senderLabel(options.sender);
   const entries=await Promise.all(names.map(async name=>{
     const {record,signingKey}=await store.open(name);
-    return {name,record,files:new FileInbox(record,signingKey,store.root,{store,name}),client:new NotiBuddyClient(record.config,signingKey,new PendingStore(record.config,store.root),label,{store,name})};
+    return {name,record,files:new FileInbox(record,signingKey,store.root,{store,name}),client:new NotiBuddyClient(record.config,signingKey,new PendingStore(record.config,store.root),label,{store,name},{keepAlive:keepStreamAlive})};
   }));
   return {
     selectable:!options.to,
     names,
+    close:()=>{for(const entry of entries)entry.client.close();},
     list:()=>entries.map(({name,record})=>({to:name,deviceName:record.config.device.name || 'iPhone',
       deviceId:record.config.device.id,connectionId:record.connectionId,connectionLabel:record.config.senderLabel,
       sender:label,status:'saved_pairing',acceptsNewMessages:false,acceptsFiles:!!record.fileKey})),
