@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 — 2026-11-18
+
+- **Official MCP Registry metadata:** Add `mcpName` (`io.github.yourbit-network/notibuddy`) to `package.json`, add validated `server.json`, and automate Official MCP Registry publication via GitHub Actions OIDC after npm release verification.
+
 ## 0.3.1 — 2026-11-17
 
 - **Hibernating sender WebSocket stream:** Wait for interactive request replies over an authenticated, sender-scoped WebSocket stream (`GET /v2/sender/ws`) instead of fixed 1-second polling, keeping the stream warm across MCP tool calls and automatically falling back to adaptive polling when WebSockets are unavailable.
