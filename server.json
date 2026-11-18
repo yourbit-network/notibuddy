@@ -1,0 +1,51 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.yourbit-network/notibuddy",
+  "title": "NotiBuddy",
+  "description": "End-to-end encrypted iPhone & Apple Watch approvals, code diffs, and live progress for AI agents.",
+  "version": "0.3.2",
+  "websiteUrl": "https://notibuddy.app/setup",
+  "repository": {
+    "url": "https://github.com/yourbit-network/notibuddy",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://notibuddy.app/apple-touch-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["180x180"]
+    },
+    {
+      "src": "https://notibuddy.app/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "notibuddy",
+      "version": "0.3.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "Starts the local NotiBuddy stdio MCP server."
+        },
+        {
+          "type": "named",
+          "name": "--to",
+          "description": "Paired destination alias saved under ~/.notibuddy (created with `nb pair --to <alias>`).",
+          "default": "personal",
+          "isRequired": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

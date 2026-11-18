@@ -72,3 +72,43 @@ jobs:
           npm publish ".build/release/$archive" --ignore-scripts --access public --provenance --tag latest
       - name: Verify public registry contents and integrity
         run: npm run check:publication -- --wait
+
+  publish-mcp:
+    if: github.repository == 'yourbit-network/notibuddy'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify server.json matches release package
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const server = JSON.parse(readFileSync('server.json', 'utf8'));
+          assert.equal(server.name, pkg.mcpName);
+          assert.equal(server.version, pkg.version);
+          assert.equal(server.packages[0].version, pkg.version);
+          NODE
+      - name: Download and verify pinned mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.9/mcp-publisher_linux_amd64.tar.gz" -o mcp-publisher.tar.gz
+          echo "4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          chmod +x mcp-publisher
+      - name: Validate and publish to Official MCP Registry
+        run: |
+          ./mcp-publisher validate server.json
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
