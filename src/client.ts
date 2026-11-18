@@ -2,6 +2,7 @@ import { DEFAULT_REQUEST_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, MAX_ACTIV
 import { normalizeRelay } from './relay-url.js';
 import { validateRequestSettings } from './protocol.js';
 import { relayJSON, pollPause, RelayHTTPError, DeadlineError, type CallOptions } from './client-http.js';
+import { SenderStream } from './sender-stream.js';
 import { RecipientStore } from './recipient-store.js';
 import { verifyRecipients, sealGroupRequest, openGroupResponse, type GroupRequest, type GroupResponse } from './groups.js';
 import { validGroupRequest } from './group-wire.js';
@@ -100,13 +101,20 @@ type ActivityResult={status:string;activityId:string;controls:AnswerPayload[];wa
 export class NotiBuddyClient {
   private store:PendingStore;
   private recipients:RecipientStore;
-  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname(),credentials?:{store:DestinationStore;name:string}) {
+  private senderStream:SenderStream;
+  private keepStreamAlive:boolean;
+  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname(),credentials?:{store:DestinationStore;name:string},stream?:{enabled?:boolean;keepAlive?:boolean}) {
     validateRequestSettings(config);
     this.config=structuredClone(config);this.config.relay=normalizeRelay(config.relay);
     if(credentials)bindCredentials(this.config,{...credentials,signingKey});
     this.sender=z.string().trim().min(1).max(100).regex(/^[^\p{Cc}\p{Cf}]+$/u).parse(sender);
     this.store=store ?? new PendingStore(config);
     this.recipients=new RecipientStore(config,this.store.root);
+    this.keepStreamAlive=stream?.keepAlive ?? false;
+    this.senderStream=new SenderStream(this.config,this.signingKey,stream?.enabled);
+  }
+  close():void {
+    this.senderStream.close();
   }
   async doctor(options:CallOptions={}) {
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+15000)};
@@ -273,17 +281,25 @@ export class NotiBuddyClient {
       }
       try {
         saved=await this.dispatchSaved(id,saved,call,sealed);
+        let pollDelayMs=1000;
         do {
           const response=await this.getSavedReply(id,saved,0,call);
           if(response){const result=await this.open(id,response.envelope,saved);this.store.remove('reply:'+id);return result;}
           if(params.waitSeconds===0 || Date.now()>=call.deadline)break;
-          await pollPause(Math.min(1000,call.deadline-Date.now()),options.signal);
+          const wait=await this.senderStream.waitForReply(id,call.deadline,options);
+          if(wait==='available' || wait==='resync')continue;
+          const remaining=call.deadline-Date.now();
+          if(remaining<=0)break;
+          await pollPause(Math.min(pollDelayMs,remaining),options.signal);
+          pollDelayMs=Math.min(5000,Math.round(pollDelayMs*1.5));
         }while(Date.now()<call.deadline);
       }catch(error) {
         if(options.signal?.aborted)throw new ResumableRequestError(id);
         if(error instanceof TerminalRequestError){this.store.remove('reply:'+id);return {status:error.status,requestId:id};}
         if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.code==='REQUEST_ID_CONFLICT'?requestIdConflictMessage:error.message};}
         return {status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`};
+      }finally {
+        this.senderStream.releaseIdle(this.keepStreamAlive);
       }
       return {status:'pending',requestId:id,message:`Call notibuddy_notify with resume_id='${id}' (or run nb notify --resume '${id}') to check again, including after restarting this client.`};
     });

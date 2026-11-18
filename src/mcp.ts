@@ -198,7 +198,7 @@ function unsupportedToolHint(name: string, selectable: boolean): string {
 }
 
 export async function createMcpServer(options: RoutingOptions = {}, store = new DestinationStore(), lookup?: ReleaseLookupFn): Promise<Server> {
-  const router = await createDestinationRouter(options, store);
+  const router = await createDestinationRouter(options, store, true);
   const sessionNotice = new SessionUpdateNotice(lookup);
   const routedSchema = (schema: typeof NOTIFY_TOOL_SCHEMA | typeof ACTIVITY_TOOL_SCHEMA | typeof FILES_TOOL_SCHEMA) => ({
     ...schema,
@@ -226,6 +226,9 @@ export async function createMcpServer(options: RoutingOptions = {}, store = new 
       },
     }
   );
+  server.onclose = () => {
+    router.close();
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
