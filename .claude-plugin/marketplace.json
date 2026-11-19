@@ -1,0 +1,38 @@
+{
+  "name": "notibuddy",
+  "owner": {
+    "name": "Yourbit, LLC",
+    "url": "https://notibuddy.app"
+  },
+  "metadata": {
+    "description": "Official NotiBuddy plugins for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "notibuddy",
+      "source": "./plugins/claude-code/notibuddy",
+      "description": "End-to-end encrypted iPhone and Apple Watch approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Yourbit, LLC",
+        "url": "https://notibuddy.app"
+      },
+      "homepage": "https://notibuddy.app/claude-code",
+      "repository": "https://github.com/yourbit-network/notibuddy",
+      "license": "MIT"
+    },
+    {
+      "name": "notibuddy-hooks",
+      "source": "./plugins/claude-code/notibuddy-hooks",
+      "description": "Opt-in native permission hook that forwards Claude Code prompts to your iPhone or Apple Watch after a short grace period.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Yourbit, LLC",
+        "url": "https://notibuddy.app"
+      },
+      "homepage": "https://notibuddy.app/claude-code",
+      "repository": "https://github.com/yourbit-network/notibuddy",
+      "license": "MIT"
+    }
+  ]
+}

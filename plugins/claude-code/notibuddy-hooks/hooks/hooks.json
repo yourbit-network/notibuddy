@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/nb-hook claude PermissionRequest --client claude-code --timeout 300",
+            "timeout": 315
+          }
+        ]
+      }
+    ]
+  }
+}

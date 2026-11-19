@@ -37,6 +37,8 @@
     "test:hooks": "node --test test/pre-push.test.mjs",
     "scan:history": "node scripts/scan-history.mjs",
     "pack:check": "node scripts/check-package.mjs",
+    "plugins:build": "node scripts/build-plugins.mjs --write",
+    "plugins:check": "node scripts/build-plugins.mjs --check && node --test test/plugins.test.mjs",
     "check:publication": "node scripts/check-publication.mjs"
   },
   "dependencies": {
