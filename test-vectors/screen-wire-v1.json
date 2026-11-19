@@ -1,0 +1,1217 @@
+{
+  "schemaVersion": 1,
+  "canonStrings": [
+    {
+      "input": "",
+      "expected": "\"\""
+    },
+    {
+      "input": "hello",
+      "expected": "\"hello\""
+    },
+    {
+      "input": "quote\"slash\\back",
+      "expected": "\"quote\\\"slash\\\\back\""
+    },
+    {
+      "input": "\b\f\n\r\t",
+      "expected": "\"\\b\\f\\n\\r\\t\""
+    },
+    {
+      "input": "\u0000\u0001\u000b\u001b\u001f",
+      "expected": "\"\\u0000\\u0001\\u000b\\u001b\\u001f\""
+    },
+    {
+      "input": "a/b",
+      "expected": "\"a/b\""
+    },
+    {
+      "input": "café 🚀 ",
+      "expected": "\"café 🚀 \""
+    }
+  ],
+  "keyOrder": [
+    {
+      "input": [
+        "f2",
+        "f10",
+        "f1",
+        "f0",
+        "c0"
+      ],
+      "expected": [
+        "c0",
+        "f0",
+        "f1",
+        "f10",
+        "f2"
+      ]
+    },
+    {
+      "input": [
+        "😀",
+        "",
+        "é",
+        "z",
+        "a"
+      ],
+      "expected": [
+        "a",
+        "z",
+        "é",
+        "",
+        "😀"
+      ]
+    },
+    {
+      "input": [
+        "ab",
+        "a",
+        "a0",
+        "a10",
+        "a2"
+      ],
+      "expected": [
+        "a",
+        "a0",
+        "a10",
+        "a2",
+        "ab"
+      ]
+    }
+  ],
+  "skeletons": [
+    {
+      "name": "full_review_12_blocks",
+      "skeleton": {
+        "v": 1,
+        "root": {
+          "kind": "vstack",
+          "spacing": "regular",
+          "children": [
+            {
+              "kind": "card",
+              "header": {
+                "slot": "s0",
+                "maxGraphemes": 60,
+                "maxBytes": 240
+              },
+              "children": [
+                {
+                  "kind": "heading",
+                  "level": 2,
+                  "text": {
+                    "slot": "s1",
+                    "maxGraphemes": 80,
+                    "maxBytes": 320
+                  }
+                },
+                {
+                  "kind": "badge",
+                  "tone": "warning",
+                  "label": {
+                    "slot": "s2",
+                    "maxGraphemes": 32,
+                    "maxBytes": 128
+                  }
+                },
+                {
+                  "kind": "text",
+                  "style": "body",
+                  "text": {
+                    "slot": "s3",
+                    "maxGraphemes": 240,
+                    "maxBytes": 960
+                  }
+                },
+                {
+                  "kind": "divider"
+                },
+                {
+                  "kind": "kpiStrip",
+                  "items": {
+                    "slot": "s4",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "maxBytes": 1024
+                  }
+                },
+                {
+                  "kind": "keyValueList",
+                  "rows": {
+                    "slot": "s5",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "maxBytes": 2048
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "alert",
+              "severity": "warning",
+              "title": {
+                "slot": "s6",
+                "maxGraphemes": 80,
+                "maxBytes": 320
+              },
+              "body": {
+                "slot": "s7",
+                "maxGraphemes": 240,
+                "maxBytes": 960
+              }
+            },
+            {
+              "kind": "diffViewer",
+              "diff": {
+                "slot": "s8",
+                "maxBytes": 32768,
+                "maxLines": 500
+              }
+            },
+            {
+              "kind": "checklist",
+              "id": "c0",
+              "title": {
+                "slot": "s9",
+                "maxGraphemes": 60,
+                "maxBytes": 240
+              },
+              "items": {
+                "slot": "s10",
+                "minItems": 1,
+                "maxItems": 8,
+                "maxBytes": 1024
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f0",
+              "fieldType": "text",
+              "label": {
+                "slot": "s11",
+                "maxGraphemes": 60,
+                "maxBytes": 240
+              },
+              "placeholder": {
+                "slot": "s12",
+                "maxGraphemes": 80,
+                "maxBytes": 320
+              },
+              "required": true,
+              "maxGraphemes": 120,
+              "maxBytes": 480
+            },
+            {
+              "kind": "formField",
+              "id": "f1",
+              "fieldType": "toggle",
+              "label": {
+                "slot": "s13",
+                "maxGraphemes": 60,
+                "maxBytes": 240
+              },
+              "defaultBool": false
+            },
+            {
+              "kind": "formField",
+              "id": "f2",
+              "fieldType": "picker",
+              "label": {
+                "slot": "s14",
+                "maxGraphemes": 60,
+                "maxBytes": 240
+              },
+              "required": true,
+              "options": {
+                "slot": "s15",
+                "minItems": 1,
+                "maxItems": 8,
+                "maxBytes": 1024
+              },
+              "defaultOptionIndex": -1
+            },
+            {
+              "kind": "formField",
+              "id": "f3",
+              "fieldType": "stepper",
+              "label": {
+                "slot": "s16",
+                "maxGraphemes": 60,
+                "maxBytes": 240
+              },
+              "min": 1,
+              "max": 10,
+              "defaultInt": 2
+            }
+          ]
+        },
+        "actions": [
+          {
+            "id": "a0",
+            "label": {
+              "slot": "s17",
+              "maxGraphemes": 32,
+              "maxBytes": 128
+            },
+            "role": "destructive",
+            "requireBio": true,
+            "enabledWhen": [
+              {
+                "op": "allChecked",
+                "checklist": "c0"
+              },
+              {
+                "op": "isNotEmpty",
+                "field": "f0"
+              },
+              {
+                "op": "equals",
+                "field": "f1",
+                "value": true
+              },
+              {
+                "op": "equals",
+                "field": "f2",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "id": "a1",
+            "label": {
+              "slot": "s18",
+              "maxGraphemes": 32,
+              "maxBytes": 128
+            },
+            "role": "decline",
+            "requireBio": false
+          }
+        ]
+      },
+      "canonicalJson": "{\"actions\":[{\"enabledWhen\":[{\"checklist\":\"c0\",\"op\":\"allChecked\"},{\"field\":\"f0\",\"op\":\"isNotEmpty\"},{\"field\":\"f1\",\"op\":\"equals\",\"value\":true},{\"field\":\"f2\",\"op\":\"equals\",\"value\":1}],\"id\":\"a0\",\"label\":{\"maxBytes\":128,\"maxGraphemes\":32,\"slot\":\"s17\"},\"requireBio\":true,\"role\":\"destructive\"},{\"id\":\"a1\",\"label\":{\"maxBytes\":128,\"maxGraphemes\":32,\"slot\":\"s18\"},\"requireBio\":false,\"role\":\"decline\"}],\"root\":{\"children\":[{\"children\":[{\"kind\":\"heading\",\"level\":2,\"text\":{\"maxBytes\":320,\"maxGraphemes\":80,\"slot\":\"s1\"}},{\"kind\":\"badge\",\"label\":{\"maxBytes\":128,\"maxGraphemes\":32,\"slot\":\"s2\"},\"tone\":\"warning\"},{\"kind\":\"text\",\"style\":\"body\",\"text\":{\"maxBytes\":960,\"maxGraphemes\":240,\"slot\":\"s3\"}},{\"kind\":\"divider\"},{\"items\":{\"maxBytes\":1024,\"maxItems\":4,\"minItems\":1,\"slot\":\"s4\"},\"kind\":\"kpiStrip\"},{\"kind\":\"keyValueList\",\"rows\":{\"maxBytes\":2048,\"maxItems\":8,\"minItems\":1,\"slot\":\"s5\"}}],\"header\":{\"maxBytes\":240,\"maxGraphemes\":60,\"slot\":\"s0\"},\"kind\":\"card\"},{\"body\":{\"maxBytes\":960,\"maxGraphemes\":240,\"slot\":\"s7\"},\"kind\":\"alert\",\"severity\":\"warning\",\"title\":{\"maxBytes\":320,\"maxGraphemes\":80,\"slot\":\"s6\"}},{\"diff\":{\"maxBytes\":32768,\"maxLines\":500,\"slot\":\"s8\"},\"kind\":\"diffViewer\"},{\"id\":\"c0\",\"items\":{\"maxBytes\":1024,\"maxItems\":8,\"minItems\":1,\"slot\":\"s10\"},\"kind\":\"checklist\",\"title\":{\"maxBytes\":240,\"maxGraphemes\":60,\"slot\":\"s9\"}},{\"fieldType\":\"text\",\"id\":\"f0\",\"kind\":\"formField\",\"label\":{\"maxBytes\":240,\"maxGraphemes\":60,\"slot\":\"s11\"},\"maxBytes\":480,\"maxGraphemes\":120,\"placeholder\":{\"maxBytes\":320,\"maxGraphemes\":80,\"slot\":\"s12\"},\"required\":true},{\"defaultBool\":false,\"fieldType\":\"toggle\",\"id\":\"f1\",\"kind\":\"formField\",\"label\":{\"maxBytes\":240,\"maxGraphemes\":60,\"slot\":\"s13\"}},{\"defaultOptionIndex\":-1,\"fieldType\":\"picker\",\"id\":\"f2\",\"kind\":\"formField\",\"label\":{\"maxBytes\":240,\"maxGraphemes\":60,\"slot\":\"s14\"},\"options\":{\"maxBytes\":1024,\"maxItems\":8,\"minItems\":1,\"slot\":\"s15\"},\"required\":true},{\"defaultInt\":2,\"fieldType\":\"stepper\",\"id\":\"f3\",\"kind\":\"formField\",\"label\":{\"maxBytes\":240,\"maxGraphemes\":60,\"slot\":\"s16\"},\"max\":10,\"min\":1}],\"kind\":\"vstack\",\"spacing\":\"regular\"},\"v\":1}",
+      "templateId": "tpl_f4d46a2f7c26519581bdc01368f9beaf2b07ec4635c11583fbee9bf89a79ba75"
+    },
+    {
+      "name": "wide_form_bytewise_order",
+      "skeleton": {
+        "v": 1,
+        "root": {
+          "kind": "vstack",
+          "spacing": "compact",
+          "children": [
+            {
+              "kind": "heading",
+              "level": 1,
+              "text": {
+                "slot": "s0",
+                "maxGraphemes": 80,
+                "maxBytes": 320
+              }
+            },
+            {
+              "kind": "checklist",
+              "id": "c0",
+              "items": {
+                "slot": "s1",
+                "minItems": 1,
+                "maxItems": 4,
+                "maxBytes": 512
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f0",
+              "fieldType": "text",
+              "label": {
+                "slot": "s2",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f1",
+              "fieldType": "toggle",
+              "label": {
+                "slot": "s3",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              },
+              "defaultBool": true
+            },
+            {
+              "kind": "formField",
+              "id": "f2",
+              "fieldType": "picker",
+              "label": {
+                "slot": "s4",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              },
+              "options": {
+                "slot": "s5",
+                "minItems": 1,
+                "maxItems": 4,
+                "maxBytes": 512
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f3",
+              "fieldType": "email",
+              "label": {
+                "slot": "s6",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f4",
+              "fieldType": "url",
+              "label": {
+                "slot": "s7",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f5",
+              "fieldType": "secret",
+              "label": {
+                "slot": "s8",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f6",
+              "fieldType": "date",
+              "label": {
+                "slot": "s9",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f7",
+              "fieldType": "toggle",
+              "label": {
+                "slot": "s10",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f8",
+              "fieldType": "toggle",
+              "label": {
+                "slot": "s11",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f9",
+              "fieldType": "toggle",
+              "label": {
+                "slot": "s12",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              }
+            },
+            {
+              "kind": "formField",
+              "id": "f10",
+              "fieldType": "stepper",
+              "label": {
+                "slot": "s13",
+                "maxGraphemes": 40,
+                "maxBytes": 160
+              },
+              "min": -10,
+              "max": 10,
+              "defaultInt": 0
+            }
+          ]
+        },
+        "actions": [
+          {
+            "id": "a0",
+            "label": {
+              "slot": "s14",
+              "maxGraphemes": 32,
+              "maxBytes": 128
+            },
+            "role": "primary",
+            "requireBio": false
+          },
+          {
+            "id": "a1",
+            "label": {
+              "slot": "s15",
+              "maxGraphemes": 32,
+              "maxBytes": 128
+            },
+            "role": "secondary",
+            "requireBio": false
+          }
+        ]
+      },
+      "canonicalJson": "{\"actions\":[{\"id\":\"a0\",\"label\":{\"maxBytes\":128,\"maxGraphemes\":32,\"slot\":\"s14\"},\"requireBio\":false,\"role\":\"primary\"},{\"id\":\"a1\",\"label\":{\"maxBytes\":128,\"maxGraphemes\":32,\"slot\":\"s15\"},\"requireBio\":false,\"role\":\"secondary\"}],\"root\":{\"children\":[{\"kind\":\"heading\",\"level\":1,\"text\":{\"maxBytes\":320,\"maxGraphemes\":80,\"slot\":\"s0\"}},{\"id\":\"c0\",\"items\":{\"maxBytes\":512,\"maxItems\":4,\"minItems\":1,\"slot\":\"s1\"},\"kind\":\"checklist\"},{\"fieldType\":\"text\",\"id\":\"f0\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s2\"}},{\"defaultBool\":true,\"fieldType\":\"toggle\",\"id\":\"f1\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s3\"}},{\"fieldType\":\"picker\",\"id\":\"f2\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s4\"},\"options\":{\"maxBytes\":512,\"maxItems\":4,\"minItems\":1,\"slot\":\"s5\"}},{\"fieldType\":\"email\",\"id\":\"f3\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s6\"}},{\"fieldType\":\"url\",\"id\":\"f4\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s7\"}},{\"fieldType\":\"secret\",\"id\":\"f5\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s8\"}},{\"fieldType\":\"date\",\"id\":\"f6\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s9\"}},{\"fieldType\":\"toggle\",\"id\":\"f7\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s10\"}},{\"fieldType\":\"toggle\",\"id\":\"f8\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s11\"}},{\"fieldType\":\"toggle\",\"id\":\"f9\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s12\"}},{\"defaultInt\":0,\"fieldType\":\"stepper\",\"id\":\"f10\",\"kind\":\"formField\",\"label\":{\"maxBytes\":160,\"maxGraphemes\":40,\"slot\":\"s13\"},\"max\":10,\"min\":-10}],\"kind\":\"vstack\",\"spacing\":\"compact\"},\"v\":1}",
+      "templateId": "tpl_9399ef7ba3d9a05ce308f7cdfd8edc0ea30bfced0419f717782259dbf248658c"
+    }
+  ],
+  "requests": [
+    {
+      "name": "step1_full_review",
+      "skeletonName": "full_review_12_blocks",
+      "requestId": "req_screen_step1_0001",
+      "rawPlaintextUtf8": "{\"type\":\"ask\",\"replyPub\":\"BLAaFyp2pGAsktMkLLiX3eMCTHQN67IVtMawquk8IpGp6FwQdDI32tVv7A4t-6cDeRwA93Acfha9_XxIU4_Hf-I\",\"source\":{\"label\":\"deploy-bot@macbook\"},\"title\":\"Production Schema Migration\",\"presentation\":{\"shortTitle\":\"Prod Migration\",\"summary\":\"Review DDL diff and confirm rollout checks\"},\"sensitive\":true,\"requiresAuth\":true,\"templateId\":\"tpl_f4d46a2f7c26519581bdc01368f9beaf2b07ec4635c11583fbee9bf89a79ba75\",\"labels\":{\"s0\":\"Migration Summary\",\"s1\":\"Add index on orders(created_at)\",\"s2\":\"Production\",\"s3\":\"Estimated lock time under 50ms using CONCURRENTLY.\",\"s6\":\"Production Write Window\",\"s7\":\"Verify backup snapshot before applying.\",\"s9\":\"Pre-flight Checks\",\"s11\":\"Change ticket\",\"s12\":\"CHG-12345\",\"s13\":\"Confirm backup verified\",\"s14\":\"Target region\",\"s16\":\"Batch size\",\"s17\":\"Apply Migration\",\"s18\":\"Cancel\"},\"data\":{\"s4\":[{\"label\":\"Rows\",\"value\":1420000},{\"label\":\"Replica Lag ms\",\"value\":12}],\"s5\":[{\"key\":\"Cluster\",\"value\":\"prod-us-east-1\"},{\"key\":\"Dry Run\",\"value\":true}],\"s8\":{\"filename\":\"migrations/0042_orders_idx.sql\",\"language\":\"sql\",\"original\":\"-- no index\\n\",\"modified\":\"CREATE INDEX CONCURRENTLY idx_orders_created_at ON orders(created_at);\\n\"},\"s10\":[\"Snapshot taken\",\"Replica lag below 50ms\",\"On-call notified\"],\"s15\":[\"staging-us-east-1\",\"prod-us-east-1\"]},\"thread\":{\"id\":\"thr_deploy_0042\",\"step\":1,\"of\":2}}",
+      "plaintext": {
+        "type": "ask",
+        "replyPub": "BLAaFyp2pGAsktMkLLiX3eMCTHQN67IVtMawquk8IpGp6FwQdDI32tVv7A4t-6cDeRwA93Acfha9_XxIU4_Hf-I",
+        "source": {
+          "label": "deploy-bot@macbook"
+        },
+        "title": "Production Schema Migration",
+        "presentation": {
+          "shortTitle": "Prod Migration",
+          "summary": "Review DDL diff and confirm rollout checks"
+        },
+        "sensitive": true,
+        "requiresAuth": true,
+        "templateId": "tpl_f4d46a2f7c26519581bdc01368f9beaf2b07ec4635c11583fbee9bf89a79ba75",
+        "labels": {
+          "s0": "Migration Summary",
+          "s1": "Add index on orders(created_at)",
+          "s2": "Production",
+          "s3": "Estimated lock time under 50ms using CONCURRENTLY.",
+          "s6": "Production Write Window",
+          "s7": "Verify backup snapshot before applying.",
+          "s9": "Pre-flight Checks",
+          "s11": "Change ticket",
+          "s12": "CHG-12345",
+          "s13": "Confirm backup verified",
+          "s14": "Target region",
+          "s16": "Batch size",
+          "s17": "Apply Migration",
+          "s18": "Cancel"
+        },
+        "data": {
+          "s4": [
+            {
+              "label": "Rows",
+              "value": 1420000
+            },
+            {
+              "label": "Replica Lag ms",
+              "value": 12
+            }
+          ],
+          "s5": [
+            {
+              "key": "Cluster",
+              "value": "prod-us-east-1"
+            },
+            {
+              "key": "Dry Run",
+              "value": true
+            }
+          ],
+          "s8": {
+            "filename": "migrations/0042_orders_idx.sql",
+            "language": "sql",
+            "original": "-- no index\n",
+            "modified": "CREATE INDEX CONCURRENTLY idx_orders_created_at ON orders(created_at);\n"
+          },
+          "s10": [
+            "Snapshot taken",
+            "Replica lag below 50ms",
+            "On-call notified"
+          ],
+          "s15": [
+            "staging-us-east-1",
+            "prod-us-east-1"
+          ]
+        },
+        "thread": {
+          "id": "thr_deploy_0042",
+          "step": 1,
+          "of": 2
+        }
+      },
+      "contextDigest": "475d4de232f0e7a5d6ed50201b334d71d0855b4f157d1e032cd53e2c5ae68b67",
+      "checklistCounts": {
+        "c0": 3
+      },
+      "pickerOptionCounts": {
+        "f2": 2
+      },
+      "action": "a0",
+      "form": {
+        "c0": [
+          true,
+          true,
+          true
+        ],
+        "f0": "CHG-9001",
+        "f1": true,
+        "f2": 1,
+        "f3": 4
+      },
+      "canonRenderInput": "{\"action\":\"a0\",\"form\":{\"c0\":[true,true,true],\"f0\":\"CHG-9001\",\"f1\":true,\"f2\":1,\"f3\":4}}",
+      "renderDigest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d",
+      "answerValues": {
+        "form": {
+          "c0": [
+            true,
+            true,
+            true
+          ],
+          "f0": "CHG-9001",
+          "f1": true,
+          "f2": 1,
+          "f3": 4
+        },
+        "render": {
+          "v": 1,
+          "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+        }
+      }
+    },
+    {
+      "name": "step2_chained_wide_form",
+      "skeletonName": "wide_form_bytewise_order",
+      "requestId": "req_screen_step2_0002",
+      "rawPlaintextUtf8": "{\"type\":\"ask\",\"replyPub\":\"BLAaFyp2pGAsktMkLLiX3eMCTHQN67IVtMawquk8IpGp6FwQdDI32tVv7A4t-6cDeRwA93Acfha9_XxIU4_Hf-I\",\"source\":{\"label\":\"deploy-bot@macbook\"},\"title\":\"Post-Migration Verification\",\"templateId\":\"tpl_9399ef7ba3d9a05ce308f7cdfd8edc0ea30bfced0419f717782259dbf248658c\",\"labels\":{\"s0\":\"Confirm final parameters\",\"s2\":\"Region\",\"s3\":\"Notify Slack\",\"s4\":\"Canary Tier\",\"s6\":\"Reviewer Email\",\"s7\":\"Runbook URL\",\"s8\":\"Break-glass Token\",\"s9\":\"Window Date\",\"s10\":\"Flag A\",\"s11\":\"Flag B\",\"s12\":\"Flag C\",\"s13\":\"Retry Offset\",\"s14\":\"Finish\",\"s15\":\"Hold\"},\"data\":{\"s1\":[\"Metrics green\",\"Error rate stable\"],\"s5\":[\"tier-0\",\"tier-1\"]},\"thread\":{\"id\":\"thr_deploy_0042\",\"step\":2,\"of\":2,\"prev\":{\"requestId\":\"req_screen_step1_0001\",\"renderDigest\":\"207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d\"}}}",
+      "plaintext": {
+        "type": "ask",
+        "replyPub": "BLAaFyp2pGAsktMkLLiX3eMCTHQN67IVtMawquk8IpGp6FwQdDI32tVv7A4t-6cDeRwA93Acfha9_XxIU4_Hf-I",
+        "source": {
+          "label": "deploy-bot@macbook"
+        },
+        "title": "Post-Migration Verification",
+        "templateId": "tpl_9399ef7ba3d9a05ce308f7cdfd8edc0ea30bfced0419f717782259dbf248658c",
+        "labels": {
+          "s0": "Confirm final parameters",
+          "s2": "Region",
+          "s3": "Notify Slack",
+          "s4": "Canary Tier",
+          "s6": "Reviewer Email",
+          "s7": "Runbook URL",
+          "s8": "Break-glass Token",
+          "s9": "Window Date",
+          "s10": "Flag A",
+          "s11": "Flag B",
+          "s12": "Flag C",
+          "s13": "Retry Offset",
+          "s14": "Finish",
+          "s15": "Hold"
+        },
+        "data": {
+          "s1": [
+            "Metrics green",
+            "Error rate stable"
+          ],
+          "s5": [
+            "tier-0",
+            "tier-1"
+          ]
+        },
+        "thread": {
+          "id": "thr_deploy_0042",
+          "step": 2,
+          "of": 2,
+          "prev": {
+            "requestId": "req_screen_step1_0001",
+            "renderDigest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+          }
+        }
+      },
+      "contextDigest": "b5b2e66101d7e1d473e6b9cb98006f6ffe6f227512a5f0c9e6b38c18183af042",
+      "checklistCounts": {
+        "c0": 2
+      },
+      "pickerOptionCounts": {
+        "f2": 2
+      },
+      "action": "a0",
+      "form": {
+        "f2": -1,
+        "f10": -3,
+        "f1": true,
+        "f0": "us-east-1\n\"verified\"",
+        "c0": [
+          true,
+          false
+        ],
+        "f3": "",
+        "f4": "https://status.example.com/run/42",
+        "f5": "",
+        "f6": "2026-11-18T18:00:00Z",
+        "f7": false,
+        "f8": true,
+        "f9": false
+      },
+      "canonRenderInput": "{\"action\":\"a0\",\"form\":{\"c0\":[true,false],\"f0\":\"us-east-1\\n\\\"verified\\\"\",\"f1\":true,\"f10\":-3,\"f2\":-1,\"f3\":\"\",\"f4\":\"https://status.example.com/run/42\",\"f5\":\"\",\"f6\":\"2026-11-18T18:00:00Z\",\"f7\":false,\"f8\":true,\"f9\":false}}",
+      "renderDigest": "390394314bcf0da2d1be3b6ad6b7aee9945b6d7f212fdc29ca2739e7c6b341e5",
+      "answerValues": {
+        "form": {
+          "f2": -1,
+          "f10": -3,
+          "f1": true,
+          "f0": "us-east-1\n\"verified\"",
+          "c0": [
+            true,
+            false
+          ],
+          "f3": "",
+          "f4": "https://status.example.com/run/42",
+          "f5": "",
+          "f6": "2026-11-18T18:00:00Z",
+          "f7": false,
+          "f8": true,
+          "f9": false
+        },
+        "render": {
+          "v": 1,
+          "digest": "390394314bcf0da2d1be3b6ad6b7aee9945b6d7f212fdc29ca2739e7c6b341e5"
+        }
+      }
+    }
+  ],
+  "allCheckedCases": [
+    {
+      "items": [],
+      "expected": false
+    },
+    {
+      "items": [
+        true
+      ],
+      "expected": true
+    },
+    {
+      "items": [
+        false
+      ],
+      "expected": false
+    },
+    {
+      "items": [
+        true,
+        true,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "items": [
+        true,
+        true,
+        true
+      ],
+      "expected": true
+    }
+  ],
+  "answerCases": {
+    "accept": [
+      {
+        "name": "rendered_step1_with_auth",
+        "variant": "rendered",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {
+              "c0": [
+                true,
+                true,
+                true
+              ],
+              "f0": "CHG-9001",
+              "f1": true,
+              "f2": 1,
+              "f3": 4
+            },
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          },
+          "authenticated": true
+        }
+      },
+      {
+        "name": "rendered_step2_minimal",
+        "variant": "rendered",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {
+              "f2": -1,
+              "f10": -3,
+              "f1": true,
+              "f0": "us-east-1\n\"verified\"",
+              "c0": [
+                true,
+                false
+              ],
+              "f3": "",
+              "f4": "https://status.example.com/run/42",
+              "f5": "",
+              "f6": "2026-11-18T18:00:00Z",
+              "f7": false,
+              "f8": true,
+              "f9": false
+            },
+            "render": {
+              "v": 1,
+              "digest": "390394314bcf0da2d1be3b6ad6b7aee9945b6d7f212fdc29ca2739e7c6b341e5"
+            }
+          }
+        }
+      },
+      {
+        "name": "rendered_empty_form_unauthenticated",
+        "variant": "rendered",
+        "answer": {
+          "action": "a1",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          },
+          "authenticated": false
+        }
+      },
+      {
+        "name": "unavailable_dismiss_minimal",
+        "variant": "unavailable",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_dismiss_unauthenticated",
+        "variant": "unavailable",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          },
+          "authenticated": false
+        }
+      }
+    ],
+    "reject": [
+      {
+        "name": "dismiss_with_empty_form_and_unavailable",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_with_form_and_digest",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "form": {
+              "c0": [
+                true,
+                true,
+                true
+              ],
+              "f0": "CHG-9001",
+              "f1": true,
+              "f2": 1,
+              "f3": 4
+            },
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_with_digest_only",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_with_unavailable_and_digest",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_with_text",
+        "answer": {
+          "action": "dismiss",
+          "text": "template unavailable",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_with_empty_text",
+        "answer": {
+          "action": "dismiss",
+          "text": "",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "ordinal_action_with_unavailable",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "ordinal_action_with_form_and_unavailable",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "ordinal_action_with_digest_and_unavailable",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d",
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "ordinal_action_missing_form",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "ordinal_action_with_text",
+        "answer": {
+          "action": "a0",
+          "text": "extra note",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_false",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": false
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_integer_one",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": 1
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_string_true",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": "true"
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_null",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": null
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_wrong_version",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 2,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "unavailable_missing_version",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_missing_values",
+        "answer": {
+          "action": "dismiss"
+        }
+      },
+      {
+        "name": "dismiss_empty_values",
+        "answer": {
+          "action": "dismiss",
+          "values": {}
+        }
+      },
+      {
+        "name": "dismiss_empty_render",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {}
+          }
+        }
+      },
+      {
+        "name": "dismiss_extra_top_level_key",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          },
+          "extra": true
+        }
+      },
+      {
+        "name": "dismiss_extra_values_key",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            },
+            "extra": true
+          }
+        }
+      },
+      {
+        "name": "dismiss_extra_render_key",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true,
+              "reason": "missing"
+            }
+          }
+        }
+      },
+      {
+        "name": "rendered_extra_top_level_key",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          },
+          "extra": 1
+        }
+      },
+      {
+        "name": "rendered_extra_values_key",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            },
+            "extra": 1
+          }
+        }
+      },
+      {
+        "name": "rendered_extra_render_key",
+        "answer": {
+          "action": "a0",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d",
+              "extra": 1
+            }
+          }
+        }
+      },
+      {
+        "name": "unknown_action_approve",
+        "answer": {
+          "action": "approve",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "leading_zero_action_ordinal",
+        "answer": {
+          "action": "a01",
+          "values": {
+            "form": {},
+            "render": {
+              "v": 1,
+              "digest": "207f92275e4827a00baae1e702488ef66115fa53b2326916ac3b8097318e590d"
+            }
+          }
+        }
+      },
+      {
+        "name": "uppercase_dismiss_action",
+        "answer": {
+          "action": "DISMISS",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          }
+        }
+      },
+      {
+        "name": "dismiss_null_authenticated",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          },
+          "authenticated": null
+        }
+      },
+      {
+        "name": "dismiss_non_boolean_authenticated",
+        "answer": {
+          "action": "dismiss",
+          "values": {
+            "render": {
+              "v": 1,
+              "unavailable": true
+            }
+          },
+          "authenticated": "false"
+        }
+      }
+    ]
+  }
+}

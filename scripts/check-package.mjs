@@ -1,12 +1,13 @@
 // Build before running. The retained archive is the one the release publishes.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateContents } from './package-contents.mjs';
 import { fixture as storageFixture } from './fixtures/installed-storage.mjs';
+import { findForbiddenContent } from './scan-push.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, '.build/release');
@@ -42,6 +43,26 @@ try {
   const types = run('tar', ['-tvzf', archive]).trim().split(/\r?\n/);
   assert.ok(types.every(line => line.startsWith('-')), 'Only regular files may be published.');
   run('tar', ['-xzf', archive, '-C', temporary]);
+  const extractedRoot = path.join(temporary, 'package');
+  const walkFiles = (dir) => {
+    const out = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) out.push(...walkFiles(full));
+      else if (entry.isFile()) out.push(full);
+    }
+    return out;
+  };
+  for (const file of walkFiles(extractedRoot)) {
+    const bytes = readFileSync(file);
+    if (bytes.includes(0)) continue;
+    const findings = findForbiddenContent(bytes.toString('utf8'));
+    assert.deepEqual(
+      findings,
+      [],
+      `Forbidden internal content in packaged file ${path.relative(extractedRoot, file)}: ${findings.join('; ')}`
+    );
+  }
   if (process.argv.includes('--scan')) {
     const ignore = path.join(temporary, 'empty-ignore');
     writeFileSync(ignore, '');

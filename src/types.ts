@@ -8,6 +8,7 @@ export type PrimitiveType =
   | 'text_input'
   | 'form'
   | 'diff'
+  | 'screen'
   | 'activity_start'
   | 'activity_update'
   | 'activity_end';

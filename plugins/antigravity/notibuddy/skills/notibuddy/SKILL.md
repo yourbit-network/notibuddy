@@ -1,6 +1,6 @@
 ---
 name: notibuddy
-description: Send end-to-end encrypted notifications, approvals, code diffs, structured forms, live progress timers, and receive phone files through the NotiBuddy MCP server. Use when pausing for human approval, reporting long-run milestones, or collecting screenshots/files shared from iPhone.
+description: Send end-to-end encrypted custom screens, notifications, approvals, code diffs, structured forms, live progress timers, and receive phone files through the NotiBuddy MCP server. Use when pausing for human approval, reporting long-run milestones, or collecting screenshots/files shared from iPhone.
 ---
 
 # Using NotiBuddy
@@ -16,7 +16,8 @@ NotiBuddy connects this agent to the user's paired iPhone, iPad, or Apple Watch 
 
 ## Choosing the Right Tool
 
-- **One-way alert (no waiting):** Call `notibuddy_notify` with `{ "title": "...", "message": "..." }` and omit `options`, `fields`, `input_placeholder`, `diff`, and `requires_auth`.
+- **Custom native screen (0.4.0+):** Pass `screen: { templateId, labels, data }` (using one of the 8 built-in layouts) or `screen: { template }` (an inline layout composed from `vstack`, `card`, `divider`, `heading`, `text`, `badge`, `alert`, `kpiStrip`, `keyValueList`, `checklist`, `diffViewer`, and `formField` blocks plus `actions`). The server validates and caches only the structural layout while all text, metrics, diffs, and replies stay end-to-end encrypted. Cannot combine `screen` with `message`, `options`, `fields`, `input_placeholder`, `diff`, or `resume_id`.
+- **One-way alert (no waiting):** Call `notibuddy_notify` with `{ "title": "...", "message": "..." }` and omit `options`, `fields`, `input_placeholder`, `diff`, `screen`, and `requires_auth`.
 - **Approval / choice:** Call `notibuddy_notify` with `options: ["Approve", "Reject"]`, `decline_option: "Reject"`, and `requires_auth: true` for production deploys, destructive operations, or sensitive actions.
 - **Inline code diff review:** Pass `diff: { filename, language, original, modified }` (cannot combine with `options`, `fields`, `input_placeholder`, or `resume_id`). Reply `answer.action` is `"approve"` (Apply) or `"reject"` (Discard). Re-check that the file on disk still matches `original` before applying.
 - **Structured input:** Pass `fields` (`text`, `email`, `url`, `toggle`, `stepper`, `picker`, `date`, `secret`) or `input_placeholder` for free-text answers.

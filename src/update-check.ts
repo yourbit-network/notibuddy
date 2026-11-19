@@ -1,10 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 
 const REGISTRY_URL = 'https://registry.npmjs.org/notibuddy/latest';
 const MAX_BYTES = 65536;
 const SEMVER = /^\d+\.\d+\.\d+$/;
+const HOMEBREW_CELLAR = /(?:^|[/\\])Cellar[/\\]notibuddy[/\\]/;
 /** The package's own version, read the same way the MCP server reads it. */
 export const CLIENT_VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
+/** True when the current CLI/MCP entrypoint lives under a Homebrew Cellar directory. */
+export function isHomebrewInstall(entrypoint: string | undefined = process.argv[1]): boolean {
+  if (!entrypoint) return false;
+  if (HOMEBREW_CELLAR.test(entrypoint)) return true;
+  try {
+    return HOMEBREW_CELLAR.test(realpathSync(entrypoint));
+  } catch {
+    return false;
+  }
+}
 
 /** True when `candidate` is strictly newer than `running`. */
 export function newer(candidate: string, running: string): boolean {
