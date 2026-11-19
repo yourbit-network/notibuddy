@@ -20,5 +20,6 @@ This skills-only plugin teaches Claude Code how to pair, verify, and send end-to
    ```bash
    nb bind --client claude-code --to personal
    ```
+5. *(Optional)* Forward unattended Claude Code permission prompts to your iPhone after a 10-second grace period — ask Claude to run the `notibuddy-hooks` skill or install `/plugin install notibuddy-hooks --marketplace yourbit-network/notibuddy`.
 
 Full setup guide: https://notibuddy.app/claude-code
