@@ -6,6 +6,7 @@ import { acquireFileLock } from './file-lock.js';
 import { normalizeRelay } from './relay-url.js';
 import type { NotiBuddyConfig, ActivityPayload, AskPayload, RequestEnvelope } from './types.js';
 import type { GroupRequest } from './groups.js';
+import type { PendingScreenContext } from './screen-client.js';
 
 export interface PendingReply {
   privateKeyJwk: JsonWebKey;
@@ -14,6 +15,7 @@ export interface PendingReply {
   payload?:AskPayload|ActivityPayload; // Legacy records only: read to scrub it, never written.
   recipients?: unknown;
   dispatch?: 'pending' | 'accepted';
+  screen?: PendingScreenContext;
 }
 export interface ActivitySession {
   payload: ActivityPayload;

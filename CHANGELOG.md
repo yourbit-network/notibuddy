@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-19
+
+- **Custom Native Screens (`nb notify --screen`, `nb screen register`, MCP `notibuddy_notify({ screen })`):** Build rich, interactive native iOS screens directly from JSON using 12 composable SwiftUI blocks (`vstack`, `card`, `divider`, `heading`, `text`, `badge`, `alert`, `kpiStrip`, `keyValueList`, `checklist`, `diffViewer` with expand-all-lines gating, and `formField`) plus Face ID-protected actions. Choose from 8 ready-to-use built-in layouts or send an inline custom template — the server validates and caches only the structural layout while all text, metrics, diffs, and replies stay end-to-end encrypted.
+- Detect Homebrew Cellar installations (`Cellar/notibuddy`) and suggest `brew upgrade notibuddy` in update notices and upgrade errors; document Homebrew tap installation in README.
 
 ## 0.3.3 — 2026-11-18
 

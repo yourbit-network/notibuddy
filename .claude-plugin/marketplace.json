@@ -11,7 +11,7 @@
     {
       "name": "notibuddy",
       "source": "./plugins/claude-code/notibuddy",
-      "description": "End-to-end encrypted iPhone and Apple Watch approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
+      "description": "End-to-end encrypted iPhone and Apple Watch custom screens, approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
       "version": "1.0.0",
       "author": {
         "name": "Yourbit, LLC",

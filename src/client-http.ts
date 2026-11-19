@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ecdsaSign, sha256, toHex } from './crypto.js';
 import { normalizeRelay } from './relay-url.js';
 import type { NotiBuddyConfig } from './types.js';
-import { CLIENT_VERSION } from './update-check.js';
+import { CLIENT_VERSION, isHomebrewInstall } from './update-check.js';
 import { accountIdOf, credentialBinding, recoverCredentials } from './credential-recovery.js';
 
 /** The 32-hex account the relay edge derives from a sender/device bearer token (sha256 of its secret part). */
@@ -17,14 +17,21 @@ export interface CallOptions {signal?:AbortSignal;deadline?:number}
 interface RelayCallOptions extends CallOptions {maxResponseBytes?:number}
 export class DeadlineError extends Error {constructor(){super('Request deadline reached; resume the saved request');}}
 export class RelayHTTPError extends Error {
-  constructor(readonly status:number,readonly code?:string,readonly hasCode=code!==undefined){super(`Relay request failed (${status})${code?' '+code:''}`);}
+  constructor(
+    readonly status:number,
+    readonly code?:string,
+    readonly hasCode=code!==undefined,
+    readonly body?:unknown,
+    readonly retryAfter?:string
+  ){super(`Relay request failed (${status})${code?' '+code:''}`);}
 }
 
 /** The relay's HTTP 426 CLIENT_UPGRADE_REQUIRED answer: this client is below the support floor. */
 export class ClientUpgradeRequiredError extends Error {
   constructor(minimumVersion?:unknown) {
     const minimum=typeof minimumVersion==='string' && /^\d+\.\d+\.\d+$/.test(minimumVersion)?minimumVersion:undefined;
-    super(`The NotiBuddy relay no longer supports this client (${CLIENT_VERSION}${minimum?`; the minimum is ${minimum}`:''}). Update with: npm install -g notibuddy@latest — or change notibuddy@${CLIENT_VERSION} to notibuddy@latest in your npx command or MCP configuration.`);
+    const upgradeCmd = isHomebrewInstall() ? 'brew upgrade notibuddy' : 'npm install -g notibuddy@latest';
+    super(`The NotiBuddy relay no longer supports this client (${CLIENT_VERSION}${minimum?`; the minimum is ${minimum}`:''}). Update with: ${upgradeCmd} — or change notibuddy@${CLIENT_VERSION} to notibuddy@latest in your npx command or MCP configuration.`);
     this.name='ClientUpgradeRequiredError';
   }
 }
@@ -96,7 +103,9 @@ export async function relayJSONOnce(config:NotiBuddyConfig,route:string,init:Req
     if(response.status===426 && body?.code==='CLIENT_UPGRADE_REQUIRED')throw new ClientUpgradeRequiredError(body.minimumVersion);
     if(!response.ok)throw new RelayHTTPError(response.status,
       typeof body?.code==='string' && /^[A-Z_]{1,80}$/.exec(body.code)?.[0]===body.code?body.code:undefined,
-      body!==null && typeof body==='object' && Object.hasOwn(body,'code'));
+      body!==null && typeof body==='object' && Object.hasOwn(body,'code'),
+      body,
+      response.headers.get('retry-after') ?? undefined);
     return {status:response.status,body};
   }finally {
     clearTimeout(timer);signal.removeEventListener('abort',onAbort);

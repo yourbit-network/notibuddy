@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { findForbiddenContent } from '../scripts/scan-push.mjs';
 
 const source = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
 const scanner = process.env.GITLEAKS_BIN || spawnSync('sh', ['-c', 'command -v gitleaks'], { encoding: 'utf8' }).stdout.trim();
@@ -217,4 +218,212 @@ test('blob tags are refused instead of bypassing history scanning', t => {
   const oid = r.git('hash-object', '-w', 'README.md');
   r.git('tag', 'blob-tag', oid);
   r.blocked(r.push('refs/tags/blob-tag'));
+});
+
+test('multi-root history is blocked', t => {
+  const r = repository(t);
+  r.install();
+  r.git('checkout', '--orphan', 'unrelated');
+  r.git('rm', '-rf', '.');
+  r.write('README.md', 'Unrelated root\n');
+  r.commit('Unrelated root');
+  r.git('checkout', 'main');
+  r.git('merge', '--allow-unrelated-histories', '--no-edit', '-X', 'ours', 'unrelated');
+  const result = r.push('main');
+  r.blocked(result);
+  assert.match(result.stderr, /single root commit/);
+  assert.equal(r.git('ls-remote', 'origin'), '');
+});
+
+test('non-canonical root is blocked when requireCanonicalRoot is enabled', t => {
+  const r = repository(t);
+  r.install();
+  r.git('config', '--local', 'notibuddy.requireCanonicalRoot', 'true');
+  const result = r.push('main');
+  r.blocked(result);
+  assert.match(result.stderr, /canonical public root commit/);
+  assert.equal(r.git('ls-remote', 'origin'), '');
+});
+
+test('git alternates file is blocked', t => {
+  const r = repository(t);
+  r.install();
+  const alternates = path.join(r.work, '.git/objects/info/alternates');
+  mkdirSync(path.dirname(alternates), { recursive: true });
+  writeFileSync(alternates, '/tmp/foreign-objects\n');
+  const result = r.push('main');
+  r.blocked(result);
+  assert.match(result.stderr, /alternates/);
+  assert.equal(r.git('ls-remote', 'origin'), '');
+});
+
+test('foreign private remote configured in repo blocks pushes', t => {
+  const r = repository(t);
+  r.install();
+  const privateUrl = 'https://github.com/yourbit-network/' + ['notibuddy', 'app'].join('-');
+  r.git('remote', 'add', 'leak', privateUrl);
+  const result = r.push('main');
+  r.blocked(result);
+  assert.match(result.stderr, /private repository/);
+  assert.equal(r.git('ls-remote', 'origin'), '');
+});
+
+test('disallowed paths are blocked even without secrets and even if later deleted', t => {
+  const disallowedDerivedPath = ['src/foo', 'bin' + 'ding', 'ts'].join('.');
+  for (const badPath of ['apps/ios/App.swift', 'services/worker/index.ts', 'unlisted-root-file.txt', disallowedDerivedPath]) {
+    const r = repository(t);
+    r.install();
+    r.write(badPath, 'export const clean = true;\n');
+    r.commit(`Add ${badPath}`);
+    const first = r.push('main');
+    r.blocked(first);
+    assert.match(first.stderr, /Path is not allowed/);
+
+    r.git('rm', badPath);
+    r.commit(`Remove ${badPath}`);
+    const afterDelete = r.push('main');
+    r.blocked(afterDelete);
+    assert.match(afterDelete.stderr, /Path is not allowed/);
+    assert.equal(r.git('ls-remote', 'origin'), '');
+  }
+});
+
+test('ref namespace allowlist permits enclave-signer fanout notes and blocks other note refs or bad note paths', t => {
+  const r = repository(t);
+  r.install();
+  const head = r.git('rev-parse', 'HEAD');
+
+  // Unsupported note namespace is blocked.
+  r.git('notes', '--ref=other', 'add', '-m', 'custom note', head);
+  const otherResult = r.push('refs/notes/other');
+  r.blocked(otherResult);
+  assert.match(otherResult.stderr, /Unsupported target ref namespace/);
+
+  // Valid enclave-signer note succeeds (both flat 40-hex and fanout 2/38-hex).
+  r.git('notes', '--ref=enclave-signer', 'add', '-m', '{"sig":"ok"}', head);
+  const validNote = r.push('refs/notes/enclave-signer');
+  assert.equal(validNote.status, 0, validNote.stderr);
+
+  // Explicit 2/38-hex fanout note path succeeds as well.
+  const noteBlob = r.run('git', ['hash-object', '-w', '--stdin'], { input: '{"sig":"fanout"}\n' });
+  assert.equal(noteBlob.status, 0, noteBlob.stderr);
+  const subTree = r.run('git', ['mktree'], { input: `100644 blob ${noteBlob.stdout.trim()}\t${head.slice(2)}\n` });
+  assert.equal(subTree.status, 0, subTree.stderr);
+  const fanoutTree = r.run('git', ['mktree'], { input: `040000 tree ${subTree.stdout.trim()}\t${head.slice(0, 2)}\n` });
+  assert.equal(fanoutTree.status, 0, fanoutTree.stderr);
+  const fanoutCommit = r.run('git', ['commit-tree', fanoutTree.stdout.trim(), '-m', 'Fanout note']);
+  assert.equal(fanoutCommit.status, 0, fanoutCommit.stderr);
+  r.git('update-ref', 'refs/notes/enclave-signer', fanoutCommit.stdout.trim());
+  const validFanout = r.push('--force', 'refs/notes/enclave-signer');
+  assert.equal(validFanout.status, 0, validFanout.stderr);
+
+  // Non-note path inside refs/notes/enclave-signer is blocked.
+  const blobOid = r.git('hash-object', '-w', 'README.md');
+  const treeInput = `100644 blob ${blobOid}\tREADME.md\n`;
+  const mktree = r.run('git', ['mktree'], { input: treeInput });
+  assert.equal(mktree.status, 0, mktree.stderr);
+  const badNoteCommit = r.run('git', ['commit-tree', mktree.stdout.trim(), '-m', 'Bad note tree']);
+  assert.equal(badNoteCommit.status, 0, badNoteCommit.stderr);
+  r.git('update-ref', 'refs/notes/enclave-signer', badNoteCommit.stdout.trim());
+  const badNotePush = r.push('--force', 'refs/notes/enclave-signer');
+  r.blocked(badNotePush);
+  assert.match(badNotePush.stderr, /Notes path is not allowed/);
+});
+
+test('internal tracker IDs, internal directive annotations, and hashed internal tokens are blocked', t => {
+  // Tracker ID in commit message
+  {
+    const r = repository(t);
+    r.install();
+    r.write('src/clean.ts', 'export const ok = 1;\n');
+    r.commit(`Fix ${['nb', 'llc.9'].join('-')}`);
+    const result = r.push('main');
+    r.blocked(result);
+    assert.match(result.stderr, /Private issue tracker identifier/);
+  }
+
+  // Internal directive annotation in source file
+  {
+    const r = repository(t);
+    r.install();
+    r.write('src/clean.ts', `${['//', '@ tag: x > 0'].join('')}\nexport const ok = 1;\n`);
+    r.commit('Add clean file');
+    const result = r.push('main');
+    r.blocked(result);
+    assert.match(result.stderr, /Internal directive annotation/);
+  }
+
+  // Hashed canary token in source file
+  {
+    const r = repository(t);
+    r.install();
+    const canary = ['nb', 'internal', 'canary', 'token'].join('_');
+    r.write('src/clean.ts', `export const marker = '${canary}';\n`);
+    r.commit('Add canary');
+    const result = r.push('main');
+    r.blocked(result);
+    assert.match(result.stderr, /Internal identifier token/);
+  }
+});
+
+test('allowLegacyTrackerId only exempts legacy tracker IDs while keeping other content fences active', () => {
+  const tracker = ['nb', 'llc.9'].join('-');
+  const annotation = ['//', '@ tag: x > 0'].join('');
+  const privateRepo = 'yourbit-network/' + ['notibuddy', 'app'].join('-');
+  const canary = ['nb', 'internal', 'canary', 'token'].join('_');
+
+  assert.equal(findForbiddenContent(`Fix ${tracker}`).length, 1);
+  assert.deepEqual(findForbiddenContent(`Fix ${tracker}`, { allowLegacyTrackerId: true }), []);
+
+  assert.ok(
+    findForbiddenContent(`Fix ${tracker}\n${annotation}`, { allowLegacyTrackerId: true }).some(
+      (msg) => /Internal directive annotation/.test(msg)
+    )
+  );
+  assert.ok(
+    findForbiddenContent(`Fix ${tracker} ${privateRepo}`, { allowLegacyTrackerId: true }).some(
+      (msg) => /Private repository reference/.test(msg)
+    )
+  );
+  assert.ok(
+    findForbiddenContent(`Fix ${tracker} ${canary}`, { allowLegacyTrackerId: true }).some(
+      (msg) => /Internal identifier token/.test(msg)
+    )
+  );
+});
+
+test('git symlinks (120000) and submodule gitlinks (160000) are blocked even at allowed paths', t => {
+  // Symlink at allowed path src/link.ts
+  {
+    const r = repository(t);
+    r.install();
+    mkdirSync(path.join(r.work, 'src'), { recursive: true });
+    symlinkSync('../README.md', path.join(r.work, 'src/link.ts'));
+    r.commit('Add symlink');
+    const result = r.push('main');
+    r.blocked(result);
+    assert.match(result.stderr, /Forbidden Git entry mode 120000/);
+    assert.equal(r.git('ls-remote', 'origin'), '');
+  }
+
+  // Submodule gitlink (160000) at allowed path src/sub.ts via mktree
+  {
+    const r = repository(t);
+    r.install();
+    const head = r.git('rev-parse', 'HEAD');
+    const subTree = r.run('git', ['mktree'], { input: `160000 commit ${head}\tsub.ts\n` });
+    assert.equal(subTree.status, 0, subTree.stderr);
+    const baseEntries = r.git('ls-tree', 'HEAD');
+    const rootTree = r.run('git', ['mktree'], {
+      input: `${baseEntries}\n040000 tree ${subTree.stdout.trim()}\tsrc\n`,
+    });
+    assert.equal(rootTree.status, 0, rootTree.stderr);
+    const gitlinkCommit = r.run('git', ['commit-tree', rootTree.stdout.trim(), '-p', head, '-m', 'Add gitlink']);
+    assert.equal(gitlinkCommit.status, 0, gitlinkCommit.stderr);
+    r.git('update-ref', 'refs/heads/main', gitlinkCommit.stdout.trim());
+    const result = r.push('main');
+    r.blocked(result);
+    assert.match(result.stderr, /Forbidden Git entry mode 160000/);
+    assert.equal(r.git('ls-remote', 'origin'), '');
+  }
 });

@@ -511,3 +511,200 @@ The signature covers the UTF-8 encoding of this compact JSON array, in order:
 A successful response is exactly `{"sender":{"senderKeyId":"snd_…","approved":0}}` or the same with `approved:1`. A valid proof of an absent, revoked or expired pending identity returns `404 SENDER_NOT_FOUND`. Invalid ownership returns `401 SENDER_SIGNATURE_REQUIRED`; replay returns `409 SENDER_PROOF_REPLAYED`. Responses are not cacheable. Full sender metadata and catalogs require a registered primary-device proof and are separate from this sender operation.
 
 The client uses one existing diagnostics deadline for health, proof generation, status, compatibility requests and recipient discovery. Only an uncoded 404 from an older relay permits the previous exact lookup, followed by the complete legacy list only if that lookup also returns an uncoded 404. Typed absence, authorization errors, malformed responses and partial/ambiguous lists never trigger a fallback or prove absence. The targeted response limit remains 64 KiB and the legacy list limit remains 512 KiB. Publish the proof-capable client before enforcing primary-only catalogs on the hosted relay; older clients' notification delivery is unchanged, but their unsigned diagnostic reads cannot satisfy the new catalog policy.
+
+## Certified screen templates (v2)
+
+Structured interactive screens travel over Protocol v2 with outer `primitive: "screen"`, `sessionId == requestId`, and `revision == 1`. A screen separates public structure from encrypted content into three parts:
+
+1. **Certified template skeleton** (`templateId: "tpl_<64 lowercase hex>"`): describes the layout tree, slot bounds, interactive fields, checklists, and signed action table with zero inline text or data literals.
+2. **Encrypted `labels` map**: maps slot ordinals (`s0`, `s1`, …) to user-facing display strings inside the HPKE request ciphertext.
+3. **Encrypted `data` map**: maps slot ordinals (`s0`, `s1`, …) to structured runtime payloads built strictly from the value domain `string | boolean | int53` (arrays and objects of those primitives; decimals travel as strings; `null` and non-integral numbers are rejected).
+
+### Strict request plaintext
+
+The decrypted JSON plaintext for `primitive: "screen"` MUST contain only the following top-level keys (unknown top-level keys fail closed):
+
+```json
+{
+  "type": "ask",
+  "replyPub": "<b64u 65-byte uncompressed P-256 point>",
+  "source": { "label": "deploy-bot@macbook" },
+  "title": "Production Schema Migration",
+  "presentation": { "shortTitle": "Prod Migration", "summary": "Review DDL diff" },
+  "sensitive": true,
+  "requiresAuth": true,
+  "templateId": "tpl_<64 lowercase hex>",
+  "labels": { "s0": "Migration Summary" },
+  "data": { "s4": [{ "label": "Rows", "value": 1420000 }] },
+  "thread": {
+    "id": "thr_deploy_0042",
+    "step": 2,
+    "of": 3,
+    "prev": { "requestId": "req_step1", "renderDigest": "<64 lowercase hex>" }
+  }
+}
+```
+
+- Required keys: `type` (`"ask"`), `replyPub`, `source` (`{ "label" }`), `title`, `templateId`, `labels`, `data`.
+- Optional keys: `presentation` (`{ "shortTitle"?, "summary"? }`), `sensitive`, `requiresAuth`, `thread`.
+- `templateId` MUST match `^tpl_[0-9a-f]{64}$` (68 characters, validated separately from the 64-character routing identifier rule). It equals `"tpl_" + hex(SHA-256(UTF-8(canon(skeleton))))`.
+- `title`, `source.label`, `presentation` strings, and every value in `labels` MUST be valid Unicode without Unicode control (`Cc`) or format (`Cf`) scalars. `source.label` is trimmed to 1–100 UTF-16 code units.
+- Every key in `labels` and `data` MUST be a valid slot ordinal (`^s(0|[1-9][0-9]*)$`).
+- Every integer in `data` MUST be an `int53` safe integer (`-9007199254740991 .. 9007199254740991`).
+- Optional `thread` links multi-step workflows inside the ciphertext without reusing `sessionId`: `id` is a routing identifier, `1 <= step <= of <= 64`, `prev` MUST be omitted on `step == 1`, and `prev: { requestId, renderDigest }` MUST be present when `step > 1`.
+
+### 12-block skeleton syntax, actions, and ordinal IDs
+
+A skeleton has strict top-level keys `{ "v": 1, "root": <Block>, "actions": [<Action>, ...] }` with zero inline text literals. Identifiers are traversal-order ordinals assigned contiguously from `0` in depth-first pre-order across `root`, with action labels continuing the `s` sequence after `root`:
+
+- Slots: `s0`, `s1`, … (`^s(0|[1-9][0-9]*)$`)
+- Form fields: `f0`, `f1`, … (`^f(0|[1-9][0-9]*)$`)
+- Checklists: `c0`, `c1`, … (`^c(0|[1-9][0-9]*)$`)
+- Actions: `a0`, `a1`, … (`^a(0|[1-9][0-9]*)$`)
+
+The 12 closed body block kinds are:
+
+| Kind | Required fields | Optional fields |
+|---|---|---|
+| `vstack` | `children` | `spacing` (`compact` \| `regular` \| `relaxed`) |
+| `card` | `children` | `header` (`TextSlot`) |
+| `divider` | *(none)* | *(none)* |
+| `heading` | `text` (`TextSlot`) | `level` (`1` \| `2` \| `3`) |
+| `text` | `text` (`TextSlot`) | `style` (`body` \| `caption` \| `mono`) |
+| `badge` | `tone` (`neutral` \| `info` \| `success` \| `warning` \| `danger`), `label` (`TextSlot`) | *(none)* |
+| `alert` | `severity` (`info` \| `success` \| `warning` \| `danger`), `title` (`TextSlot`) | `body` (`TextSlot`) |
+| `kpiStrip` | `items` (`DataSlot`) | *(none)* |
+| `keyValueList` | `rows` (`DataSlot`) | *(none)* |
+| `checklist` | `id` (`c<k>`), `items` (`DataSlot`) | `title` (`TextSlot`) |
+| `diffViewer` | `diff` (`DiffSlot`) | *(none)* |
+| `formField` | `id` (`f<k>`), `fieldType`, `label` (`TextSlot`), plus `min`/`max` for `stepper` or `options` (`DataSlot`) for `picker` | `placeholder` (`TextSlot`), `required`, `maxGraphemes`/`maxBytes` (text-like), `defaultBool` (`toggle`), `defaultInt` (`stepper`), `defaultOptionIndex` (`picker`) |
+
+Supported `formField` types are `text`, `email`, `url`, `secret`, `date`, `toggle`, `stepper`, and `picker`. Slot shapes are:
+
+- `TextSlot`: `{ "slot": "s<n>", "maxGraphemes": <int>, "maxBytes": <int> }` (`1 <= maxGraphemes <= maxBytes`)
+- `DataSlot`: `{ "slot": "s<n>", "minItems"?: <int>, "maxItems": <int>, "maxBytes": <int> }` (`0 <= minItems <= maxItems`)
+- `DiffSlot`: `{ "slot": "s<n>", "maxBytes": <int>, "maxLines": <int> }`
+
+Each entry in top-level `actions` has strict keys `{ "id": "a<k>", "label": <TextSlot>, "role", "requireBio", "enabledWhen"? }`:
+
+- `role`: `primary`, `secondary`, `destructive`, or `decline`.
+- `requireBio`: signed boolean. An action requires user authentication when `(sensitive || requiresAuth || requireBio)` and `role != "decline"`.
+- `enabledWhen`: optional AND-only array of predicates:
+  - `{ "op": "allChecked", "checklist": "c<k>" }` — true iff checklist has at least 1 item and every item is `true`.
+  - `{ "op": "isNotEmpty", "field": "f<k>" }` — true iff the text-like field is non-empty after trimming whitespace.
+  - `{ "op": "equals", "field": "f<k>", "value": <boolean | optionIndex> }` — matches a `toggle` boolean or a `picker` integer option index.
+
+Loose public wire caps bound wire decoding on all clients: at most 65,536 canonical skeleton bytes, 256 nodes, nesting depth 16, 16 actions, 128 form fields, 128 checklists, 256 slots, 32 predicates per action, 4,096 graphemes / 16,384 bytes per text slot, 256 items per list slot, 96,000 bytes / 20,000 lines per `diffViewer`, and 149,984 UTF-8 bytes for the full request plaintext.
+
+### Canonical serialization (`canon`), total `form` projection, and digests
+
+Canonical JSON (`canon`) serializes values in the closed screen domain (`string | boolean | int53 | array | object`) with:
+
+- UTF-8 encoding and zero insignificant whitespace.
+- Object keys sorted **UTF-8 bytewise** (identical to Unicode scalar value order, so `"f10"` precedes `"f2"` and `U+E000` precedes `U+1F600`).
+- RFC 8785 §3.2.2.2 string escaping (`\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, lowercase `\u00xx` for other `U+0000..U+001F`; all other valid Unicode scalars unescaped; lone surrogates rejected).
+- Integers formatted in plain decimal (`-0` normalized to `0`); non-integral floats and `null` forbidden.
+
+The reply answer reuses the existing `GroupAnswer` wire structure (`action`, `values`, and optional boolean `authenticated`) without schema changes. Top-level `text` and any unknown keys MUST be omitted. A screen reply MUST match exactly one of two disjoint variants:
+
+1. **Rendered answer** — emitted when the user acts on a verified, rendered screen:
+
+```json
+{
+  "action": "a0",
+  "values": {
+    "form": { "f0": "CHG-9001", "c0": [true, true, true] },
+    "render": { "v": 1, "digest": "<64 lowercase hex>" }
+  },
+  "authenticated": true
+}
+```
+
+- `action` MUST be a valid action ordinal (`^a(0|[1-9][0-9]*)$`).
+- `values` MUST contain exact keys `form` and `render`, where `render` has exact keys `{ "v": 1, "digest": "<64 lowercase hex>" }`.
+- `form` is a **total map** containing one entry for every `formField` (`f<k>`) and `checklist` (`c<k>`) in the skeleton:
+  - `text`, `email`, `url`, `secret`, `date`: `string` (`""` when empty; ISO-8601 for `date`).
+  - `toggle`: `boolean`.
+  - `stepper`: `int53` within `[min, max]` (non-integral numbers rejected).
+  - `picker`: `int53` option index in `0 ..< optionCount`, or `-1` when unselected.
+  - `checklist` (`c<k>`): `boolean[]` of exact length equal to the runtime item count, in item order.
+
+2. **Unavailable dismiss answer** — emitted when the device cannot resolve or verify the referenced template and the user dismisses the unavailable screen:
+
+```json
+{
+  "action": "dismiss",
+  "values": {
+    "render": { "v": 1, "unavailable": true }
+  }
+}
+```
+
+- `action` MUST be the host-owned literal `"dismiss"`, which is disjoint from template action ordinals (`a0..`).
+- `values` MUST contain only `render` with exact keys `{ "v": 1, "unavailable": true }` — with no `form`, no `text`, and no `digest`.
+- Because no template was rendered, no `renderDigest` is computed or verified for this variant, and dismissing an unavailable screen does not require biometric or passcode unlock.
+
+Producers and consumers MUST fail closed on every invalid combination, including `"dismiss"` with `form`, `digest`, or `text`; an ordinal action (`a<n>`) with `unavailable` or `text`; `unavailable: false`; wrong `render.v`; explicit `null`; or any extra key at any level.
+
+For rendered answers, digests bind the signed response directly to the decrypted request bytes and settled action/form values:
+
+```text
+contextDigestBytes = SHA-256(UTF-8("nb-screen-ctx-v1") ‖ 0x00 ‖ UTF-8(requestId) ‖ 0x00 ‖ plaintextBytes)
+contextDigest      = hex(contextDigestBytes)
+
+renderDigestBytes  = SHA-256(UTF-8("nb-screen-render-v1") ‖ 0x00 ‖ contextDigestBytes ‖ UTF-8(canon({ "action": action, "form": form })))
+renderDigest       = hex(renderDigestBytes)
+```
+
+Shared cross-language vectors covering `canon`, bytewise key ordering, `templateId`, `contextDigest`, `renderDigest`, `form` projection, `allChecked`, chained `thread` linkage, and both rendered and unavailable screen answer accept/reject cases live in `test-vectors/screen-wire-v1.json`.
+
+<!-- screen-catalog:start -->
+
+### Screen authoring guidelines
+
+- **Keep structure separate from content.** A screen template skeleton describes layout, slot bounds, interactive fields, checklists, and actions without embedding user-facing text or data literals. Runtime text travels in encrypted `labels` and structured payloads travel in encrypted `data`, bound to the skeleton through `templateId` and `contextDigest`.
+- **Use a flat card hierarchy.** Group related content inside top-level `card` blocks arranged in a `vstack`. Avoid nesting a `card` inside another `card` or wrapping a single block in extra `vstack` layers; automatic standardization unwraps nested cards into a `heading` plus `divider` and collapses redundant wrappers.
+- **Pick generous slot bounds for reusable templates.** Choose `maxGraphemes` and `maxBytes` high enough to cover expected runtime variation so repeated calls share one certified `templateId`. Keep `maxBytes >= maxGraphemes` (use at least 4x `maxGraphemes` for multilingual text). Non-standard bounds within the supported range are rounded up automatically to the next standard tier without rejecting valid payloads.
+- **Keep actions clear and explicit.** Define actions in the top-level `actions` table using `primary`, `secondary`, `destructive`, or `decline` roles. Mark sensitive confirmations with `requireBio: true`, and leave `requireBio: false` on any `decline` action so users can always cancel without biometric unlock. Keep at most one `decline` action per screen.
+- **Gate submissions with AND-only predicates.** Attach `enabledWhen` predicates (`allChecked`, `isNotEmpty`, `equals`) to non-decline actions when a checklist, required note, toggle, or picker selection must be satisfied before submission. Every `diffViewer` also enforces a host review gate requiring the user to expand the diff before non-decline actions enable.
+- **Register once and use auto-standardization or --strict.** `POST /v2/templates` defaults to `mode: "auto"`: harmless layout or bound adjustments are standardized in one round trip and returned alongside `repaired: true`, the normalized `skeleton`, and `changes` codes. Pass `mode: "strict"` (or `nb screen register --strict`) in CI to receive `422 repair_suggested` instead of signing. Unrepairable templates return `422 invalid_template` with all `fixes` listed at once, pointing only to ordinal IDs (`at`).
+
+### Public standardization change codes (`changes`)
+
+Returned on `200 OK` (`repaired: true`) in `mode: "auto"` or `422` (`status: "repair_suggested"`) in `mode: "strict"`. Each entry carries `{ "code", "message", "at"? }`, where `at` names an ordinal ID and never echoes runtime text.
+
+| Code | Summary | Guidance |
+|---|---|---|
+| `BOUND_SNAPPED` | Slot size bound rounded up to the next standard tier. | No payload changes required; all strings and arrays that fit the original bound also fit the standardized bound. Save the returned skeleton if you want future submissions to certify with `repaired: false`. |
+| `NESTED_CARD_UNWRAPPED` | Inner card unwrapped into a heading, divider, and sibling blocks. | Avoid placing a `card` inside another `card`. The inner card header slot is preserved in the same ordinal position as a `heading` followed by a `divider`. |
+| `REDUNDANT_WRAPPER_COLLAPSED` | Redundant container stack collapsed while preserving child order. | Remove single-child or nested pass-through `vstack` wrappers so layout depth stays compact. |
+
+### Public template fix codes (`fixes`)
+
+Returned on `422` (`status: "invalid_template"`) when a template cannot be standardized without changing its binding or action schema. Every issue is returned in a single response as `{ "code", "message", "at"? }`.
+
+| Code | Summary | Guidance |
+|---|---|---|
+| `INVALID_SCHEMA_VERSION` | Unsupported or missing skeleton version. | Set top-level `v` to `1`. |
+| `UNKNOWN_BLOCK_KIND` | Block `kind` is not one of the 12 supported block types. | Use only `vstack`, `card`, `divider`, `heading`, `text`, `badge`, `alert`, `kpiStrip`, `keyValueList`, `checklist`, `diffViewer`, or `formField`. |
+| `INVALID_ORDINAL_SEQUENCE` | Slot, field, checklist, or action IDs are out of pre-order sequence. | Assign `s0..`, `f0..`, `c0..`, and `a0..` contiguously in depth-first pre-order traversal, with action labels continuing the `s` sequence after `root`. |
+| `BOUND_EXCEEDS_MAXIMUM` | A slot `maxGraphemes`, `maxBytes`, `maxItems`, or `maxLines` exceeds the maximum supported limit. | Lower the bound on the referenced ordinal (`at`) to a value within the published ceiling. |
+| `INVALID_BOUND_RANGE` | Slot bounds are non-positive or inconsistent (for example `maxBytes < maxGraphemes` or `minItems > maxItems`). | Ensure `1 <= maxGraphemes <= maxBytes` for text slots and `0 <= minItems <= maxItems` for data slots. |
+| `DEPTH_EXCEEDED` | Container nesting exceeds the maximum layout depth. | Flatten nested `vstack` or `card` containers. |
+| `NODE_COUNT_EXCEEDED` | Template contains more blocks than allowed on a single screen. | Reduce the total number of blocks or split the workflow into chained `thread` steps. |
+| `TOO_MANY_FIELDS` | Template declares more interactive form fields than allowed on a single screen. | Reduce the number of `formField` blocks or split across `thread` steps. |
+| `TOO_MANY_DIFF_VIEWERS` | Template contains more than one `diffViewer` block. | Keep at most one `diffViewer` per screen; split multi-file reviews into chained `thread` steps. |
+| `TOO_MANY_CHECKLISTS` | Template declares more `checklist` blocks than allowed on a single screen. | Combine related verification items into fewer checklists. |
+| `CHECKLIST_MIN_ITEMS_INVALID` | Checklist `minItems` is zero or inconsistent with `maxItems`. | Set `items.minItems >= 1` and `items.minItems <= items.maxItems` on every `checklist`. |
+| `STEPPER_RANGE_INVALID` | Stepper `min`, `max`, or `defaultInt` is invalid or out of range. | Provide safe integers (`int53`) with `min <= max` and `min <= defaultInt <= max` when `defaultInt` is set. |
+| `PICKER_OPTIONS_INVALID` | Picker `options` slot or `defaultOptionIndex` is invalid. | Provide a valid `options` data slot with `maxItems >= 1` and set `defaultOptionIndex` to `-1` (unselected) or `0 ..< options.maxItems`. |
+| `ACTION_COUNT_INVALID` | Action table is empty or exceeds the supported action count. | Define between 1 and 3 actions in the top-level `actions` table. |
+| `MULTIPLE_DECLINE_ACTIONS` | More than one action has `role: "decline"`. | Keep at most one `decline` action per screen. |
+| `DECLINE_REQUIRE_BIO_INVALID` | A `decline` action specifies `requireBio: true`. | Set `requireBio: false` on `decline` actions so cancellation never requires biometric unlock. |
+| `PREDICATE_TARGET_UNKNOWN` | An `enabledWhen` predicate references a field or checklist ordinal that does not exist in `root`. | Point `allChecked` at a declared `c<k>` ordinal and `isNotEmpty`/`equals` at a declared `f<k>` ordinal. |
+| `PREDICATE_TYPE_MISMATCH` | An `enabledWhen` predicate does not match the target field's `fieldType`. | Use `isNotEmpty` on text-like fields, `equals` with a boolean on `toggle` fields, and `equals` with a non-negative integer index on `picker` fields. |
+| `TOO_MANY_PREDICATES` | An action declares more `enabledWhen` predicates than allowed. | Keep `enabledWhen` concise and combine related checks into a single checklist where possible. |
+| `INLINE_LITERAL_NOT_ALLOWED` | Unexpected literal text or unrecognized key appeared inside the skeleton. | Move all display strings to encrypted `labels` and runtime values to encrypted `data`, referencing them by slot ordinal. |
+| `PAYLOAD_CAP_EXCEEDED` | Canonical serialized skeleton exceeds the public wire byte ceiling. | Simplify the screen structure or split into chained `thread` steps. |
+
+<!-- screen-catalog:end -->

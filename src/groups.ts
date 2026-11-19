@@ -2,6 +2,7 @@ import { MAX_ACTIVITY_TIMEOUT_SECONDS, MAX_REQUEST_TIMEOUT_SECONDS, requestTimeo
 import { accountIdOf } from './credential-recovery.js';
 import { answerSchema } from './answer-validation.js';
 import type { NotiBuddyConfig, AskPayload, ActivityPayload, AnswerPayload, PrimitiveType } from './types.js';
+import type { ScreenRequestPlaintext } from './screen-types.js';
 import { deriveDeviceId, ecdsaSign, ecdsaVerify, fromB64u, hpkeOpen, hpkeSeal, sha256, toB64u, toHex } from './crypto.js';
 import { companionGrantInput, validCompanionGrant, type CompanionGrant } from './companion-grant.js';
 import { groupDeliveryHeader, groupDeliveryInput, groupResponseHeader, groupResponseInput, validGroupRequest, validGroupResponse, type GroupRequest, type GroupResponse } from './group-wire.js';
@@ -62,7 +63,7 @@ export function recipientCheckpoint(recipients:VerifiedRecipients):RecipientChec
 
 /** Pure protocol API. CLI/MCP stays on v1 until pairing negotiates v2 support. */
 export async function sealGroupRequest(params:{requestId:string;senderKeyId:string;signingKey:CryptoKey;recipients:VerifiedRecipients;
-  primitive:PrimitiveType;payload:AskPayload|ActivityPayload;timeoutSeconds?:number;expiresAt?:number;sessionId?:string;revision?:number}):Promise<GroupRequest> {
+  primitive:PrimitiveType;payload:AskPayload|ActivityPayload|ScreenRequestPlaintext;timeoutSeconds?:number;expiresAt?:number;sessionId?:string;revision?:number}):Promise<GroupRequest> {
   requireVerified(params.recipients);
   // Low-level activity calls retain their existing default; client.activity supplies one hour.
   const activity = params.primitive.startsWith('activity_');
@@ -87,9 +88,8 @@ export async function sealGroupRequest(params:{requestId:string;senderKeyId:stri
   return envelope;
 }
 
-/** Verifies against the recipient snapshot saved with this exact request,
- * never a display label or a freshly substituted Watch key. */
-export async function openGroupResponse(params:{input:unknown;request:GroupRequest;recipients:VerifiedRecipients;replyKey:CryptoKey}):Promise<AnswerPayload> {
+/** Verifies the v2 response envelope and decrypts the raw UTF-8 plaintext without schema-coercing it. */
+export async function openGroupResponsePlaintext(params:{input:unknown;request:GroupRequest;recipients:VerifiedRecipients;replyKey:CryptoKey}):Promise<string> {
   requireVerified(params.recipients);
   const r=structuredClone(params.input),q=structuredClone(params.request);
   if(!validGroupResponse(r) || !validGroupRequest(q) || q.generation!==params.recipients.generation ||
@@ -104,6 +104,12 @@ export async function openGroupResponse(params:{input:unknown;request:GroupReque
     if(!capability || !responder.capabilities.includes(capability))throw Error('Companion cannot answer this request');
   }
   if(!await ecdsaVerify(responder.sigPub,groupResponseInput(r),r.sig))throw Error('Group response signature failed');
-  const plaintext=await hpkeOpen(params.replyKey,r.enc,'notibuddy/v2/reply',groupResponseHeader(r)+'|sender',r.ct);
+  return hpkeOpen(params.replyKey,r.enc,'notibuddy/v2/reply',groupResponseHeader(r)+'|sender',r.ct);
+}
+
+/** Verifies against the recipient snapshot saved with this exact request,
+ * never a display label or a freshly substituted Watch key. */
+export async function openGroupResponse(params:{input:unknown;request:GroupRequest;recipients:VerifiedRecipients;replyKey:CryptoKey}):Promise<AnswerPayload> {
+  const plaintext=await openGroupResponsePlaintext(params);
   return answerSchema.parse(JSON.parse(plaintext));
 }
