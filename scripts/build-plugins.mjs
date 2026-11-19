@@ -213,6 +213,7 @@ This skills-only plugin teaches Claude Code how to pair, verify, and send end-to
    \`\`\`bash
    nb bind --client ${host.clientId} --to personal
    \`\`\`
+5. *(Optional)* Forward unattended Claude Code permission prompts to your iPhone after a 10-second grace period — ask Claude to run the \`notibuddy-hooks\` skill or install \`/plugin install ${meta.hooks.name} --marketplace yourbit-network/notibuddy\`.
 
 Full setup guide: ${host.homepage}
 `;
@@ -294,6 +295,9 @@ for (const host of hosts) {
     putBinary(`${directoryDir}/.claude-plugin/icon.png`, iconBytes);
     for (const [rel, file] of sharedSkills) {
       put(`${directoryDir}/skills/${rel}`, file.content);
+    }
+    for (const [rel, file] of hookSkill) {
+      put(`${directoryDir}/skills/notibuddy-hooks/${rel}`, file.content);
     }
   }
   if (host.id === 'codex') {
