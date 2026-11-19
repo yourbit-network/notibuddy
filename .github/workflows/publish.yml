@@ -64,6 +64,8 @@ jobs:
         run: npm test
       - name: Test release safeguards
         run: npm run test:release
+      - name: Verify generated plugin manifests
+        run: npm run plugins:check
       - name: Pack, scan, and install the exact release archive
         run: npm run pack:check -- --scan
       - name: Publish with OIDC and provenance

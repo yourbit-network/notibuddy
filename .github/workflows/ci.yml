@@ -38,6 +38,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm run test:release
+      - run: npm run plugins:check
       - run: npm run pack:check
 
   security:

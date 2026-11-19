@@ -4,6 +4,8 @@ import { validatePairingBundle, validateRequestSettings } from './protocol.js';
 import { accountIdOf } from './credential-recovery.js';
 import { acquireFileLock } from './file-lock.js';
 import { pollPause } from './client-http.js';
+import { updateBindingsOnRename } from './client-binding.js';
+import { notibuddyHome } from './home.js';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -12,7 +14,7 @@ import type { NotiBuddyConfig, SenderKeyPair, PairingBundle } from './types.js';
 import { deriveDeviceId, deriveSenderKeyId, generateSenderSigningKeyPair, importSenderPrivateKey, ecdsaSign, ecdsaVerify, generateReplyKeyPair, hpkeSealBytes, hpkeOpenBytes, isValidP256PublicKey } from './crypto.js';
 
 // The override relocates the whole store (e.g. for tests); it is not profile selection.
-export const NOTIBUDDY_DIR = process.env.NOTIBUDDY_HOME || path.join(os.homedir(), '.notibuddy');
+export const NOTIBUDDY_DIR = notibuddyHome();
 const nameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/, 'Use a destination name of 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter');
 export const senderLabelSchema = z.string().trim().min(1).max(100).regex(/^[^\p{Cc}\p{Cf}]+$/u, 'Sender labels cannot contain control characters');
 export function senderLabel(value = os.hostname()): string { return senderLabelSchema.parse(value); }
@@ -156,6 +158,7 @@ export class DestinationStore {
     this.read(from); this.ensure();
     fs.linkSync(this.file(from),this.file(to));
     fs.unlinkSync(this.file(from));
+    updateBindingsOnRename(from, to, this.root);
   }
   forget(name:string):void { this.read(name); fs.unlinkSync(this.file(name)); }
 }

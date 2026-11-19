@@ -1,0 +1,20 @@
+{
+  "name": "notibuddy",
+  "version": "1.0.0",
+  "description": "End-to-end encrypted iPhone and Apple Watch approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
+  "author": {
+    "name": "Yourbit, LLC",
+    "url": "https://notibuddy.app"
+  },
+  "homepage": "https://notibuddy.app/claude-code",
+  "repository": "https://github.com/yourbit-network/notibuddy",
+  "license": "MIT",
+  "keywords": [
+    "notifications",
+    "approvals",
+    "mcp",
+    "iphone",
+    "apple-watch",
+    "encrypted"
+  ]
+}

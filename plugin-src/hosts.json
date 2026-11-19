@@ -1,0 +1,59 @@
+{
+  "hosts": [
+    {
+      "id": "claude-code",
+      "clientId": "claude-code",
+      "displayName": "Claude Code",
+      "homepage": "https://notibuddy.app/claude-code",
+      "manifestPath": ".claude-plugin/plugin.json",
+      "mcpFile": ".mcp.json",
+      "ruleFile": null,
+      "hooks": {
+        "enabled": true,
+        "hooksPath": "hooks/hooks.json",
+        "hookAgent": "claude",
+        "hookEvent": "PermissionRequest",
+        "timeoutSeconds": 300,
+        "harnessTimeoutSeconds": 315,
+        "passthroughStdout": "",
+        "commandPrefix": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/nb-hook"
+      }
+    },
+    {
+      "id": "antigravity",
+      "clientId": "antigravity",
+      "displayName": "Antigravity",
+      "homepage": "https://notibuddy.app/antigravity",
+      "manifestPath": "plugin.json",
+      "mcpFile": "mcp_config.json",
+      "ruleFile": "rules/AGENTS.md",
+      "hooks": {
+        "enabled": false
+      }
+    },
+    {
+      "id": "cursor",
+      "clientId": "cursor",
+      "displayName": "Cursor",
+      "homepage": "https://notibuddy.app/cursor",
+      "manifestPath": ".cursor-plugin/plugin.json",
+      "mcpFile": "mcp.json",
+      "ruleFile": "rules/notibuddy.mdc",
+      "hooks": {
+        "enabled": false
+      }
+    },
+    {
+      "id": "codex",
+      "clientId": "codex",
+      "displayName": "Codex",
+      "homepage": "https://notibuddy.app/codex",
+      "manifestPath": ".codex-plugin/plugin.json",
+      "mcpFile": ".mcp.json",
+      "ruleFile": null,
+      "hooks": {
+        "enabled": false
+      }
+    }
+  ]
+}

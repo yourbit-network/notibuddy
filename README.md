@@ -26,16 +26,16 @@ Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md) and th
 
 ## 🚀 Quick Start
 
-Use the versioned `npx` commands below without a global installation. In later examples, `nb` is shorthand for `npx -y notibuddy@^0.3.0`, or the executable from a global installation of that version or a compatible newer release.
+Use the versioned `npx` commands below without a global installation. In later examples, `nb` is shorthand for `npx -y notibuddy@^0.3.3`, or the executable from a global installation of that version or a compatible newer release.
 
 ### 1. Pair with your iPhone
 
 In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and copy the pairing string, then run `pair` and paste it at the prompt (or pipe it) so the secret never hits shell history:
 
 ```bash
-npx notibuddy@^0.3.0 pair --to personal
+npx notibuddy@^0.3.3 pair --to personal
 # or on macOS:
-pbpaste | npx notibuddy@^0.3.0 pair --to personal
+pbpaste | npx notibuddy@^0.3.3 pair --to personal
 ```
 
 This validates the phone identity, registers an independent connection key for this destination, and saves it in `~/.notibuddy/destinations/personal.json`. The destination name is a local alias.
@@ -46,7 +46,7 @@ If Terminal says **Phone approval required**, open **Connect**, compare the full
 
 Keep the entire setup private: anyone holding an unused code can race to connect first. Codes last at most ten minutes; expired or canceled codes grant no automatic access, though valid ordinary pairing credentials can still request manual approval. Canceling a code does not disconnect an already approved sender. Use **Connect** to disconnect a sender you do not recognize.
 
-Use `npx notibuddy@^0.3.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+Use `npx notibuddy@^0.3.3 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
 
 ### Check the connection
 
@@ -68,17 +68,39 @@ When only one destination is paired, everyday CLI commands (`notify`, `activity`
 
 ```bash
 # Send a one-way informational notification (no action buttons or waiting):
-npx notibuddy@^0.3.0 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+npx notibuddy@^0.3.3 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
 
 # Request approval with custom buttons:
-npx notibuddy@^0.3.0 notify "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
+npx notibuddy@^0.3.3 notify "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
 
-# Require device-owner authentication (Face ID, Touch ID, passcode, or unlocked Watch):
-npx notibuddy@^0.3.0 notify "Execute database migration?" --to personal --options "Proceed,Abort" --requires-auth
+# Fail-closed shell or CI gate (exits 0 only on verified Approve + Face ID; 2 on reject; 3 on expiry; 1 on error):
+npx notibuddy@^0.3.3 gate "Deploy v1.2 to production?" --to personal --requires-auth --timeout 600 && ./deploy.sh
 
 # Start a countdown timer on the Dynamic Island:
-npx notibuddy@^0.3.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
+npx notibuddy@^0.3.3 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```
+
+### Fail-closed approval gates (`nb gate`, 0.3.3+)
+
+Use `nb gate` in shell scripts, Terraform/deploy wrappers, and GitHub Actions instead of parsing JSON from `nb notify`. It loops across 55-second relay wait windows on a single signed request ID up to `--timeout` (default 600 seconds) and exits `0` **only** on a verified approving reply (including `authenticated: true` when `--requires-auth` is set):
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Approved (verified reply matching `--approve` or lowercase `approve` for `--diff`, plus device auth if `--requires-auth`) |
+| `1` | Operational or configuration error (no human decision: pairing, network, quota 402, device error) |
+| `2` | Rejected (human decline, missing required device auth, or unexpected action) |
+| `3` | Expired or deadline reached without a reply |
+| `130` / `143` | Interrupted (`SIGINT` / `SIGTERM`) |
+
+### Native agent hooks (`nb hook`, 0.3.3+)
+
+Forward Claude Code `PermissionRequest` prompts (including native encrypted diffs for `Edit` tool calls) to your iPhone or Apple Watch when you step away from your keyboard:
+
+```bash
+nb hook claude PermissionRequest --client claude-code
+```
+
+By default, `nb hook` waits `--grace 10` seconds before sending anything (so prompts answered locally in your terminal cost zero relay requests), hides Lock Screen previews (`sensitive: true`; opt out with `--show-preview`), leaves Face ID off by default (opt in with `--requires-auth`), enforces a rolling hourly dispatch cap (`--max-per-hour 30`) plus a stepped quota circuit breaker, and exits `0` with pass-through output on any non-allow/non-deny condition so your terminal prompt keeps working normally. Install `nb` globally (`npm install -g notibuddy`) rather than invoking `npx` inside hooks.
 
 ### Review a text change (0.2.1+)
 
@@ -94,7 +116,7 @@ Save a UTF-8 JSON file named `changes.json`:
 ```
 
 ```bash
-npx notibuddy@^0.3.0 notify "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
+npx notibuddy@^0.3.3 notify "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
 ```
 
 The filename and source text are encrypted for the destination. Review happens on iPhone or iPad; a paired Watch hands off to its iPhone. The response uses `approve` (Apply) or `reject` (Discard). These are decisions: NotiBuddy does not change files or execute code. The caller must verify the current file still matches the reviewed original before applying an approved change.
@@ -107,9 +129,28 @@ Do not combine a diff with choices, text input, forms, or a resume ID. If the re
 
 ---
 
-## 🛠️ Model Context Protocol (MCP) Setup
+## 🛠️ Model Context Protocol (MCP) & Agent Plugins
 
-You can connect NotiBuddy directly to your favorite agent tools. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.3.2`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
+You can install NotiBuddy as an official plugin or configure it directly as a local stdio MCP server. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.3.3`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
+
+### Official Agent Plugins (0.3.3+)
+
+This repository hosts generated manifests and marketplaces for major coding agents (built from [`plugin-src/`](./plugin-src/) and verified with `npm run plugins:check`):
+
+- **Claude Code:**
+  ```text
+  /plugin install notibuddy --marketplace yourbit-network/notibuddy
+  # Optional native PermissionRequest hook (requires local `nb` CLI on PATH):
+  /plugin install notibuddy-hooks --marketplace yourbit-network/notibuddy
+  ```
+- **Codex CLI:**
+  ```bash
+  codex plugin marketplace add yourbit-network/notibuddy
+  codex plugin add notibuddy@notibuddy
+  ```
+- **Antigravity & Cursor:** Ready-to-load plugin directories live under [`plugins/antigravity/notibuddy`](./plugins/antigravity/notibuddy) and [`plugins/cursor/notibuddy`](./plugins/cursor/notibuddy).
+
+Plugins launch `nb mcp --client <id>`, which starts cleanly before pairing, automatically routes to your sole paired phone, and refuses ambiguity if you pair a second phone until you pin the client explicitly with `nb bind --client <id> --to <alias>` (run `nb unbind --client <id>` to remove a binding).
 
 ### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -118,20 +159,20 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.3.2", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.3.3", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
 ```
 
-### Cursor / Antigravity / Claude Code
+### Cursor / Antigravity / Claude Code (manual MCP)
 Run as a local stdio MCP server:
 ```json
 {
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.3.2", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.3.3", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -216,7 +257,7 @@ Set `sensitive: true` in a `notify` or `activity` request when its content shoul
 
 ## Named destinations and sender labels (0.2)
 
-MCP always requires explicit destination configuration (`--to` or `--allow-to`), while CLI commands auto-select when only one destination is paired. Destination names are local aliases, not remote device names or paths. Use 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter.
+MCP always requires explicit routing configuration (`--to`, `--allow-to`, or `--client`), while CLI commands auto-select when only one destination is paired. Destination names are local aliases, not remote device names or paths. Use 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter.
 
 ```sh
 nb devices list
@@ -235,6 +276,10 @@ nb mcp --to personal --sender "Coding assistant"
 
 # Explicitly expose these two destinations; each request must supply to.
 nb mcp --allow-to personal --allow-to work-phone --sender "Coding assistant"
+
+# Per-client binding mode (used by official plugins and MCP Registry installs).
+# Starts cleanly before pairing, auto-uses a sole paired phone, and refuses ambiguity until `nb bind --client <id> --to <alias>`.
+nb mcp --client claude-code
 ```
 
 Use `notibuddy_list_destinations` to discover only the destinations exposed by that server. A saved pairing is not an online/approval check. In selectable mode, call `notibuddy_notify` with `{"to":"work-phone","title":"Build finished","message":"All checks passed."}` for one-way alerts, or add `"options":["Approve","Cancel"]` to wait for a reply. Include `to` when resuming and when starting, updating, ending, or polling activities. Responses include `to` and a stable `connectionId`. Missing, unknown, or unexposed destinations fail before network activity. There is no active global destination, automatic fallback, or broadcast. Running MCP servers retain their original connection bindings until restarted.

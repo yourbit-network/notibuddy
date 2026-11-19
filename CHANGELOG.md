@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.3.3 — 2026-11-18
+
+- **Fail-closed approval gates (`nb gate`):** Add `nb gate "<title>"` for shell scripts and CI/CD pipelines. Waits across 55-second relay windows up to `--timeout` (default 600 s) on a single signed request ID, verifies the signed reply action and optional `--requires-auth` flag (plus lowercase `"approve"` for `--diff`), and exits with deterministic codes (`0` approved, `1` operational/config error, `2` rejected/unauthenticated, `3` expired, `130`/`143` interrupted). `nb notify` keeps its existing exit-0 behavior for backward compatibility.
+- **Native Claude Code permission hooks (`nb hook claude PermissionRequest`):** Forward Claude Code tool and file-edit permission prompts to iPhone or Apple Watch after a configurable `--grace` window (default 10 s, so prompts answered locally in the terminal never hit the relay). Uses hidden Lock Screen previews (`sensitive: true`) by default (`--show-preview` opts out), keeps Face ID opt-in (`--requires-auth`), escapes invisible/Trojan-Source control characters, passes oversized diffs/commands straight through instead of truncating, enforces a rolling hourly dispatch cap and stepped `402` quota circuit breaker, and fails safely to silent pass-through (`exit 0`) on any non-allow/non-deny outcome.
+- **Per-client bindings (`nb bind`, `nb unbind`, `nb mcp --client <id>`):** Allow plugins and registry-installed MCP servers to start cleanly before pairing, expose server-level MCP instructions and fail-closed tool guidance, auto-bind to a sole paired destination, refuse ambiguity when multiple destinations exist until explicitly pinned by immutable `connectionId` with `nb bind --client <id> --to <name>`, and follow `nb devices rename` automatically. Bare `nb mcp` remains strict (`exit 1`). Update `server.json` to launch `notibuddy mcp --client mcp`.
+- **Fast thin CLI dispatcher:** Move heavy CLI/crypto/MCP imports behind lazy loading in `dist/cli.js` so `nb --version` and skipped `nb hook` invocations complete in ~40–50 ms.
+- **Official agent plugins & marketplaces:** Add canonical `plugin-src/` sources, deterministic generator/drift checker (`npm run plugins:build` / `npm run plugins:check`), and validated manifests/marketplaces for Claude Code (`.claude-plugin/marketplace.json`, `notibuddy` + opt-in `notibuddy-hooks`), Codex CLI (`.agents/plugins/marketplace.json`), Antigravity (`plugins/antigravity/notibuddy`), and Cursor (`plugins/cursor/notibuddy`).
+
 ## 0.3.2 — 2026-11-18
 
 - **Official MCP Registry metadata:** Add `mcpName` (`io.github.yourbit-network/notibuddy`) to `package.json`, add validated `server.json`, and automate Official MCP Registry publication via GitHub Actions OIDC after npm release verification.

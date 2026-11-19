@@ -1,0 +1,12 @@
+{
+  "name": "notibuddy",
+  "author": {
+    "name": "Yourbit, LLC",
+    "url": "https://notibuddy.app"
+  },
+  "homepage": "https://notibuddy.app/antigravity",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourbit-network/notibuddy"
+  }
+}

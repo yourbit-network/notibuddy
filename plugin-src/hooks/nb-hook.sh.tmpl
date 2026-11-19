@@ -1,0 +1,30 @@
+#!/bin/sh
+# Generated NotiBuddy hook shim. Requires a locally installed nb binary.
+# Finds an installed `nb` binary across PATH and standard Homebrew/user locations;
+# exits 0 with host pass-through stdout whenever `nb` is absent.
+set -eu
+
+PASSTHROUGH='__PASSTHROUGH__'
+
+NB_BIN=""
+if command -v nb >/dev/null 2>&1; then
+  NB_BIN="$(command -v nb)"
+else
+  for dir in /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin "$HOME/.local/bin"; do
+    if [ -x "$dir/nb" ]; then
+      PATH="$dir:$PATH"
+      export PATH
+      NB_BIN="$dir/nb"
+      break
+    fi
+  done
+fi
+
+if [ -z "$NB_BIN" ]; then
+  if [ -n "$PASSTHROUGH" ]; then
+    printf '%s\n' "$PASSTHROUGH"
+  fi
+  exit 0
+fi
+
+exec "$NB_BIN" hook "$@"
