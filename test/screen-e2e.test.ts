@@ -206,6 +206,8 @@ async function main(): Promise<void> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-screen-e2e-'));
   const mcpClients: Client[] = [];
   const sockets = new Set<Duplex>();
+  const HAS_GLOBAL_WS = typeof (globalThis as { WebSocket?: unknown }).WebSocket === 'function';
+  let onWsUpgrade: (() => void) | undefined;
 
   let fakeNowMs = Date.UTC(2026, 10, 1, 12, 0, 0);
 
@@ -396,6 +398,11 @@ async function main(): Promise<void> {
       acceptWebSocketUpgrade(req, socket);
       sockets.add(socket);
       socket.write(encodeWsTextFrame(JSON.stringify({ type: 'ready', senderKeyId })));
+      if (onWsUpgrade) {
+        const cb = onWsUpgrade;
+        onWsUpgrade = undefined;
+        setTimeout(cb, 25).unref();
+      }
       socket.on('data', (chunk: Buffer) => {
         if (chunk.length > 0 && (chunk[0] & 0x0f) === 0x08) {
           socket.end(Buffer.from([0x88, 0x00]));
@@ -506,10 +513,15 @@ async function main(): Promise<void> {
         plaintext: JSON.stringify(answer),
       });
       const seq = nextSeq++;
-      setTimeout(() => {
+      const deliverReply = () => {
         replies.set(req.requestId, { seq, envelope: replyEnv });
         pushWsReplyAvailable(req.requestId, seq);
-      }, 60).unref();
+      };
+      if (HAS_GLOBAL_WS && wsUpgrades === 0) {
+        onWsUpgrade = deliverReply;
+      } else {
+        setTimeout(deliverReply, 60).unref();
+      }
     };
 
     const mcpStep1 = await callNotify({
@@ -522,7 +534,9 @@ async function main(): Promise<void> {
     assert.equal(mcpStep1.answer.action, 'a0');
     assert.deepEqual(mcpStep1.answer.values.form, { c0: [true, true], f0: true });
     assert.match(mcpStep1.answer.values.render.digest, /^[0-9a-f]{64}$/);
-    assert.ok(wsUpgrades >= 1, 'Expected live /v2/sender/ws connection for immediate wakeup');
+    if (HAS_GLOBAL_WS) {
+      assert.ok(wsUpgrades >= 1, 'Expected live /v2/sender/ws connection for immediate wakeup');
+    }
 
     // Wizard Step 2 with thread.prev + offline restart resume_id verification
     let step2OpenedThread: unknown;
