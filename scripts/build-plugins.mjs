@@ -80,6 +80,9 @@ function coreManifestFor(host) {
     return JSON.stringify(
       {
         name: meta.core.name,
+        version: meta.pluginVersion,
+        description: meta.core.description,
+        logo: 'assets/icon.png',
         author: meta.author,
         homepage: host.homepage,
         repository: { type: 'git', url: meta.repository },
