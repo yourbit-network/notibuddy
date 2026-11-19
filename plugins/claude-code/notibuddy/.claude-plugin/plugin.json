@@ -8,6 +8,10 @@
   },
   "homepage": "https://notibuddy.app/claude-code",
   "repository": "https://github.com/yourbit-network/notibuddy",
+  "documentationUrl": "https://notibuddy.app/setup",
+  "supportUrl": "https://notibuddy.app/support",
+  "privacyPolicyUrl": "https://notibuddy.app/privacy",
+  "termsOfServiceUrl": "https://notibuddy.app/terms",
   "license": "MIT",
   "keywords": [
     "notifications",

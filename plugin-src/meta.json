@@ -7,6 +7,10 @@
   },
   "repository": "https://github.com/yourbit-network/notibuddy",
   "license": "MIT",
+  "privacyPolicyUrl": "https://notibuddy.app/privacy",
+  "termsOfServiceUrl": "https://notibuddy.app/terms",
+  "supportUrl": "https://notibuddy.app/support",
+  "documentationUrl": "https://notibuddy.app/setup",
   "core": {
     "name": "notibuddy",
     "displayName": "NotiBuddy",
