@@ -1,7 +1,7 @@
 {
   "name": "notibuddy",
   "owner": {
-    "name": "Yourbit, LLC",
+    "name": "NotiBuddy",
     "url": "https://notibuddy.app"
   },
   "metadata": {
@@ -14,7 +14,7 @@
       "description": "End-to-end encrypted iPhone and Apple Watch custom screens, approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
       "version": "1.0.0",
       "author": {
-        "name": "Yourbit, LLC",
+        "name": "NotiBuddy",
         "url": "https://notibuddy.app"
       },
       "homepage": "https://notibuddy.app/claude-code",
@@ -27,7 +27,7 @@
       "description": "Opt-in native permission hook that forwards Claude Code prompts to your iPhone or Apple Watch after a short grace period.",
       "version": "1.0.0",
       "author": {
-        "name": "Yourbit, LLC",
+        "name": "NotiBuddy",
         "url": "https://notibuddy.app"
       },
       "homepage": "https://notibuddy.app/claude-code",

@@ -1,0 +1,24 @@
+# NotiBuddy for Claude Code
+
+End-to-end encrypted iPhone and Apple Watch custom screens, approvals, code diffs, structured forms, live progress, and file sharing for AI agents.
+
+This skills-only plugin teaches Claude Code how to pair, verify, and send end-to-end encrypted custom screens, Face ID approvals, code diffs, live progress timers, and file transfers to your iPhone or Apple Watch. Because NotiBuddy keeps encryption private keys strictly on your own devices, the local stdio MCP server is registered directly in your terminal rather than hosted remotely.
+
+## Quick Start
+
+1. Install the **NotiBuddy** app on iPhone or iPad ([App Store](https://apps.apple.com/app/id6823749991)).
+2. Open **NotiBuddy → Connect → Add → Create setup code → Share Setup**, then run in your own terminal:
+   ```bash
+   pbpaste | npx -y notibuddy@0.4.0 pair --to personal
+   ```
+3. Connect the local E2EE MCP server in Claude Code:
+   ```bash
+   claude mcp add -s user notibuddy -- npx -y notibuddy@0.4.0 mcp --client claude-code
+   ```
+   *(Or install directly from the GitHub marketplace with `/plugin install notibuddy --marketplace yourbit-network/notibuddy`.)*
+4. If you pair more than one phone or CI destination, bind Claude Code explicitly:
+   ```bash
+   nb bind --client claude-code --to personal
+   ```
+
+Full setup guide: https://notibuddy.app/claude-code
