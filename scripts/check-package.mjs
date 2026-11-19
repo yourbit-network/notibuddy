@@ -70,6 +70,17 @@ try {
   });
   assert.equal(mcp.status, 1, 'Unpaired MCP startup must fail without hanging.');
   assert.match(mcp.stderr, /Select a destination explicitly/, 'MCP entry point must load and explain the missing pairing.');
+  const clientMcpInit = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'pack-check', version: '1.0' } },
+  }) + '\n';
+  const clientMcp = spawnSync(process.execPath, [path.join(installed, 'dist/mcp-entry.js'), '--client', 'claude-code'], {
+    cwd: consumer, env, input: clientMcpInit, encoding: 'utf8', timeout: 10_000,
+  });
+  assert.equal(clientMcp.status, 0, `--client MCP startup must succeed when unpaired: ${clientMcp.stderr}`);
+  assert.match(clientMcp.stdout, /"instructions":/, '--client MCP handshake must return server instructions.');
   // Exercise the installed CLI's actual pairing output with temporary keys and
   // an intercepted fixture relay. No phone or live service is contacted.
   const { generateReplyKeyPair, generateSenderSigningKeyPair, deriveDeviceId, toB64u } =
