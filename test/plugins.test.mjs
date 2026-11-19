@@ -16,7 +16,7 @@ test('generated plugin manifests match plugin-src with zero drift and pass lint'
   assert.equal(res.status, 0, res.stderr || res.stdout);
 });
 
-test('Claude hooks shim exits 0 silently when nb is missing from PATH', () => {
+test('Claude hooks shim exits 0 silently when nb is missing from PATH', { skip: process.platform === 'win32' }, () => {
   const shim = path.join(root, 'plugins/claude-code/notibuddy-hooks/scripts/nb-hook');
   const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-empty-path-'));
   try {
@@ -52,7 +52,7 @@ test('Claude hooks shim exits 0 silently when nb is missing from PATH', () => {
   }
 });
 
-test('Claude hooks shim delegates to installed nb binary on PATH and preserves silent passthrough when unpaired', () => {
+test('Claude hooks shim delegates to installed nb binary on PATH and preserves silent passthrough when unpaired', { skip: process.platform === 'win32' }, () => {
   const shim = path.join(root, 'plugins/claude-code/notibuddy-hooks/scripts/nb-hook');
   const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-fake-bin-'));
   const unpairedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-shim-unpaired-'));

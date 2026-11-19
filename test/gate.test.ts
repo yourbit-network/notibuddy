@@ -314,16 +314,18 @@ try {
   assert.equal(quotaRes.status, 1);
   assert.equal(JSON.parse(quotaRes.stdout).errorCode, 'DAILY_LIMIT_EXCEEDED');
 
-  // SIGTERM -> exit 143!
-  mode = 'pending_then_approve';
-  pollCount = -100; // stay pending until killed
-  const child = spawn(process.execPath, [cli, 'gate', 'Hold?', '--to', 'ci', '--timeout', '30'], {
-    env: { ...process.env, NOTIBUDDY_HOME: root, NOTIBUDDY_NO_UPDATE_CHECK: '1' },
-  });
-  await new Promise((r) => setTimeout(r, 400));
-  child.kill('SIGTERM');
-  const sigCode = await new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
-  assert.equal(sigCode, 143);
+  // SIGTERM -> exit 143 (POSIX only; Windows lacks SIGTERM handlers).
+  if (process.platform !== 'win32') {
+    mode = 'pending_then_approve';
+    pollCount = -100; // stay pending until killed
+    const child = spawn(process.execPath, [cli, 'gate', 'Hold?', '--to', 'ci', '--timeout', '30'], {
+      env: { ...process.env, NOTIBUDDY_HOME: root, NOTIBUDDY_NO_UPDATE_CHECK: '1' },
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    child.kill('SIGTERM');
+    const sigCode = await new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
+    assert.equal(sigCode, 143);
+  }
 
   console.log('Gate & approval tests passed.');
 } finally {

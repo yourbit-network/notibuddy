@@ -9,10 +9,14 @@ const srcRoot = path.join(root, 'plugin-src');
 const modeWrite = process.argv.includes('--write');
 const modeCheck = process.argv.includes('--check') || !modeWrite;
 
-const meta = JSON.parse(fs.readFileSync(path.join(srcRoot, 'meta.json'), 'utf8'));
-const { hosts } = JSON.parse(fs.readFileSync(path.join(srcRoot, 'hosts.json'), 'utf8'));
-const ruleText = fs.readFileSync(path.join(srcRoot, 'rule.md'), 'utf8').trim();
-const hookShimTemplate = fs.readFileSync(path.join(srcRoot, 'hooks/nb-hook.sh.tmpl'), 'utf8');
+function readUtf8Lf(file) {
+  return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+}
+
+const meta = JSON.parse(readUtf8Lf(path.join(srcRoot, 'meta.json')));
+const { hosts } = JSON.parse(readUtf8Lf(path.join(srcRoot, 'hosts.json')));
+const ruleText = readUtf8Lf(path.join(srcRoot, 'rule.md')).trim();
+const hookShimTemplate = readUtf8Lf(path.join(srcRoot, 'hooks/nb-hook.sh.tmpl'));
 const iconBytes = fs.readFileSync(path.join(srcRoot, 'icon.png'));
 
 function wordCount(text) {
@@ -32,7 +36,7 @@ function readTree(dir, base = dir) {
     if (entry.isDirectory()) {
       for (const [k, v] of readTree(full, base)) out.set(k, v);
     } else {
-      out.set(rel, { content: fs.readFileSync(full, 'utf8'), mode: fs.statSync(full).mode & 0o777 });
+      out.set(rel, { content: readUtf8Lf(full), mode: fs.statSync(full).mode & 0o777 });
     }
   }
   return out;
@@ -416,7 +420,7 @@ if (modeWrite) {
       const actual = fs.readFileSync(abs);
       if (!actual.equals(content)) diffs.push(`binary drift: ${rel}`);
     } else {
-      const actual = fs.readFileSync(abs, 'utf8');
+      const actual = readUtf8Lf(abs);
       if (actual !== content) diffs.push(`content drift: ${rel}`);
     }
     if (executable && process.platform !== 'win32') {

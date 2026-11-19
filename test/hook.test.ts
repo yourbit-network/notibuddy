@@ -417,20 +417,22 @@ try {
   assert.equal(rQuota.stdout, '');
   assert.equal(checkHookLedger('claude-code', 30, Date.now(), e2eRoot).allowed, false);
 
-  // SIGTERM during grace in real subprocess -> exit 0, empty stdout!
-  const child = spawn(
-    process.execPath,
-    [cli, 'hook', 'claude', 'PermissionRequest', '--to', 'personal', '--grace', '10'],
-    { env: { ...process.env, NOTIBUDDY_HOME: e2eRoot, NOTIBUDDY_NO_UPDATE_CHECK: '1' } },
-  );
-  child.stdin.end(REAL_BASH_FIXTURE);
-  let childOut = '';
-  child.stdout.on('data', (c) => { childOut += c.toString(); });
-  await new Promise((r) => setTimeout(r, 200));
-  child.kill('SIGTERM');
-  const code = await new Promise<number | null>((resolve) => child.on('exit', (c) => resolve(c)));
-  assert.equal(code, 0);
-  assert.equal(childOut, '');
+  // SIGTERM during grace in real subprocess -> exit 0, empty stdout (POSIX only).
+  if (process.platform !== 'win32') {
+    const child = spawn(
+      process.execPath,
+      [cli, 'hook', 'claude', 'PermissionRequest', '--to', 'personal', '--grace', '10'],
+      { env: { ...process.env, NOTIBUDDY_HOME: e2eRoot, NOTIBUDDY_NO_UPDATE_CHECK: '1' } },
+    );
+    child.stdin.end(REAL_BASH_FIXTURE);
+    let childOut = '';
+    child.stdout.on('data', (c) => { childOut += c.toString(); });
+    await new Promise((r) => setTimeout(r, 200));
+    child.kill('SIGTERM');
+    const code = await new Promise<number | null>((resolve) => child.on('exit', (c) => resolve(c)));
+    assert.equal(code, 0);
+    assert.equal(childOut, '');
+  }
 
   console.log('Hook engine, display, ledger, and E2EE subprocess tests passed.');
 } finally {
