@@ -3,7 +3,7 @@
   "name": "io.github.yourbit-network/notibuddy",
   "title": "NotiBuddy",
   "description": "End-to-end encrypted iPhone & Apple Watch approvals, code diffs, and live progress for AI agents.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "websiteUrl": "https://notibuddy.app/setup",
   "repository": {
     "url": "https://github.com/yourbit-network/notibuddy",
@@ -26,7 +26,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "notibuddy",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -39,9 +39,9 @@
         },
         {
           "type": "named",
-          "name": "--to",
-          "description": "Paired destination alias saved under ~/.notibuddy (created with `nb pair --to <alias>`).",
-          "default": "personal",
+          "name": "--client",
+          "description": "Per-client destination binding ID under ~/.notibuddy/clients (auto-uses your sole paired phone, or bind explicitly with `nb bind --client <id> --to <alias>`).",
+          "default": "mcp",
           "isRequired": true,
           "format": "string"
         }
