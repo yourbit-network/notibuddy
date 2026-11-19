@@ -5,7 +5,7 @@ description: Send end-to-end encrypted custom screens, notifications, approvals,
 
 # Using NotiBuddy
 
-NotiBuddy connects this agent to the user's paired iPhone, iPad, or Apple Watch over end-to-end encryption.
+NotiBuddy connects this agent to the user's paired iPhone, iPad, or Apple Watch over end-to-end encryption. Prefer the local `notibuddy_*` MCP tools when registered; if they are not connected yet, guide the user with `notibuddy-setup` or use the local `nb` CLI (`nb notify`, `nb gate`, `nb activity`, `nb files`).
 
 ## Hard Safety Rules
 

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Opt-in native permission hook that forwards Claude Code prompts to your iPhone or Apple Watch after a short grace period.",
   "author": {
-    "name": "Yourbit, LLC",
+    "name": "NotiBuddy",
     "url": "https://notibuddy.app"
   },
   "homepage": "https://notibuddy.app/claude-code",

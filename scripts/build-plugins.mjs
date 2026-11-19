@@ -24,8 +24,10 @@ function wordCount(text) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-// Budget checks on canonical source.
+// Budget & policy checks on canonical source.
 assert.ok(wordCount(ruleText) <= 80, `plugin-src/rule.md exceeds 80 words (${wordCount(ruleText)})`);
+assert.match(meta.minCli, /^\d+\.\d+\.\d+$/, `plugin-src/meta.json minCli must be an exact version pin (got ${meta.minCli})`);
+assert.ok(iconBytes.length <= 128 * 1024, `plugin-src/icon.png exceeds 128 KiB (${iconBytes.length} bytes)`);
 
 function readTree(dir, base = dir) {
   const out = new Map();
@@ -188,6 +190,34 @@ Full setup guide: ${host.homepage}
 `;
 }
 
+function claudeDirectoryReadme(host) {
+  return `# NotiBuddy for Claude Code
+
+${meta.core.description}
+
+This skills-only plugin teaches Claude Code how to pair, verify, and send end-to-end encrypted custom screens, Face ID approvals, code diffs, live progress timers, and file transfers to your iPhone or Apple Watch. Because NotiBuddy keeps encryption private keys strictly on your own devices, the local stdio MCP server is registered directly in your terminal rather than hosted remotely.
+
+## Quick Start
+
+1. Install the **NotiBuddy** app on iPhone or iPad ([App Store](https://apps.apple.com/app/id6823749991)).
+2. Open **NotiBuddy → Connect → Add → Create setup code → Share Setup**, then run in your own terminal:
+   \`\`\`bash
+   pbpaste | npx -y notibuddy@${meta.minCli} pair --to personal
+   \`\`\`
+3. Connect the local E2EE MCP server in Claude Code:
+   \`\`\`bash
+   claude mcp add -s user notibuddy -- npx -y notibuddy@${meta.minCli} mcp --client claude-code
+   \`\`\`
+   *(Or install directly from the GitHub marketplace with \`/plugin install ${meta.core.name} --marketplace yourbit-network/notibuddy\`.)*
+4. If you pair more than one phone or CI destination, bind Claude Code explicitly:
+   \`\`\`bash
+   nb bind --client ${host.clientId} --to personal
+   \`\`\`
+
+Full setup guide: ${host.homepage}
+`;
+}
+
 function hooksReadme(host) {
   const installSection =
     host.id === 'claude-code'
@@ -255,6 +285,16 @@ for (const host of hosts) {
       repository: meta.repository,
       license: meta.license,
     });
+
+    // Skills-only bundle for Anthropic's curated Software Directory (`claude.ai/directory`),
+    // which restricts local stdio MCP declarations to Verified organizations while allowing skills.
+    const directoryDir = `plugins/${host.id}/${meta.core.name}-directory`;
+    put(`${directoryDir}/${host.manifestPath}`, coreManifestFor(host));
+    put(`${directoryDir}/README.md`, claudeDirectoryReadme(host));
+    putBinary(`${directoryDir}/.claude-plugin/icon.png`, iconBytes);
+    for (const [rel, file] of sharedSkills) {
+      put(`${directoryDir}/skills/${rel}`, file.content);
+    }
   }
   if (host.id === 'codex') {
     codexMarketplacePlugins.push({
@@ -357,6 +397,9 @@ for (const [rel, { content }] of generated) {
   assert.ok(!/(?:\/Users\/|\/home\/(?!linuxbrew)|C:\\\\)/.test(content), `Absolute host path leaked in ${rel}`);
   if (rel.startsWith('plugins/') && rel.endsWith('.json')) {
     assert.ok(!/"--to"|"--allow-to"/.test(content), `Hardcoded --to/--allow-to forbidden in ${rel}`);
+  }
+  if (rel.includes('/notibuddy-directory/')) {
+    assert.ok(!rel.endsWith('.mcp.json') && !rel.includes('/hooks/'), `Directory bundle must remain skills-only (no local MCP/hooks): ${rel}`);
   }
   if (rel.includes('/notibuddy-hooks/')) {
     if (rel.endsWith('hooks.json') || rel.endsWith('scripts/nb-hook')) {
