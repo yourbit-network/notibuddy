@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="NotiBuddy">
+  <defs>
+    <linearGradient id="nbBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1533"/>
+      <stop offset="100%" stop-color="#050918"/>
+    </linearGradient>
+    <linearGradient id="nbBell" x1="0.15" y1="0.05" x2="0.88" y2="0.95">
+      <stop offset="0%" stop-color="#38d4ff"/>
+      <stop offset="52%" stop-color="#458cf7"/>
+      <stop offset="100%" stop-color="#6b63f6"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#nbBg)" stroke="#38bdf8" stroke-opacity="0.22" stroke-width="1.5"/>
+  <g transform="translate(64 62) scale(1.38) translate(-64 -61.5)">
+    <path d="M64 36 C55.16 36 48 43.16 48 52 C48 64 42 70 38 74 C36.8 75.2 37.6 77 39.2 77 L88.8 77 C90.4 77 91.2 75.2 90 74 C86 70 80 64 80 52 C80 43.16 72.84 36 64 36 Z" fill="url(#nbBell)"/>
+    <circle cx="64" cy="85.5" r="5.3" fill="#38bdf8"/>
+  </g>
+</svg>

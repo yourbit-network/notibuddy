@@ -18,6 +18,7 @@ const { hosts } = JSON.parse(readUtf8Lf(path.join(srcRoot, 'hosts.json')));
 const ruleText = readUtf8Lf(path.join(srcRoot, 'rule.md')).trim();
 const hookShimTemplate = readUtf8Lf(path.join(srcRoot, 'hooks/nb-hook.sh.tmpl'));
 const iconBytes = fs.readFileSync(path.join(srcRoot, 'icon.png'));
+const logoSvg = readUtf8Lf(path.join(srcRoot, 'logo.svg'));
 
 function wordCount(text) {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -116,6 +117,7 @@ function coreManifestFor(host) {
         displayName: meta.core.displayName,
         version: meta.pluginVersion,
         description: meta.core.description,
+        logo: 'assets/logo.svg',
         author: meta.author,
         homepage: host.homepage,
         repository: meta.repository,
@@ -229,6 +231,9 @@ for (const host of hosts) {
   put(`${coreDir}/${host.mcpFile}`, mcpConfigFor(host.clientId));
   put(`${coreDir}/README.md`, coreReadme(host));
   putBinary(`${coreDir}/${host.id === 'claude-code' ? '.claude-plugin/icon.png' : 'assets/icon.png'}`, iconBytes);
+  if (host.id === 'cursor') {
+    put(`${coreDir}/assets/logo.svg`, logoSvg);
+  }
 
   if (host.ruleFile) {
     const ruleContent = host.ruleFile.endsWith('.mdc') ? cursorMdcRule(ruleText) : `# NotiBuddy Safety Rules\n\n${ruleText}\n`;
