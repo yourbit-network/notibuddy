@@ -32,6 +32,7 @@ const CLI_FIELD_NAMES: Record<string, string> = {
   controls: '--controls',
   fields: '--fields',
   diff: '--diff',
+  screen: '--screen',
 };
 
 function formatPath(path: PropertyKey[], mode: 'cli' | 'mcp'): string {

@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { SessionUpdateNotice, type ReleaseLookupFn } from './update-notice.js';
 import { formatValidationError } from './validation-error.js';
 import type { PresentationHints, DiffInput } from './types.js';
+import type { ScreenAskInput } from './screen-client.js';
 
 /** The package's own version, so the server never reports a stale hard-coded number. */
 export const MCP_VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -36,7 +37,7 @@ const sensitiveSchema = {
 export const NOTIFY_TOOL_SCHEMA = {
   name: 'notibuddy_notify',
   description:
-    'Send an E2EE notification (one-way by default). Pass options, input_placeholder, fields, diff, or requires_auth to wait for a reply, or resume_id to check one. Fail closed: only a resolved matching reply (with authenticated:true if requires_auth) is approval.',
+    'Send an E2EE notification (one-way by default). Add options, input_placeholder, fields, diff, screen, or requires_auth for a reply, or resume_id to poll. Fail closed: only a matching resolved reply is approval.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -98,6 +99,19 @@ export const NOTIFY_TOOL_SCHEMA = {
           modified: { type: 'string', maxLength: 96000 },
         },
         required: ['filename', 'original', 'modified'],
+        additionalProperties: false,
+      },
+      screen: {
+        type: 'object',
+        description: 'Custom native screen (templateId or inline template; exclusive)',
+        properties: {
+          templateId: { type: 'string', minLength: 1, maxLength: 80 },
+          template: { type: 'object' },
+          labels: { type: 'object' },
+          data: { type: 'object' },
+          thread: { type: 'object' },
+          mode: { type: 'string', enum: ['auto', 'strict'] },
+        },
         additionalProperties: false,
       },
       presentation: presentationSchema,
@@ -296,21 +310,22 @@ export async function createMcpServer(options: RoutingOptions = {}, store = new 
       }
 
       if (name === 'notibuddy_notify') {
-        if (args?.resume_id !== undefined && (args?.title !== undefined || args?.diff !== undefined || args?.options !== undefined || args?.fields !== undefined || args?.input_placeholder !== undefined)) {
-          throw new Error('Pass resume_id without title, options, fields, input_placeholder, or diff.');
+        if (args?.resume_id !== undefined && (args?.title !== undefined || args?.diff !== undefined || args?.screen !== undefined || args?.options !== undefined || args?.fields !== undefined || args?.input_placeholder !== undefined)) {
+          throw new Error('Pass resume_id without title, options, fields, input_placeholder, diff, or screen.');
         }
         const hasOptions = Array.isArray(args?.options) && args.options.length > 0;
         const interactive = hasOptions
           || args?.input_placeholder !== undefined
           || args?.fields !== undefined
           || args?.diff !== undefined
+          || args?.screen !== undefined
           || args?.resume_id !== undefined
           || args?.requires_auth === true
           || args?.decline_option !== undefined;
 
         if (!interactive) {
           if (typeof args?.wait_seconds === 'number' && args.wait_seconds > 0) {
-            throw new Error('One-way notifications do not wait for replies. Omit wait_seconds, or add options (e.g. ["Approve", "Reject"]), fields, input_placeholder, or diff to wait for a response.');
+            throw new Error('One-way notifications do not wait for replies. Omit wait_seconds, or add options (e.g. ["Approve", "Reject"]), fields, input_placeholder, diff, or screen to wait for a response.');
           }
           const result = await client.notify({
             title: args?.title as string,
@@ -339,6 +354,7 @@ export async function createMcpServer(options: RoutingOptions = {}, store = new 
           inputPlaceholder: args?.input_placeholder as string | undefined,
           fields: args?.fields as any[] | undefined,
           diff: args?.diff as DiffInput | undefined,
+          screen: args?.screen as ScreenAskInput | undefined,
           requiresAuth: args?.requires_auth as boolean | undefined,
           timeoutSeconds: args?.timeout_seconds as number | undefined,
           waitSeconds: args?.wait_seconds as number | undefined,
@@ -353,6 +369,11 @@ export async function createMcpServer(options: RoutingOptions = {}, store = new 
           ...(result.answer !== undefined ? { answer: result.answer } : {}),
           ...(result.errorCode !== undefined ? { errorCode: result.errorCode } : {}),
           ...(result.message !== undefined ? { message: result.message } : {}),
+          ...(result.templateId !== undefined ? { templateId: result.templateId } : {}),
+          ...(result.repaired !== undefined ? { repaired: result.repaired } : {}),
+          ...(result.suggestedTemplate !== undefined ? { suggestedTemplate: result.suggestedTemplate } : {}),
+          ...(result.changes !== undefined ? { changes: result.changes } : {}),
+          ...(result.fixes !== undefined ? { fixes: result.fixes } : {}),
         };
 
         return {

@@ -26,16 +26,16 @@ Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md) and th
 
 ## 🚀 Quick Start
 
-Use the versioned `npx` commands below without a global installation. In later examples, `nb` is shorthand for `npx -y notibuddy@^0.3.3`, or the executable from a global installation of that version or a compatible newer release.
+Use the versioned `npx` commands below without a global installation, or install `notibuddy`, `nb`, and `notibuddy-mcp` locally with Homebrew (`brew install yourbit-network/tap/notibuddy`). In later examples, `nb` is shorthand for `npx -y notibuddy@^0.4.0`, or the executable from a global/Homebrew installation of that version or a compatible newer release.
 
 ### 1. Pair with your iPhone
 
 In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and copy the pairing string, then run `pair` and paste it at the prompt (or pipe it) so the secret never hits shell history:
 
 ```bash
-npx notibuddy@^0.3.3 pair --to personal
+npx notibuddy@^0.4.0 pair --to personal
 # or on macOS:
-pbpaste | npx notibuddy@^0.3.3 pair --to personal
+pbpaste | npx notibuddy@^0.4.0 pair --to personal
 ```
 
 This validates the phone identity, registers an independent connection key for this destination, and saves it in `~/.notibuddy/destinations/personal.json`. The destination name is a local alias.
@@ -46,7 +46,7 @@ If Terminal says **Phone approval required**, open **Connect**, compare the full
 
 Keep the entire setup private: anyone holding an unused code can race to connect first. Codes last at most ten minutes; expired or canceled codes grant no automatic access, though valid ordinary pairing credentials can still request manual approval. Canceling a code does not disconnect an already approved sender. Use **Connect** to disconnect a sender you do not recognize.
 
-Use `npx notibuddy@^0.3.3 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+Use `npx notibuddy@^0.4.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
 
 ### Check the connection
 
@@ -68,17 +68,34 @@ When only one destination is paired, everyday CLI commands (`notify`, `activity`
 
 ```bash
 # Send a one-way informational notification (no action buttons or waiting):
-npx notibuddy@^0.3.3 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+npx notibuddy@^0.4.0 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+
+# Send a Custom Native Screen (KPI strip, alerts, checklist, diffs, forms, Face ID actions):
+npx notibuddy@^0.4.0 notify "Promote v2.4.1 to production" --to personal --screen deploy-screen.json --wait 55
 
 # Request approval with custom buttons:
-npx notibuddy@^0.3.3 notify "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
+npx notibuddy@^0.4.0 notify "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
 
 # Fail-closed shell or CI gate (exits 0 only on verified Approve + Face ID; 2 on reject; 3 on expiry; 1 on error):
-npx notibuddy@^0.3.3 gate "Deploy v1.2 to production?" --to personal --requires-auth --timeout 600 && ./deploy.sh
+npx notibuddy@^0.4.0 gate "Deploy v1.2 to production?" --to personal --requires-auth --timeout 600 && ./deploy.sh
 
 # Start a countdown timer on the Dynamic Island:
-npx notibuddy@^0.3.3 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
+npx notibuddy@^0.4.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
 ```
+
+### Custom Native Screens (`nb notify --screen`, `nb screen register`, 0.4.0+)
+
+Build rich native iOS screens directly from JSON using 12 composable blocks (`vstack`, `card`, `divider`, `heading`, `text`, `badge`, `alert`, `kpiStrip`, `keyValueList`, `checklist`, `diffViewer`, and `formField`) plus Face ID-protected actions. Pick from 8 ready-to-use layouts (`db_migration_approval`, `incident_triage`, `code_review_form`, `kpi_status_card`, `action_checklist`, `parameter_tuning_form`, `deployment_gate`, `multi_choice_audit`) or pass an inline custom `template`.
+
+```bash
+# Pre-register and cache a custom layout template (optional — `notify --screen` also handles this automatically):
+npx notibuddy@^0.4.0 screen register template.json --to personal
+
+# Send the custom screen and wait for the signed reply:
+npx notibuddy@^0.4.0 notify "Promote v2.4.1 to production" --to personal --screen deploy-screen.json --wait 55
+```
+
+For custom layouts, the server validates and caches only the structural template (stripped of your text, metrics, diffs, and data) so your devices can render it natively, while all content and replies stay end-to-end encrypted. Do not combine `--screen` / `screen` with `message`, `options`, `fields`, `input_placeholder`, `diff`, or `resume_id`.
 
 ### Fail-closed approval gates (`nb gate`, 0.3.3+)
 
@@ -116,7 +133,7 @@ Save a UTF-8 JSON file named `changes.json`:
 ```
 
 ```bash
-npx notibuddy@^0.3.3 notify "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
+npx notibuddy@^0.4.0 notify "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
 ```
 
 The filename and source text are encrypted for the destination. Review happens on iPhone or iPad; a paired Watch hands off to its iPhone. The response uses `approve` (Apply) or `reject` (Discard). These are decisions: NotiBuddy does not change files or execute code. The caller must verify the current file still matches the reviewed original before applying an approved change.
@@ -131,7 +148,7 @@ Do not combine a diff with choices, text input, forms, or a resume ID. If the re
 
 ## 🛠️ Model Context Protocol (MCP) & Agent Plugins
 
-You can install NotiBuddy as an official plugin or configure it directly as a local stdio MCP server. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.3.3`) and restart the MCP server; preserve its destination and sender options. This version update does not require re-pairing or new keys.
+You can install NotiBuddy as an official plugin or configure it directly as a local stdio MCP server. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.4.0`) and restart the MCP server; preserve its destination and sender options. If you installed via Homebrew (`brew install yourbit-network/tap/notibuddy`), you can alternatively use `"command": "notibuddy-mcp"` with `args: ["--to", "personal", "--sender", "Coding assistant"]`. This version update does not require re-pairing or new keys.
 
 ### Official Agent Plugins (0.3.3+)
 
@@ -159,7 +176,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.3.3", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.4.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }
@@ -172,7 +189,7 @@ Run as a local stdio MCP server:
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.3.3", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.4.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }

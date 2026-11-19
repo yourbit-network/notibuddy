@@ -1,5 +1,28 @@
 # NotiBuddy Tool Examples
 
+## Custom Native Screen (Deployment Gate)
+```json
+{
+  "title": "Promote v2.4.1 to production",
+  "screen": {
+    "template": {
+      "root": {
+        "kind": "vstack",
+        "children": [
+          { "kind": "alert", "severity": "success", "title": "Canary healthy", "body": "128/128 checks passed across us-east and eu-central." },
+          { "kind": "kpiStrip", "items": [{ "label": "Canary", "value": "10%" }, { "label": "Errors", "value": "0.00%" }] }
+        ]
+      },
+      "actions": [
+        { "id": "promote", "label": "Promote to production", "role": "primary", "requireBio": true },
+        { "id": "abort", "label": "Abort deploy", "role": "destructive", "requireBio": false }
+      ]
+    }
+  },
+  "wait_seconds": 55
+}
+```
+
 ## Face ID Deployment Approval
 ```json
 {

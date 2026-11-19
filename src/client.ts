@@ -4,7 +4,7 @@ import { validateRequestSettings } from './protocol.js';
 import { relayJSON, pollPause, RelayHTTPError, DeadlineError, type CallOptions } from './client-http.js';
 import { SenderStream } from './sender-stream.js';
 import { RecipientStore } from './recipient-store.js';
-import { verifyRecipients, sealGroupRequest, openGroupResponse, type GroupRequest, type GroupResponse } from './groups.js';
+import { verifyRecipients, sealGroupRequest, openGroupResponse, openGroupResponsePlaintext, type GroupRequest, type GroupResponse } from './groups.js';
 import { validGroupRequest } from './group-wire.js';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
@@ -20,6 +20,21 @@ import { generateReplyKeyPair } from './crypto.js';
 import { PendingStore, PendingStorageError, type PendingReply, type ActivitySession } from './pending-store.js';
 import { parseDiff } from './diff.js';
 import type { DiffInput } from './types.js';
+import {
+  parseScreenAskInput,
+  registerScreenTemplateOnRelay,
+  resolveScreenForDispatch,
+  verifyScreenSettlement,
+  type PendingScreenContext,
+  type RegisterScreenTemplateResult,
+  type ScreenAskInput,
+  type ScreenRuntimeOptions,
+} from './screen-client.js';
+import { validateScreenRequestBindings } from './screen-record.js';
+import type { ScreenFeedbackItem } from './screen-skeletonizer.js';
+import { ScreenTemplateStore } from './screen-store.js';
+import type { ScreenRequestPlaintext } from './screen-types.js';
+import { computeScreenContextDigest, validateScreenRequestPlaintext } from './screen-wire.js';
 
 const field = z.object({
   id:z.string().min(1).max(80), type:z.enum(['text','email','url','toggle','stepper','picker','date','secret']),
@@ -35,6 +50,7 @@ export const askFields = z.object({
   presentation: presentation.optional(),
   sensitive: z.boolean().optional(),
   diff: z.unknown().optional(),
+  screen: z.unknown().optional(),
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
   options:z.array(z.string().trim().min(1).max(200)).max(20).optional(), declineOption:z.string().trim().min(1).max(200).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
@@ -44,9 +60,11 @@ export const askFields = z.object({
 const askSchema = askFields.refine(p => p.resumeId || p.title, 'A title is required for a new request')
   .refine(p => p.declineOption === undefined || !!p.options?.includes(p.declineOption),'declineOption must be one of options')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
-  .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId),
-    'A new diff request cannot include form fields, choices, text input or a resume ID')
-  .refine(p => !(p.options?.length === 0 && !p.fields && p.inputPlaceholder === undefined && p.requiresAuth),
+  .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId && p.screen === undefined),
+    'A new diff request cannot include form fields, choices, text input, screen or a resume ID')
+  .refine(p => p.screen === undefined || (p.message === undefined && !p.fields && !p.options && p.declineOption === undefined && p.inputPlaceholder === undefined && p.diff === undefined && !p.resumeId),
+    'A new screen request cannot include message, choices, form fields, text input, diff or a resume ID')
+  .refine(p => !(p.options?.length === 0 && !p.fields && p.inputPlaceholder === undefined && p.screen === undefined && p.requiresAuth),
     'Passive notifications with empty options cannot require authentication');
 export const activitySchema = z.object({
   presentation: presentation.optional(),
@@ -69,10 +87,21 @@ export const notifySchema = z.object({
   title:z.string().min(1).max(500), message:z.string().max(50000).optional(),
   timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
 });
-export type AskParams = Omit<z.input<typeof askSchema>, 'diff'> & { diff?: DiffInput };
+export type AskParams = Omit<z.input<typeof askSchema>, 'diff' | 'screen'> & { diff?: DiffInput; screen?: ScreenAskInput };
 export type ActivityParams = z.input<typeof activitySchema>;
 export type NotifyParams = z.input<typeof notifySchema>;
-export type AskResult = {status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found';requestId:string;answer?:AnswerPayload;errorCode?:string;message?:string};
+export type AskResult = {
+  status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found';
+  requestId:string;
+  answer?:AnswerPayload;
+  errorCode?:string;
+  message?:string;
+  templateId?:string;
+  repaired?:boolean;
+  suggestedTemplate?:Record<string, unknown>;
+  changes?:ScreenFeedbackItem[];
+  fixes?:ScreenFeedbackItem[];
+};
 export type NotifyResult = {status:'delivered';requestId:string};
 export const clockSkewMessage = 'The relay rejected this computer\'s clock (more than 120 s off). Fix the system clock, then retry; run nb doctor to see the offset.';
 export const requestIdConflictMessage='This request ID was already used for a different request. Send it again with a new request ID.';
@@ -100,18 +129,34 @@ type ActivityResult={status:string;activityId:string;controls:AnswerPayload[];wa
 
 export class NotiBuddyClient {
   private store:PendingStore;
+  private screenStore:ScreenTemplateStore;
+  private screenRuntime:ScreenRuntimeOptions;
   private recipients:RecipientStore;
   private senderStream:SenderStream;
   private keepStreamAlive:boolean;
-  constructor(private config:NotiBuddyConfig,private signingKey:CryptoKey,store?:PendingStore,private sender=os.hostname(),credentials?:{store:DestinationStore;name:string},stream?:{enabled?:boolean;keepAlive?:boolean}) {
+  constructor(
+    private config:NotiBuddyConfig,
+    private signingKey:CryptoKey,
+    store?:PendingStore,
+    private sender=os.hostname(),
+    credentials?:{store:DestinationStore;name:string},
+    stream?:{enabled?:boolean;keepAlive?:boolean},
+    screenOptions?:ScreenRuntimeOptions
+  ) {
     validateRequestSettings(config);
     this.config=structuredClone(config);this.config.relay=normalizeRelay(config.relay);
     if(credentials)bindCredentials(this.config,{...credentials,signingKey});
     this.sender=z.string().trim().min(1).max(100).regex(/^[^\p{Cc}\p{Cf}]+$/u).parse(sender);
     this.store=store ?? new PendingStore(config);
+    this.screenRuntime=screenOptions ?? {};
+    this.screenStore=new ScreenTemplateStore(this.store.root,this.screenRuntime.resolveTaPublicKey);
     this.recipients=new RecipientStore(config,this.store.root);
     this.keepStreamAlive=stream?.keepAlive ?? false;
     this.senderStream=new SenderStream(this.config,this.signingKey,stream?.enabled);
+  }
+  async registerScreenTemplate(input:unknown,options:CallOptions & {strict?:boolean}={}):Promise<RegisterScreenTemplateResult> {
+    const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+15000)};
+    return registerScreenTemplateOnRelay(this.config,this.signingKey,this.screenStore,input,{...call,strict:options.strict},this.screenRuntime);
   }
   close():void {
     this.senderStream.close();
@@ -189,9 +234,12 @@ export class NotiBuddyClient {
   private async replyKey(saved:PendingReply):Promise<CryptoKey> {
     return crypto.subtle.importKey('jwk',saved.privateKeyJwk,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
   }
-  private async seal(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload,timeout:number,options:CallOptions,version=this.config.requestProtocol ?? 1,expiresAt?:number):Promise<{envelope:WireRequest;recipients?:unknown}> {
-    if(version===1)return {envelope:await sealRequest({requestId:id,deviceId:this.config.device.id,senderKeyId:this.config.senderKeyId,
-      senderSigningPrivateKey:this.signingKey,deviceEncryptionPublicKey:this.config.device.encPub,primitive,payload,timeoutSeconds:timeout})};
+  private async seal(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload|ScreenRequestPlaintext,timeout:number,options:CallOptions,version=this.config.requestProtocol ?? 1,expiresAt?:number):Promise<{envelope:WireRequest;recipients?:unknown}> {
+    if(version===1) {
+      if(primitive==='screen')throw Error('Certified screen requests require a Protocol v2 destination');
+      return {envelope:await sealRequest({requestId:id,deviceId:this.config.device.id,senderKeyId:this.config.senderKeyId,
+        senderSigningPrivateKey:this.signingKey,deviceEncryptionPublicKey:this.config.device.encPub,primitive,payload:payload as AskPayload|ActivityPayload,timeoutSeconds:timeout})};
+    }
     const {body}=await relayJSON(this.config,'/v2/recipients?deviceId='+this.config.device.id,{},options,this.signingKey);
     const recipients=await verifyRecipients(body,this.config,this.recipients.read());
     if(recipients.generation<(this.config.minimumRecipientGeneration ?? 0))throw Error('Relay membership predates the pairing document');
@@ -199,13 +247,13 @@ export class NotiBuddyClient {
     return {recipients:body,envelope:await sealGroupRequest({requestId:id,senderKeyId:this.config.senderKeyId,signingKey:this.signingKey,recipients,primitive,payload,timeoutSeconds:timeout,expiresAt,
       ...(payload.type==='activity'?{sessionId:payload.activityId,revision:payload.revision}: {})})};
   }
-  private async prepare(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload,key:CryptoKey,timeout:number,options:CallOptions,version?:1|2):Promise<PendingReply> {
+  private async prepare(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload|ScreenRequestPlaintext,key:CryptoKey,timeout:number,options:CallOptions,version?:1|2,screen?:PendingScreenContext):Promise<PendingReply> {
     const prepared=await this.seal(id,primitive,payload,timeout,options,version);
-    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,dispatch:'pending'};
+    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,dispatch:'pending',...(screen?{screen}:{})};
     this.savePending(id,saved);return saved;
   }
   /** `plaintext` lives in memory only; a record saved by an earlier process has none. */
-  private async dispatchSaved(id:string,saved:PendingReply,options:CallOptions,plaintext?:AskPayload|ActivityPayload):Promise<PendingReply> {
+  private async dispatchSaved(id:string,saved:PendingReply,options:CallOptions,plaintext?:AskPayload|ActivityPayload|ScreenRequestPlaintext):Promise<PendingReply> {
     if(saved.dispatch!=='pending' || !saved.envelope || saved.expiresAt<=Math.floor(Date.now()/1000))return saved;
     if(saved.payload!==undefined) {
       // Legacy record: scrub the plaintext from disk before posting; use it in memory for this call only.
@@ -233,6 +281,16 @@ export class NotiBuddyClient {
     if(envelope.v===2) {
       if(!saved.envelope || !validGroupRequest(saved.envelope))throw new PendingStorageError('Missing original group request');
       const recipients=await verifyRecipients(saved.recipients,this.config);
+      if(saved.envelope.primitive==='screen') {
+        const plaintext=await openGroupResponsePlaintext({input:envelope,request:saved.envelope,recipients,replyKey:key});
+        let rawAnswer:unknown;
+        try{rawAnswer=JSON.parse(plaintext);}
+        catch{return {status:'error',requestId:envelope.requestId,errorCode:'SETTLEMENT_UNVERIFIED',message:'Screen answer is not valid JSON.'};}
+        const verified=await verifyScreenSettlement(saved.screen,rawAnswer);
+        return verified.status==='resolved'
+          ? {status:'resolved',requestId:envelope.requestId,answer:verified.answer}
+          : {status:'error',requestId:envelope.requestId,errorCode:verified.errorCode,message:verified.message};
+      }
       return {status:'resolved',requestId:envelope.requestId,answer:await openGroupResponse({input:envelope,request:saved.envelope,recipients,replyKey:key})};
     }
     if(envelope.createdAt>Math.floor(Date.now()/1000)+120 || envelope.createdAt>=saved.expiresAt || saved.envelope && envelope.createdAt<saved.envelope.createdAt-120)throw Error('Reply timestamp outside saved request lifetime');
@@ -263,7 +321,11 @@ export class NotiBuddyClient {
   }
   async ask(input:AskParams,options:CallOptions={}):Promise<AskResult> {
     const params=askSchema.parse(input),diff=params.diff === undefined ? undefined : parseDiff(params.diff);
-    if(!params.resumeId && !diff && !params.fields?.length && params.inputPlaceholder===undefined && params.options?.length===0) {
+    const screenInput=params.screen === undefined ? undefined : parseScreenAskInput(params.screen);
+    if(screenInput && (this.config.requestProtocol ?? 1)!==2) {
+      throw Error('Certified screen requests require a Protocol v2 destination');
+    }
+    if(!params.resumeId && !diff && !screenInput && !params.fields?.length && params.inputPlaceholder===undefined && params.options?.length===0) {
       return this.notify({title:params.title!,message:params.message,timeoutSeconds:params.timeoutSeconds,sensitive:params.sensitive,presentation:params.presentation},options);
     }
     const id=params.resumeId ?? 'req_'+randomUUID().replaceAll('-','');validateIdentifier(id,'resumeId');
@@ -271,9 +333,56 @@ export class NotiBuddyClient {
     // one end-to-end deadline including discovery, dispatch and response bytes.
     const call={...options,deadline:Math.min(options.deadline ?? Infinity,Date.now()+(params.waitSeconds===0?15000:params.waitSeconds*1000))};
     return this.store.withOperation('reply:'+id,async()=>{
-      let saved:PendingReply,sealed:AskPayload|undefined;
+      let saved:PendingReply,sealed:AskPayload|ScreenRequestPlaintext|undefined;
+      let screenMeta:Pick<AskResult,'templateId'|'repaired'|'suggestedTemplate'|'changes'>|undefined;
+      const withMeta=(result:AskResult):AskResult=>screenMeta ? {...result,...screenMeta} : result;
       if(params.resumeId) {saved=this.readPending(id);if(saved.envelope?.primitive.startsWith('activity_'))throw Error('Use activity poll to resume activity controls');}
-      else {
+      else if(screenInput) {
+        const resolved=await resolveScreenForDispatch(this.config,this.signingKey,this.screenStore,screenInput,call,this.screenRuntime);
+        if(!resolved.ok) {
+          return {
+            status:'error',
+            requestId:id,
+            errorCode:resolved.errorCode,
+            message:resolved.message,
+            ...(resolved.suggestedTemplate!==undefined?{suggestedTemplate:resolved.suggestedTemplate}:{}),
+            ...(resolved.changes!==undefined?{changes:resolved.changes}:{}),
+            ...(resolved.fixes!==undefined?{fixes:resolved.fixes}:{}),
+          };
+        }
+        screenMeta={
+          templateId:resolved.templateId,
+          ...(resolved.repaired?{repaired:true,suggestedTemplate:resolved.suggestedTemplate,changes:resolved.changes}:{}),
+        };
+        const pair=await generateReplyKeyPair();
+        const candidatePayload:ScreenRequestPlaintext={
+          type:'ask',
+          replyPub:pair.publicKeyB64u,
+          source:{label:this.sender},
+          title:params.title!,
+          ...(params.presentation!==undefined?{presentation:params.presentation}:{}),
+          ...(params.sensitive!==undefined?{sensitive:params.sensitive}:{}),
+          ...(params.requiresAuth!==undefined?{requiresAuth:params.requiresAuth}:{}),
+          templateId:resolved.templateId,
+          labels:resolved.labels,
+          data:resolved.data,
+          ...(screenInput.thread!==undefined?{thread:screenInput.thread}:{}),
+        };
+        const validatedPayload=validateScreenRequestPlaintext(candidatePayload);
+        const counts=validateScreenRequestBindings(resolved.skeleton,validatedPayload);
+        const contextDigest=await computeScreenContextDigest(id,new TextEncoder().encode(JSON.stringify(validatedPayload)));
+        const pendingScreen:PendingScreenContext={
+          templateId:resolved.templateId,
+          contextDigest,
+          skeleton:resolved.skeleton,
+          checklistCounts:counts.checklistCounts,
+          pickerOptionCounts:counts.pickerOptionCounts,
+          ...(validatedPayload.sensitive!==undefined?{sensitive:validatedPayload.sensitive}:{}),
+          ...(validatedPayload.requiresAuth!==undefined?{requiresAuth:validatedPayload.requiresAuth}:{}),
+        };
+        saved=await this.prepare(id,'screen',validatedPayload,pair.privateKey,params.timeoutSeconds,call,2,pendingScreen);
+        sealed=validatedPayload;
+      } else {
         const pair=await generateReplyKeyPair(),primitive:PrimitiveType=diff?'diff':params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
         const payload:AskPayload={type:'ask',source:{label:this.sender},replyPub:pair.publicKeyB64u,title:params.title!,message:params.message,
           options:declineMarked(params.options,params.declineOption),inputPlaceholder:params.inputPlaceholder,fields:params.fields,requiresAuth:params.requiresAuth,sensitive:params.sensitive,presentation:params.presentation,...diff};
@@ -284,7 +393,7 @@ export class NotiBuddyClient {
         let pollDelayMs=1000;
         do {
           const response=await this.getSavedReply(id,saved,0,call);
-          if(response){const result=await this.open(id,response.envelope,saved);this.store.remove('reply:'+id);return result;}
+          if(response){const result=await this.open(id,response.envelope,saved);this.store.remove('reply:'+id);return withMeta(result);}
           if(params.waitSeconds===0 || Date.now()>=call.deadline)break;
           const wait=await this.senderStream.waitForReply(id,call.deadline,options);
           if(wait==='available' || wait==='resync')continue;
@@ -295,13 +404,13 @@ export class NotiBuddyClient {
         }while(Date.now()<call.deadline);
       }catch(error) {
         if(options.signal?.aborted)throw new ResumableRequestError(id);
-        if(error instanceof TerminalRequestError){this.store.remove('reply:'+id);return {status:error.status,requestId:id};}
-        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return {status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.code==='REQUEST_ID_CONFLICT'?requestIdConflictMessage:error.message};}
-        return {status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`};
+        if(error instanceof TerminalRequestError){this.store.remove('reply:'+id);return withMeta({status:error.status,requestId:id});}
+        if(error instanceof DispatchRejectedError && error.definitive){this.store.remove('reply:'+id);return withMeta({status:'error',requestId:id,errorCode:error.code ?? 'HTTP_'+error.status,message:error.code==='CLOCK_SKEW'?clockSkewMessage:error.code==='REQUEST_ID_CONFLICT'?requestIdConflictMessage:error.message});}
+        return withMeta({status:'pending',requestId:id,errorCode:error instanceof DeadlineError?'WAIT_DEADLINE':'RETRY_REQUIRED',message:`Request is saved but no verified answer was received. Resume with resume_id='${id}'.`});
       }finally {
         this.senderStream.releaseIdle(this.keepStreamAlive);
       }
-      return {status:'pending',requestId:id,message:`Call notibuddy_notify with resume_id='${id}' (or run nb notify --resume '${id}') to check again, including after restarting this client.`};
+      return withMeta({status:'pending',requestId:id,message:`Call notibuddy_notify with resume_id='${id}' (or run nb notify --resume '${id}') to check again, including after restarting this client.`});
     });
   }
   private writeActivity(id:string,session:ActivitySession) {

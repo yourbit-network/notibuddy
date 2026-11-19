@@ -1,6 +1,6 @@
 {
   "pluginVersion": "1.0.0",
-  "minCli": "^0.3.3",
+  "minCli": "^0.4.0",
   "author": {
     "name": "Yourbit, LLC",
     "url": "https://notibuddy.app"
@@ -10,7 +10,7 @@
   "core": {
     "name": "notibuddy",
     "displayName": "NotiBuddy",
-    "description": "End-to-end encrypted iPhone and Apple Watch approvals, code diffs, structured forms, live progress, and file sharing for AI agents."
+    "description": "End-to-end encrypted iPhone and Apple Watch custom screens, approvals, code diffs, structured forms, live progress, and file sharing for AI agents."
   },
   "hooks": {
     "name": "notibuddy-hooks",

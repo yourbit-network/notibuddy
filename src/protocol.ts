@@ -65,6 +65,9 @@ export async function sealRequest(params: {
   payload: AskPayload | ActivityPayload;
   timeoutSeconds?: number;
 }): Promise<RequestEnvelope> {
+  if (params.primitive === 'screen') {
+    throw new Error('Screen requests require Protocol v2');
+  }
   const now = Math.floor(Date.now() / 1000);
   // Low-level activity calls retain their existing default; client.activity supplies one hour.
   const activity = params.primitive.startsWith('activity_');

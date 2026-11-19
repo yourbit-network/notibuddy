@@ -10,6 +10,8 @@ import { argumentsFor, presentationFrom, quoteShell, resolveCliDestination, with
 import { DestinationStore, destinationName, senderLabel } from './config.js';
 import { computePairingMac } from './crypto.js';
 import { readDiffFile, readFieldsFile } from './diff-file.js';
+import { readScreenFile, readScreenTemplateFile, writeRepairedTemplateFile } from './screen-file.js';
+import type { ScreenAskInput } from './screen-client.js';
 import { resolveFileDestination } from './file-routing.js';
 import { printGateHelp, runGateCommand } from './gate.js';
 import { printHookHelp } from './hook.js';
@@ -31,6 +33,7 @@ const KNOWN_COMMANDS = new Set([
   'pair',
   'doctor',
   'notify',
+  'screen',
   'activity',
   'gate',
   'hook',
@@ -68,8 +71,9 @@ Options:
   --options, -o <a,b,...>    Reply buttons (makes request interactive)
   --decline-option <text>    One of --options that declines without auth
   --placeholder, -p <text>   Inline text-reply prompt
-  --diff <json-file>         Review original/modified text (cannot combine with options/fields/placeholder/resume)
+  --diff <json-file>         Review original/modified text (cannot combine with options/fields/placeholder/screen/resume)
   --fields <json-file>       In-app dynamic form JSON array (1–50 fields)
+  --screen <json-file>       Custom screen JSON object (cannot combine with message/options/fields/placeholder/diff/resume)
   --requires-auth            Require device-owner authentication (Face ID, Touch ID, passcode or unlocked Watch)
   --sensitive                Hide content in notification previews
   --short-title <text>       Single-line presentation title override (max 40 chars)
@@ -94,6 +98,16 @@ Options:
   --short-title <text>       Single-line presentation title override
   --summary <text>           Single-line presentation summary override
   --sensitive                Hide content on Lock Screen and Live Activity
+`);
+    return;
+  }
+  if (command === 'screen') {
+    console.log(`Usage:
+  nb screen register <file> [--strict] [--to <name>]
+
+Register a screen template JSON file on the relay.
+Without --strict, auto-standardizations write <stem>.repaired.json (including the signed record)
+next to <file> without mutating <file>. With --strict, suggested repairs exit non-zero without signing.
 `);
     return;
   }
@@ -142,6 +156,7 @@ Pairing waits up to 45 seconds for a first-use code; --wait accepts 0–60 secon
 Usage:
   nb notify "<title>" [--to <name>] [--sender <label>] [options]
   nb notify --resume <request-id> [--to <name>] [--wait <seconds>]
+  nb screen register <file> [--strict] [--to <name>]
   nb gate "<title>" [--to <name>] [--sender <label>] [options]
   nb hook claude PermissionRequest [--client <id> | --to <name>] [options]
   nb activity <id> <start|update|end|poll> [--to <name>] [options]
@@ -168,8 +183,9 @@ Notify options:
   --options, -o <a,b,...>    Reply buttons (makes request interactive)
   --decline-option <text>    One of --options that declines; on --requires-auth only it skips authentication
   --placeholder, -p <text>   Free-text reply
-  --diff <json-file>         Review original/modified text; cannot combine with choices/fields/input/resume
+  --diff <json-file>         Review original/modified text; cannot combine with choices/fields/input/screen/resume
   --fields <json-file>       In-app dynamic form JSON array
+  --screen <json-file>       Custom screen JSON object (templateId or inline template)
   --short-title <text> --summary <text>
   --timeout <seconds>        New request lifetime (default ${DEFAULT_REQUEST_TIMEOUT_SECONDS}, max ${MAX_REQUEST_TIMEOUT_SECONDS}; three hours)
   --wait, -w <seconds>       Wait before returning pending on interactive requests (default 45, max ${MAX_REPLY_WAIT_SECONDS}); does not change expiry
@@ -189,7 +205,7 @@ Activity options:
 function retiredAskGuidance(routing: RoutingOptions, rest: string[]): string {
   const rebuilt = ['nb', 'notify'];
   const hasInteractive = rest.some((arg) =>
-    ['--options', '-o', '--placeholder', '-p', '--diff', '--fields', '--requires-auth', '--resume', '--decline-option'].some(
+    ['--options', '-o', '--placeholder', '-p', '--diff', '--fields', '--screen', '--requires-auth', '--resume', '--decline-option'].some(
       (flag) => arg === flag || arg.startsWith(flag + '='),
     ),
   );
@@ -237,7 +253,7 @@ function unsupportedCommandError(command: string, routing: RoutingOptions, rest:
       return new Error(`Unknown command '${command}'. Use:\n  nb files receive <file_id>${toFlag}`);
     default:
       return new Error(
-        `Unknown command '${command}'. Available commands: notify, gate, hook, activity, files, pair, bind, unbind, unpair, devices, doctor, status, mcp. Run nb help.`,
+        `Unknown command '${command}'. Available commands: notify, screen, gate, hook, activity, files, pair, bind, unbind, unpair, devices, doctor, status, mcp. Run nb help.`,
       );
   }
 }
@@ -529,6 +545,68 @@ ${JSON.stringify({ mcpServers: { notibuddy: { command: 'npx', args: ['-y', `noti
     return;
   }
 
+  if (command === 'screen') {
+    const args = argumentsFor(rest, [], ['--strict']);
+    const action = args.positional[0];
+    if (action !== 'register' || args.positional.length !== 2) {
+      throw new Error('Use: nb screen register <file> [--strict] [--to <name>]');
+    }
+    const inputPath = args.positional[1];
+    const parsed = readScreenTemplateFile(inputPath);
+    const strict = args.flag('--strict');
+    const route = (await createDestinationRouter(effectiveRouting, store)).resolve();
+    const result = await withShutdown((signal) =>
+      route.client.registerScreenTemplate(parsed, { signal, strict }),
+    );
+    if (result.status === 'certified' && result.repaired) {
+      const repairedPath = writeRepairedTemplateFile(inputPath, {
+        templateId: result.templateId,
+        repaired: true,
+        skeleton: result.skeleton,
+        suggestedTemplate: result.suggestedTemplate,
+        changes: result.changes,
+        record: result.record,
+      });
+      console.log(
+        JSON.stringify(
+          {
+            status: result.status,
+            templateId: result.templateId,
+            repaired: true,
+            repairedPath,
+            changes: result.changes,
+            record: result.record,
+            to: route.name,
+            connectionId: route.record.connectionId,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    if (result.status === 'certified') {
+      console.log(
+        JSON.stringify(
+          {
+            status: result.status,
+            templateId: result.templateId,
+            repaired: false,
+            record: result.record,
+            to: route.name,
+            connectionId: route.record.connectionId,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    console.log(JSON.stringify({ ...result, to: route.name, connectionId: route.record.connectionId }, null, 2));
+    process.exitCode = 1;
+    return;
+  }
+
   if (command === 'notify') {
     const args = argumentsFor(
       rest,
@@ -542,6 +620,7 @@ ${JSON.stringify({ mcpServers: { notibuddy: { command: 'npx', args: ['-y', `noti
         '--resume',
         '--diff',
         '--fields',
+        '--screen',
         '--short-title',
         '--summary',
       ],
@@ -555,10 +634,15 @@ ${JSON.stringify({ mcpServers: { notibuddy: { command: 'npx', args: ['-y', `noti
     }
 
     const diffFile = args.text('--diff');
-    if (diffFile !== undefined && ['--options', '--placeholder', '--fields', '--resume'].some((flag) => args.text(flag) !== undefined)) {
-      throw new Error('--diff cannot be combined with --options, --placeholder, --fields or --resume');
+    if (diffFile !== undefined && ['--options', '--placeholder', '--fields', '--screen', '--resume'].some((flag) => args.text(flag) !== undefined)) {
+      throw new Error('--diff cannot be combined with --options, --placeholder, --fields, --screen or --resume');
+    }
+    const screenFile = args.text('--screen');
+    if (screenFile !== undefined && ['--message', '--options', '--decline-option', '--placeholder', '--fields', '--diff', '--resume'].some((flag) => args.text(flag) !== undefined)) {
+      throw new Error('--screen cannot be combined with --message, --options, --decline-option, --placeholder, --fields, --diff or --resume');
     }
     const diff = diffFile === undefined ? undefined : readDiffFile(diffFile);
+    const screen = screenFile === undefined ? undefined : (readScreenFile(screenFile) as ScreenAskInput);
     const fieldsFile = args.text('--fields');
     const fields = fieldsFile === undefined ? undefined : readFieldsFile(fieldsFile);
     const rawOptions = args.text('--options');
@@ -576,6 +660,7 @@ ${JSON.stringify({ mcpServers: { notibuddy: { command: 'npx', args: ['-y', `noti
       declineOption !== undefined ||
       inputPlaceholder !== undefined ||
       diff !== undefined ||
+      screen !== undefined ||
       fields !== undefined ||
       resumeId !== undefined ||
       requiresAuth;
@@ -585,7 +670,7 @@ ${JSON.stringify({ mcpServers: { notibuddy: { command: 'npx', args: ['-y', `noti
     if (!interactive) {
       if (waitSeconds !== undefined && waitSeconds > 0) {
         throw new Error(
-          'One-way notifications return immediately without waiting. Omit --wait, or add --options "Approve,Reject" (or --placeholder, --diff, --fields) to wait for a response.',
+          'One-way notifications return immediately without waiting. Omit --wait, or add --options "Approve,Reject" (or --placeholder, --diff, --fields, --screen) to wait for a response.',
         );
       }
       if (title === undefined) {
@@ -623,6 +708,7 @@ ${JSON.stringify({ mcpServers: { notibuddy: { command: 'npx', args: ['-y', `noti
           sensitive: args.flag('--sensitive'),
           presentation,
           diff,
+          screen,
         },
         { signal },
       ),
