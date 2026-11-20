@@ -56,3 +56,17 @@ Never push private or legacy repository branches, tags, or Git history into this
 6. Then move the published-client acceptance to the new release in a PR: add `test-vectors/published-<version>.json` with the registry archive's SHA-256, integrity and file count, and point `.github/workflows/published-client-acceptance.yml` at it. Releases up to 0.2.11 generate MCP configuration for `notibuddy@^<version>`, so the launcher check of an older release fails once a newer one is published.
 
 `publish.yml` is the workflow registered with npm trusted publishing; keep its name and repository identity aligned with npm. It needs no saved npm publishing token. The scanner download is version- and checksum-pinned in `scripts/install-ci-gitleaks.sh`; review both when updating it. Dependabot maintains pinned GitHub Action references weekly.
+
+### npm trusted publishing settings
+
+Configure the npm package's GitHub Actions trusted publisher with:
+
+| npm setting | Value |
+| --- | --- |
+| Organization or user | `yourbit-network` |
+| Repository | `notibuddy` |
+| Workflow filename | `publish.yml` |
+| Environment name | Leave blank |
+| Allowed actions | Enable `npm publish` |
+
+The workflow uses a GitHub-hosted runner, Node.js 24, and npm 11.21.0. npm requires a new trusted publisher to complete its first successful publish within two days; recreate the configuration if it expires. See [npm's trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).

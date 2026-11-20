@@ -1,127 +1,196 @@
-# NotiBuddy (notibuddy-mcp)
+<p align="center">
+  <a href="https://notibuddy.app">
+    <img src="https://notibuddy.app/logo.svg" width="72" height="72" alt="NotiBuddy" />
+  </a>
+</p>
 
-End-to-end encrypted requests and signed replies between your agents, apps or scripts and your Apple devices.
+<h1 align="center">NotiBuddy</h1>
 
-The public CLI and MCP server from **Yourbit, LLC**, published on npm as [`notibuddy`](https://www.npmjs.com/package/notibuddy). This repository contains the computer client and protocol documentation. Support: **contact@notibuddy.app**.
+<p align="center">
+  <strong>Not just push alerts: an end-to-end encrypted native UI on iPhone and Apple Watch for coding agents, CLIs, and CI.</strong><br />
+  Render custom screens from JSON, review syntax-highlighted diffs, collect forms and replies, run Dynamic Island timers, send files from your phone to your computer, and gate deploys with device-signed approvals.
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Protocol: v1](https://img.shields.io/badge/Protocol-v1-emerald.svg)](./PROTOCOL.md)
+<p align="center">
+  <a href="https://apps.apple.com/app/id6823749991"><img src="https://img.shields.io/badge/App_Store-iPhone%2C_iPad_%26_Watch-0D96F6?logo=apple&logoColor=white" alt="Download NotiBuddy on the App Store" /></a>
+  <a href="https://www.npmjs.com/package/notibuddy"><img src="https://img.shields.io/npm/v/notibuddy?color=CB3837&logo=npm&logoColor=white" alt="npm version" /></a>
+  <a href="https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md"><img src="https://img.shields.io/badge/Protocol-v1-10B981" alt="Protocol v1" /></a>
+  <a href="https://github.com/yourbit-network/notibuddy/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-3B82F6" alt="MIT License" /></a>
+</p>
 
----
+<p align="center">
+  <a href="https://notibuddy.app">Website</a> ·
+  <a href="https://notibuddy.app/setup">Setup &amp; QR</a> ·
+  <a href="https://notibuddy.app/claude-code">Claude Code</a> ·
+  <a href="https://notibuddy.app/cursor">Cursor</a> ·
+  <a href="https://notibuddy.app/codex">Codex</a> ·
+  <a href="https://notibuddy.app/antigravity">Antigravity</a> ·
+  <a href="https://notibuddy.app/github-actions">GitHub Actions</a> ·
+  <a href="https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md">Protocol</a> ·
+  <a href="https://github.com/yourbit-network/notibuddy/blob/main/SECURITY.md">Security</a>
+</p>
 
-## 🔒 Security & Cryptographic Invariants
+<p align="center">
+  <img src="https://notibuddy.app/images/showcase/v1/en/00-custom-screen.webp" width="220" alt="Custom native screen on iPhone showing release KPIs, a checklist, and a device-authenticated Promote button" />
+  <img src="https://notibuddy.app/images/showcase/v1/en/02-protected-approval.webp" width="220" alt="Device-authenticated Approve and Reject prompt on iPhone for Deploy v2.4.1" />
+  <img src="https://notibuddy.app/images/showcase/v1/en/08-diff.webp" width="220" alt="Syntax-highlighted inline code diff on iPhone with Apply and Discard actions" />
+</p>
 
-NotiBuddy is designed so that **neither the relay server nor Apple Push Notification service (APNs) can read prompts, choices, code, or user responses**.
+This repository contains the open-source MIT computer client (`notibuddy`, `nb`, and `notibuddy-mcp` on [npm](https://www.npmjs.com/package/notibuddy)), official coding-agent plugins, and [Protocol v1](https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md) specification from **Yourbit, LLC**.
 
-1. **HPKE (RFC 9180):** Requests use `DHKEM(P-256, HKDF-SHA256)` + `AES-256-GCM` for the addressed device. The Apple app stores its separate encryption private key in Keychain; this is a software key, not a Secure Enclave key.
-2. **Device ECDSA signatures:** Replies use P-256 signing keys. The Apple app uses the Secure Enclave when available and a Keychain-protected software key otherwise. A valid signature proves possession of the paired key; it does not attest hardware storage or user authentication. Protected requests have separate authentication rules.
-3. **Out-of-Band Pairing:** Public keys and device fingerprints are exchanged via out-of-band bundles (`nbpair1...`) verified with HMAC-SHA256.
-4. **Content and metadata:** The relay transports encrypted message/file bodies, but it can read routing identities, primitive types, timestamps, sizes, delivery status and usage metadata. APNs tokens and connection IP addresses are also visible to the services handling them. Encryption does not make the service anonymous or hide all metadata.
+## How it works
 
-The CLI stores software signing, receiving and pending-reply keys under the private local `~/.notibuddy` store. Unix permissions and Windows account ACLs protect those files; the package does not use a hardware keystore. Paired endpoints can read the content addressed to them and may retain their own copies.
-
-Read the complete normative specification in [PROTOCOL.md](./PROTOCOL.md) and the [security policy](https://github.com/yourbit-network/notibuddy/blob/main/SECURITY.md).
-
----
-
-## 🚀 Quick Start
-
-Use the versioned `npx` commands below without a global installation, or install `notibuddy`, `nb`, and `notibuddy-mcp` locally with Homebrew (`brew install yourbit-network/tap/notibuddy`). In later examples, `nb` is shorthand for `npx -y notibuddy@^0.4.0`, or the executable from a global/Homebrew installation of that version or a compatible newer release.
-
-### 1. Pair with your iPhone
-
-In the NotiBuddy iOS app, tap **Connect → Add connection → Share Setup** and copy the pairing string, then run `pair` and paste it at the prompt (or pipe it) so the secret never hits shell history:
-
-```bash
-npx notibuddy@^0.4.0 pair --to personal
-# or on macOS:
-pbpaste | npx notibuddy@^0.4.0 pair --to personal
+```text
+Agent / CLI / CI                      iPhone / iPad / Watch
++---------------+  HPKE (RFC 9180) +  +-------------------+
+| nb / MCP      |  Sender P-256 sig   | NotiBuddy app     |
+| ~/.notibuddy  |---> Hosted Relay -->| Keychain HPKE key |
+| verifies sig  |          \--APNs--->| P-256 sig + opt.  |
+| & fail-closed |<--- Hosted Relay <--| device-owner auth |
++---------------+  HPKE (ephemeral) + +-------------------+
+                   Device P-256 sig
 ```
 
-This validates the phone identity, registers an independent connection key for this destination, and saves it in `~/.notibuddy/destinations/personal.json`. The destination name is a local alias.
+1. Your agent, CLI, or CI runner seals a request with HPKE (RFC 9180), signs it with its P-256 sender key, and sends ciphertext through the hosted relay.
+2. Your paired iPhone, iPad, or Apple Watch decrypts and renders it natively (custom screen, diff, form, timer, or approval prompt) and signs your reply with its P-256 device key.
+3. The local client verifies the phone's signature and fails closed: only a verified `resolved` reply matching the approving action (plus `authenticated: true` when requested) counts as approval.
 
-If compatible NotiBuddy setup includes a one-use code, the first eligible sender can connect without another approval tap. Keep the phone app open and online; the command waits up to 45 seconds for confirmation (`--wait 0` returns immediately, maximum 60 seconds). “Waiting for NotiBuddy” means pairing is still pending. Run the same command with the same destination name to retry using the saved keys. The temporary code is used in memory and is not saved in the destination file.
+> **Content-blind relay:** Neither the relay nor APNs can read prompts, choices, diffs, files, or replies. The relay does observe routing metadata (device and sender key IDs, primitive types, timestamps, sizes, delivery status, APNs tokens, and IP addresses) and validates/caches stripped structural skeletons (`tpl_<sha256>`) for custom screens.
 
-If Terminal says **Phone approval required**, open **Connect**, compare the full **Sender Key ID**, and approve the connection. This is the path for legacy setup and later new senders using the same setup. One manual approval can be pending: a newer request replaces the previous one. Pending approvals expire after 15 minutes. An unchanged approved sender stays connected without another prompt.
+## Quick start
 
-Keep the entire setup private: anyone holding an unused code can race to connect first. Codes last at most ten minutes; expired or canceled codes grant no automatic access, though valid ordinary pairing credentials can still request manual approval. Canceling a code does not disconnect an already approved sender. Use **Connect** to disconnect a sender you do not recognize.
+### 1. Get the Apple companion app
 
-Use `npx notibuddy@^0.4.0 status` to inspect the locally saved configuration. Confirm approval in the phone's **Connect** screen; the status command does not check approval with the relay.
+Install [NotiBuddy on the App Store](https://apps.apple.com/app/id6823749991) for iPhone and iPad (iOS 17+) and Apple Watch (watchOS 10+). On desktop, you can scan the QR code at [notibuddy.app/setup](https://notibuddy.app/setup).
 
-### Check the connection
+### 2. Install the CLI and pair your computer
 
-Run `nb doctor --to personal` to check relay reachability, sender approval, request-protocol compatibility, and file-receive setup. Diagnostics omit credentials and private keys. The client proves possession of the selected sender key and reads only that sender's approval state. Existing saved destinations supply their public key automatically; no re-pairing is needed. New clients can check older relays through a bounded compatibility path, but authentication failures never trigger that fallback.
-
-Library callers that construct `NotiBuddyClient` directly should include `senderPub` (the public P-256 signing point) in `NotiBuddyConfig` when calling `doctor`. A successful `registerSender` also supplies that point to the same client instance. The private signing key can remain nonextractable. If public identity is missing or mismatched, diagnostics remain unverified instead of using an unsigned lookup.
-
-An unavailable or invalid response reports the sender as `unverified`; it does not mean the connection was removed. All checks share a 15-second timeout, including compatibility requests to older relays, and negotiated phone/Watch delivery is never downgraded by a diagnostics failure.
-
-Ordinary interactive requests (approvals, protected approvals, text replies, forms, and diffs) remain answerable for **three hours** by default. Set a shorter lifetime with `nb notify "Review release" --to personal --options "Approve,Reject" --timeout 1800`, JavaScript `timeoutSeconds`, or MCP `timeout_seconds`; the supported range is 1–10,800 whole seconds. This is separate from `--wait` / `wait_seconds`, which controls how long one interactive call waits before returning `pending` (maximum 55 seconds). Resuming or retrying keeps the original signed expiry, even if a different timeout is supplied. Activities retain their existing one-hour lifetime and timer behavior.
-
-If an interactive `notify` returns `pending`, keep its request ID and resume it with `nb notify --resume <request-id> --to personal`. Network interruptions and invalid replies preserve this identity; avoid sending a second request for the same decision. A positive `--wait` is an overall operation budget. `--wait 0` makes one bounded lookup. Interrupting an active interactive CLI `notify` prints its resume ID when it has already been saved.
-
-The client supports explicitly negotiated phone/Watch group requests with a compatible app and relay. Pairings without that negotiation continue to use v1. Set up the Watch through the iPhone app; changing configuration fields manually does not enable a Watch app.
-
-### 2. Test via CLI
-
-When only one destination is paired, everyday CLI commands (`notify`, `activity`, `files`, `doctor`) auto-select it if `--to` is omitted.
+Install `nb`, `notibuddy`, and `notibuddy-mcp` via Homebrew (recommended if you use agent hooks or shell gates), or run directly with `npx -y`:
 
 ```bash
-# Send a one-way informational notification (no action buttons or waiting):
-npx notibuddy@^0.4.0 notify "Build finished" --to personal --sender "Build monitor" --message "All checks passed."
+# Homebrew (macOS & Linux):
+brew install yourbit-network/tap/notibuddy
 
-# Send a Custom Native Screen (KPI strip, alerts, checklist, diffs, forms, Face ID actions):
-npx notibuddy@^0.4.0 notify "Promote v2.4.1 to production" --to personal --screen deploy-screen.json --wait 55
-
-# Request approval with custom buttons:
-npx notibuddy@^0.4.0 notify "Deploy v1.2 to production?" --to personal --sender "Deployment script" --options "Approve,Deny"
-
-# Fail-closed shell or CI gate (exits 0 only on verified Approve + Face ID; 2 on reject; 3 on expiry; 1 on error):
-npx notibuddy@^0.4.0 gate "Deploy v1.2 to production?" --to personal --requires-auth --timeout 600 && ./deploy.sh
-
-# Start a countdown timer on the Dynamic Island:
-npx notibuddy@^0.4.0 activity "sprint-1" start --to personal --title "Sprint Timer" --timer 25
+# Or global npm install:
+npm install -g notibuddy@0.4.1
 ```
 
-### Custom Native Screens (`nb notify --screen`, `nb screen register`, 0.4.0+)
+In the remaining examples, `nb` is shorthand for the installed `nb` binary (or `npx -y notibuddy@0.4.1`).
 
-Build rich native iOS screens directly from JSON using 12 composable blocks (`vstack`, `card`, `divider`, `heading`, `text`, `badge`, `alert`, `kpiStrip`, `keyValueList`, `checklist`, `diffViewer`, and `formField`) plus Face ID-protected actions. Pick from 8 ready-to-use layouts (`db_migration_approval`, `incident_triage`, `code_review_form`, `kpi_status_card`, `action_checklist`, `parameter_tuning_form`, `deployment_gate`, `multi_choice_audit`) or pass an inline custom `template`.
+In the NotiBuddy iOS app, open **Connect -> Add a connection -> Share Setup**, copy the setup string, and pipe it into `pair` so the secret never enters shell history:
 
 ```bash
-# Pre-register and cache a custom layout template (optional — `notify --screen` also handles this automatically):
-npx notibuddy@^0.4.0 screen register template.json --to personal
-
-# Send the custom screen and wait for the signed reply:
-npx notibuddy@^0.4.0 notify "Promote v2.4.1 to production" --to personal --screen deploy-screen.json --wait 55
+pbpaste | npx -y notibuddy@0.4.1 pair --to personal
+# Verify relay connectivity and phone approval:
+npx -y notibuddy@0.4.1 doctor --to personal
 ```
 
-For custom layouts, the server validates and caches only the structural template (stripped of your text, metrics, diffs, and data) so your devices can render it natively, while all content and replies stay end-to-end encrypted. Do not combine `--screen` / `screen` with `message`, `options`, `fields`, `input_placeholder`, `diff`, or `resume_id`.
+> **Keep setup strings private:** Anyone holding an unused `nbpair1.…` setup code can race to connect first within its 10-minute automatic window. Never paste pairing strings into an AI chat, terminal history, or repository.
 
-### Fail-closed approval gates (`nb gate`, 0.3.3+)
+### 3. Send your first alert and approval gate
 
-Use `nb gate` in shell scripts, Terraform/deploy wrappers, and GitHub Actions instead of parsing JSON from `nb notify`. It loops across 55-second relay wait windows on a single signed request ID up to `--timeout` (default 600 seconds) and exits `0` **only** on a verified approving reply (including `authenticated: true` when `--requires-auth` is set):
+When only one destination is paired, everyday CLI commands (`notify`, `gate`, `activity`, `files`, `doctor`) select it automatically if `--to` is omitted.
+
+```bash
+# One-way alert:
+nb notify "Build finished" --sender "Build monitor" --message "All checks passed."
+
+# Fail-closed gate (exits 0 only on verified Approve + device-owner auth):
+nb gate "Deploy v1.2 to production?" --requires-auth && ./deploy.sh
+```
+
+## Connect your agent
+
+| Client | Setup | Guide |
+| --- | --- | --- |
+| **Claude Code** | `/plugin install notibuddy --marketplace yourbit-network/notibuddy`<br />Optional `PermissionRequest` hook: `/plugin install notibuddy-hooks --marketplace yourbit-network/notibuddy` | [notibuddy.app/claude-code](https://notibuddy.app/claude-code) |
+| **Codex CLI** | `codex plugin marketplace add yourbit-network/notibuddy` then `codex plugin add notibuddy@notibuddy` | [notibuddy.app/codex](https://notibuddy.app/codex) |
+| **Cursor** | Load plugin directory [`plugins/cursor/notibuddy`](https://github.com/yourbit-network/notibuddy/tree/main/plugins/cursor/notibuddy) or add stdio MCP JSON below | [notibuddy.app/cursor](https://notibuddy.app/cursor) |
+| **Antigravity** | Load plugin directory [`plugins/antigravity/notibuddy`](https://github.com/yourbit-network/notibuddy/tree/main/plugins/antigravity/notibuddy) or add stdio MCP JSON below | [notibuddy.app/antigravity](https://notibuddy.app/antigravity) |
+| **Claude Desktop & other MCP hosts** | Add the local `stdio` MCP server config below | [notibuddy.app/setup](https://notibuddy.app/setup) |
+| **GitHub Actions & scripts** | Use `nb gate --requires-auth` with fail-closed exit codes | [github-actions](https://notibuddy.app/github-actions) · [scripts](https://notibuddy.app/scripts) |
+
+### Manual local `stdio` MCP configuration
+
+Using `--client <id>` starts cleanly before pairing, routes automatically when one phone is paired, and refuses ambiguity if you add a second phone until you bind it with `nb bind --client <id> --to <alias>`:
+
+```json
+{
+  "mcpServers": {
+    "notibuddy": {
+      "command": "npx",
+      "args": ["-y", "notibuddy@0.4.1", "mcp", "--client", "claude-desktop"]
+    }
+  }
+}
+```
+
+<details>
+<summary>Static destination pinning (--to / --allow-to) and Homebrew binary config</summary>
+
+Pin an MCP server to one fixed destination (tools cannot choose another phone) or an explicit allowlist:
+
+```json
+{
+  "mcpServers": {
+    "notibuddy": {
+      "command": "npx",
+      "args": ["-y", "notibuddy@0.4.1", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+    }
+  }
+}
+```
+
+If you installed via Homebrew (`brew install yourbit-network/tap/notibuddy`), you can invoke `"command": "notibuddy-mcp"` directly with `"args": ["--to", "personal", "--sender", "Coding assistant"]`. Updating the package version in MCP config does not require re-pairing or new keys.
+
+</details>
+
+## What you can send
+
+### Custom Native Screens (0.4.0+)
+
+Render native iOS screens directly from JSON using 12 composable blocks (`vstack`, `card`, `divider`, `heading`, `text`, `badge`, `alert`, `kpiStrip`, `keyValueList`, `checklist`, `diffViewer`, `formField`) and 8 built-in layouts (`db_migration_approval`, `incident_triage`, `code_review_form`, `kpi_status_card`, `action_checklist`, `parameter_tuning_form`, `deployment_gate`, `multi_choice_audit`), or register a custom template:
+
+```bash
+nb screen register template.json --to personal
+nb notify "Promote v2.4.1 to production" --to personal --screen deploy-screen.json --wait 55
+```
+
+The relay validates and caches only the stripped structural template (`tpl_<sha256>`), while your text, metrics, diffs, and replies stay end-to-end encrypted. Do not combine `--screen` / `screen` with `message`, `options`, `fields`, `input_placeholder`, `diff`, or `resume_id`.
+
+### Fail-closed approval gates (`nb gate`)
+
+Use `nb gate` in shell scripts, deploy wrappers, and GitHub Actions instead of parsing JSON from `nb notify`. It loops across 55-second relay wait windows on one signed request ID up to `--timeout` (default 600s):
+
+```bash
+nb gate "Deploy v2.4.1 to production?" --requires-auth --timeout 600 && ./deploy.sh
+```
 
 | Exit code | Meaning |
 | --- | --- |
-| `0` | Approved (verified reply matching `--approve` or lowercase `approve` for `--diff`, plus device auth if `--requires-auth`) |
-| `1` | Operational or configuration error (no human decision: pairing, network, quota 402, device error) |
-| `2` | Rejected (human decline, missing required device auth, or unexpected action) |
+| `0` | Approved (verified `resolved` reply matching `--approve`, or lowercase `approve` for `--diff`, plus `authenticated: true` when `--requires-auth` is set) |
+| `1` | Operational or configuration error (no human decision: pairing, network, quota `402`, device error) |
+| `2` | Rejected (human decline, missing required device-owner authentication, or unexpected action) |
 | `3` | Expired or deadline reached without a reply |
 | `130` / `143` | Interrupted (`SIGINT` / `SIGTERM`) |
 
-### Native agent hooks (`nb hook`, 0.3.3+)
+> **Approval contract:** Continue only after a verified `resolved` response whose `answer.action` matches the expected approving choice (lowercase `approve` for diffs, not the displayed "Apply" button label) and whose `answer.authenticated === true` whenever `requires_auth` was requested. Never treat `pending`, `expired`, timeout, error, or silence as approval. `--requires-auth` / `requires_auth: true` requests device-owner authentication (Face ID, Touch ID, passcode, or unlocked Apple Watch); device signatures prove key possession, not biometric or hardware attestation.
 
-Forward Claude Code `PermissionRequest` prompts (including native encrypted diffs for `Edit` tool calls) to your iPhone or Apple Watch when you step away from your keyboard:
+### Claude Code `PermissionRequest` hook (`nb hook`)
+
+Forward Claude Code permission prompts (including encrypted diffs for `Edit` calls) to your iPhone or Watch when you step away:
 
 ```bash
 nb hook claude PermissionRequest --client claude-code
 ```
 
-By default, `nb hook` waits `--grace 10` seconds before sending anything (so prompts answered locally in your terminal cost zero relay requests), hides Lock Screen previews (`sensitive: true`; opt out with `--show-preview`), leaves Face ID off by default (opt in with `--requires-auth`), enforces a rolling hourly dispatch cap (`--max-per-hour 30`) plus a stepped quota circuit breaker, and exits `0` with pass-through output on any non-allow/non-deny condition so your terminal prompt keeps working normally. Install `nb` globally (`npm install -g notibuddy`) rather than invoking `npx` inside hooks.
+By default, `nb hook` waits `--grace 10` seconds before sending (so prompts answered at your desk cost zero relay requests), hides Lock Screen previews (`sensitive: true`; opt out with `--show-preview`), leaves device-owner authentication off by default (opt in with `--requires-auth`), and caps dispatch at `--max-per-hour 30` with a quota circuit breaker. Install `nb` globally or via Homebrew rather than calling `npx` inside hooks.
 
-### Review a text change (0.2.1+)
+> **Hook vs. gate exit codes:** Unlike `nb gate`, `nb hook` exits `0` with pass-through output on any non-allow/non-deny condition so your local terminal prompt keeps working normally. Never use `nb hook` exit `0` as a standalone shell deploy gate.
 
-Save a UTF-8 JSON file named `changes.json`:
+### Encrypted code diffs (`--diff`)
+
+Save a UTF-8 JSON file (`filename` is display-only, `language` is optional, up to 96,000 combined UTF-8 bytes and 20,000 lines; CLI file max 150,000 bytes):
 
 ```json
 {
@@ -133,202 +202,122 @@ Save a UTF-8 JSON file named `changes.json`:
 ```
 
 ```bash
-npx notibuddy@^0.4.0 notify "Review retry change" --to personal --diff changes.json --requires-auth --sensitive
+nb notify "Review retry change" --diff changes.json --requires-auth --sensitive
 ```
 
-The filename and source text are encrypted for the destination. Review happens on iPhone or iPad; a paired Watch hands off to its iPhone. The response uses `approve` (Apply) or `reject` (Discard). These are decisions: NotiBuddy does not change files or execute code. The caller must verify the current file still matches the reviewed original before applying an approved change.
+> **Re-verify before applying:** Diff replies return `approve` or `reject` only; NotiBuddy never edits files or executes code. Always verify that the local file still matches the reviewed `original` content before applying an approved change.
 
-For MCP, pass `diff: {"filename":"src/config.ts","language":"typescript","original":"const retries = 2;\n","modified":"const retries = 3;\n"}` to `notibuddy_notify`, together with `title`, `requires_auth: true`, `sensitive: true`, and `to` when using `--allow-to`. The library accepts the same `diff` object in `client.ask(...)`.
+### Live Activities and Dynamic Island (`nb activity`)
 
-`filename` is a display name, never a file to open on the recipient. `language` is optional. Empty original or modified text supports file creation or deletion. Source text is limited to a combined **96,000 UTF-8 bytes and 20,000 lines** (each text starts at one line; each newline adds one). The CLI JSON file must be a regular file no larger than 150,000 bytes. The full encrypted request must also fit the protocol limit; JSON escaping and other fields can make a smaller diff too large. Invalid inputs fail before sending.
-
-Do not combine a diff with choices, text input, forms, or a resume ID. If the result is pending, resume the returned ID without `--diff` or the MCP `diff` object. Source text may remain in the private pending-request store until dispatch is acknowledged, allowing the exact request to survive an interrupted send; the caller's input file remains their responsibility.
-
----
-
-## 🛠️ Model Context Protocol (MCP) & Agent Plugins
-
-You can install NotiBuddy as an official plugin or configure it directly as a local stdio MCP server. Pairing prints an MCP configuration that pins the exact installed package version. When updating an existing configuration, change its package version to the release you installed (for example `notibuddy@0.4.0`) and restart the MCP server; preserve its destination and sender options. If you installed via Homebrew (`brew install yourbit-network/tap/notibuddy`), you can alternatively use `"command": "notibuddy-mcp"` with `args: ["--to", "personal", "--sender", "Coding assistant"]`. This version update does not require re-pairing or new keys.
-
-### Official Agent Plugins (0.3.3+)
-
-This repository hosts generated manifests and marketplaces for major coding agents (built from [`plugin-src/`](./plugin-src/) and verified with `npm run plugins:check`):
-
-- **Claude Code:**
-  ```text
-  /plugin install notibuddy --marketplace yourbit-network/notibuddy
-  # Optional native PermissionRequest hook (requires local `nb` CLI on PATH):
-  /plugin install notibuddy-hooks --marketplace yourbit-network/notibuddy
-  ```
-- **Codex CLI:**
-  ```bash
-  codex plugin marketplace add yourbit-network/notibuddy
-  codex plugin add notibuddy@notibuddy
-  ```
-- **Antigravity & Cursor:** Ready-to-load plugin directories live under [`plugins/antigravity/notibuddy`](./plugins/antigravity/notibuddy) and [`plugins/cursor/notibuddy`](./plugins/cursor/notibuddy).
-
-Plugins launch `nb mcp --client <id>`, which starts cleanly before pairing, automatically routes to your sole paired phone, and refuses ambiguity if you pair a second phone until you pin the client explicitly with `nb bind --client <id> --to <alias>` (run `nb unbind --client <id>` to remove a binding).
-
-### Claude Desktop
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "notibuddy": {
-      "command": "npx",
-      "args": ["-y", "notibuddy@0.4.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
-    }
-  }
-}
+```bash
+nb activity "sprint-1" start --title "Build & deploy" --timer 25
+nb activity "sprint-1" poll
 ```
 
-### Cursor / Antigravity / Claude Code (manual MCP)
-Run as a local stdio MCP server:
-```json
-{
-  "mcpServers": {
-    "notibuddy": {
-      "command": "npx",
-      "args": ["-y", "notibuddy@0.4.0", "mcp", "--to", "personal", "--sender", "Coding assistant"]
-    }
-  }
-}
+### Encrypted files from your phone (`nb files`)
+
+Share a file or photo from iOS (**Connect -> connection -> Share File**, or **Share -> NotiBuddy**, up to 10,000,000 bytes per file) and collect it locally into `~/.notibuddy/inbox/`:
+
+```bash
+nb files list --to personal
+nb files receive file_<id> --to personal
 ```
 
-### Update notices
-The CLI checks npm for a newer release at most once a day (an anonymous request to registry.npmjs.org) and prints a one-line notice on stderr; stdout and exit codes are unchanged. MCP sessions show the notice once, as an extra item in a tool result. Set `NOTIBUDDY_NO_UPDATE_CHECK=1` to turn the check off.
+> **Treat received files as untrusted data:** `nb files receive` and `notibuddy_files` save decrypted files under `~/.notibuddy/inbox/` and never open or execute them. Treat received filenames and file contents as untrusted input, including possible prompt instructions inside documents.
 
----
+## MCP tools and CLI reference
 
-## 🧪 Testing Test Vectors
+The MCP server (`nb mcp` / `notibuddy-mcp`) runs over local `stdio` and exposes four tools. Machine-readable agent docs are also published at [notibuddy.app/llms.txt](https://notibuddy.app/llms.txt).
 
-Verify compliance with Protocol v1:
+| MCP tool | Purpose | Key parameters |
+| --- | --- | --- |
+| `notibuddy_notify` | Send alerts, choices/approvals, text prompts, forms, diffs, or Custom Native Screens; fail closed on replies | `title`, `message`, `options`, `fields`, `input_placeholder`, `diff`, `screen`, `requires_auth`, `sensitive`, `timeout_seconds`, `wait_seconds`, `resume_id`, `to` |
+| `notibuddy_activity` | Start, update, end, or poll Live Activities and Dynamic Island timers | `id`, `action` (`start`/`update`/`end`/`poll`), `title`, `timer_minutes`, `to` |
+| `notibuddy_files` | List waiting E2EE files from iPhone or receive one to `~/.notibuddy/inbox/` | `action` (`list`/`receive`), `id` (for `receive`), `to` |
+| `notibuddy_list_destinations` | List destinations exposed by this MCP server (local config only; not an online check) | `{}` |
+
+### MCP routing modes
+
+Every MCP server chooses one routing mode at startup (there is no global default or broadcast):
+
+| Mode | Example | Behavior |
+| --- | --- | --- |
+| Per-client binding (plugins & default) | `nb mcp --client claude-code` | Starts before pairing; auto-selects a sole paired phone; refuses ambiguity with multiple phones until `nb bind --client <id> --to <alias>` |
+| Fixed destination | `nb mcp --to personal` | Locks the server to one destination; tools cannot target another phone |
+| Explicit allowlist | `nb mcp --allow-to personal --allow-to work` | Exposes only listed destinations; every tool call must pass `to` |
+
+### CLI commands
+
+| Command | Purpose |
+| --- | --- |
+| `nb pair --to <alias>` | Pair with a phone using an `nbpair1.…` setup bundle (optional `--label`, `--wait`) |
+| `nb unpair --to <alias>` | Delete local credentials for a destination (does not revoke phone approval) |
+| `nb status` / `nb doctor` | Inspect local pairings / verify relay reachability, approval, and protocol compatibility |
+| `nb devices list\|rename` | List paired destinations or rename a local alias |
+| `nb bind\|unbind --client <id>` | Pin or unpin an MCP/hook client ID to a destination alias |
+| `nb notify` / `nb screen register` | Send alerts, prompts, diffs, forms, or Custom Native Screens; pre-register custom templates |
+| `nb gate` | Fail-closed approval loop returning deterministic CI/shell exit codes (`0`/`1`/`2`/`3`/`130`/`143`) |
+| `nb hook` | Agent hook bridge (e.g., `nb hook claude PermissionRequest`) |
+| `nb activity` | Manage Live Activities (`start`, `update`, `end`, `poll`) |
+| `nb files list\|receive` | List or decrypt files shared from your phone (`--to` or `--pairing`) |
+| `nb mcp` | Start the local `stdio` MCP server |
+
+## Security model
+
+NotiBuddy encrypts payloads end-to-end between your computer and your paired Apple device, while stating its exact boundaries plainly:
+
+1. **HPKE (RFC 9180):** Requests use `DHKEM(P-256, HKDF-SHA256)` + `AES-256-GCM` for the addressed device. The Apple app stores its separate HPKE decryption private key in Keychain (a software key, not Secure Enclave).
+2. **Device ECDSA P-256 signatures:** Replies are signed with P-256 device keys (Secure Enclave when available, Keychain-protected software key otherwise). A valid signature proves possession of the paired key; it does not attest hardware storage or user authentication. Protected requests enforce `authenticated: true`.
+3. **Out-of-band pairing:** Public keys and device fingerprints are exchanged via HMAC-SHA256-verified `nbpair1.…` setup bundles.
+4. **Metadata and screen skeletons:** The hosted relay and APNs never see plaintext prompts, choices, diffs, files, or replies, but observe routing identities, primitive types, timestamps, sizes, delivery status, usage metadata, APNs tokens, IP addresses, and stripped custom-screen structural templates (`tpl_<sha256>`).
+5. **Local credentials, revocation, and sender labels:** The CLI stores software keys under `~/.notibuddy` (mode `0700`/`0600` on Unix; private-directory ACLs on Windows) without a hardware keystore. **`nb unpair` removes local credentials only; disconnect the sender on your phone to revoke its approval.** `--sender` is descriptive text inside the encrypted payload (defaulting to hostname), never an access boundary, private inbox, or return address.
+
+Read the normative specification in [PROTOCOL.md](https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md) and vulnerability reporting instructions in [SECURITY.md](https://github.com/yourbit-network/notibuddy/blob/main/SECURITY.md).
+
+## Operational details
+
+<details>
+<summary>Pairing approvals, multiple phones, and Apple Watch delivery</summary>
+
+- **Automatic vs. manual approval:** A one-use setup code can automatically approve the first eligible sender within 10 minutes (`nb pair` waits up to 45s by default; `--wait 0` returns immediately, max 60s). If Terminal prints **Phone approval required**, open **Connect** on your phone, compare the full **Sender Key ID**, and approve there. Pending manual approvals expire after 15 minutes; a newer request replaces the previous one. Canceling a code does not disconnect an already-approved sender.
+- **Multiple phones & device migration:** Pair each phone under a separate `--to` alias (1–48 lowercase letters, digits, hyphens, or underscores starting with a letter). Each destination targets one verified phone with an independent sender key; messages are never broadcast. Disconnected identities cannot be reused. On a new phone, create a fresh connection, use **Restore Purchases** if applicable, and pair again (manage paid slots under **Settings -> Phones using your purchase**).
+- **Apple Watch & previews:** Group delivery to a paired Watch is negotiated explicitly on compatible app/relay versions (configure Watch through the iPhone app). Set `sensitive: true` on `notify` or `activity` to keep content off the Lock Screen; authentication-required requests are private automatically. The relay and phone reject legacy plaintext dispatch.
+
+</details>
+
+<details>
+<summary>Timeouts, wait budgets, resume, activities, env vars, and JS/TS SDK</summary>
+
+- **Timeouts vs. `--wait`:** Interactive requests stay answerable for **3 hours** by default (`--timeout` / `timeout_seconds` accepts 1–10,800 whole seconds). `--wait` / `wait_seconds` (max 55s) bounds only a single blocking poll before returning `pending`.
+- **Resuming pending requests:** Save the returned request ID and resume with `nb notify --resume <request-id> --to <alias>` (do not pass `--diff` or `--screen` when resuming). Reply private keys remain in owner-only files under `~/.notibuddy/pending` until completion or expiry. Interrupting an active CLI `notify` prints its resume ID if saved.
+- **Activity controls:** Activity updates preserve session and timer state (`1 hour` lifetime). `nb activity <id> poll` collects user controls (`pause`, `resume`, `extend`, `cancel`), which remain individually encrypted and device-signed. Background delivery is controlled by iOS; the app fetches missed updates on foreground.
+- **Environment variables:** `NOTIBUDDY_HOME` relocates the entire local store for testing or custom installs (it does not select a destination profile). The CLI checks `registry.npmjs.org` anonymously at most once per day and prints a one-line notice to stderr (or once per MCP session); set `NOTIBUDDY_NO_UPDATE_CHECK=1` to disable.
+- **JS/TS SDK (`NotiBuddyClient`):** Library callers constructing `NotiBuddyClient` directly should include `senderPub` (public P-256 signing point) in `NotiBuddyConfig` when calling `doctor` (a successful `registerSender` supplies it on the same instance). Without verified public identity, diagnostics report `unverified` (15s timeout). Diffs can be passed via `client.ask({ diff, ... })`.
+
+</details>
+
+<details>
+<summary>Encrypted file transfer limits, --pairing selector, and receipt retries</summary>
+
+- **Enabling files on existing pairings:** New pairings include a separate receiving key. For older pairings, re-run `nb pair --to <alias>` with a fresh setup code using the same alias and label, approve on the phone, and restart MCP (finish outstanding requests first, as changing a pairing proof cancels pending relay items).
+- **Quotas and retention:** Max 10,000,000 bytes per file, up to 10 waiting files / 100 MB per account, and up to 100 transfers per rolling day. The relay deletes ciphertext after delivery, cancellation, revocation, or 24 hours. There is no background auto-polling receiver daemon; collect files within the 24-hour window. A connection inbox is shared by all programs using that connection key.
+- **Identity-pinned `--pairing` selector:** **How to receive -> Copy receive command** in the iOS app copies a command with `--pairing <device_id>:<sender_key_id>` (public IDs only; local signing and receiving keys are still required). It continues working across local alias renames, refuses missing or ambiguous matches, and is limited to CLI `files` commands (cannot combine with `--to`).
+- **Crash-safe receipts and disk-full recovery:** Before sending a signed receipt, the receiver verifies the phone signature, size, digest, recipient, and deadline, writes the decrypted file with private permissions, and flushes the file and parent directories (macOS/Linux). If saving or flushing fails (e.g., disk full), delivery is not acknowledged so you can free space and retry before expiry. A lost receipt returns `saved_pending_receipt`: repeat `nb files receive <id>` to retry acknowledgement without re-downloading. Canceling mid-transfer preserves already-saved files and cleans up abandoned staging directories on the next receive.
+
+</details>
+
+## Development and contributing
+
+Node.js 20 or newer is required. Tests use isolated local fixtures and synthetic test vectors in [`test-vectors/v1.json`](https://github.com/yourbit-network/notibuddy/blob/main/test-vectors/v1.json) (no phone or relay credentials needed):
+
 ```bash
 npm ci
 npm run build
 npm test
 ```
 
-Test vectors are located in [`test-vectors/v1.json`](./test-vectors/v1.json).
+Contributions require the [NotiBuddy Contributor Assignment Agreement](https://github.com/yourbit-network/notibuddy/blob/main/CLA.md). See [CONTRIBUTING.md](https://github.com/yourbit-network/notibuddy/blob/main/CONTRIBUTING.md) for local Gitleaks pre-push hook setup, CI checks, and maintainer OIDC publishing, and [CHANGELOG.md](https://github.com/yourbit-network/notibuddy/blob/main/CHANGELOG.md) for release history.
 
-Node.js 20 or newer is required. Tests use isolated local fixtures and do not need a phone, relay credentials, or access to another repository. Test-vector keys and pairing bundles are synthetic and are not usable production credentials.
+## License
 
-### Pre-push secret checks (contributors)
-
-Contributions require the [NotiBuddy Contributor Assignment Agreement](https://github.com/yourbit-network/notibuddy/blob/main/CLA.md), based on Harmony CAA 1.0. It assigns contribution copyright to Yourbit, LLC and gives contributors a license to reuse their own work. Read [CONTRIBUTING.md](https://github.com/yourbit-network/notibuddy/blob/main/CONTRIBUTING.md) for signing and employer/third-party requirements.
-
-Install [Gitleaks](https://github.com/gitleaks/gitleaks) 8.30.1 or newer (`brew install gitleaks` on macOS), then run this once in each standalone public checkout:
-
-```bash
-node scripts/install-hooks.mjs
-```
-
-The installer enables a local pre-push hook and preserves existing hooks, including commit signing/attestation hooks. It saves the scanner's location locally; rerun the installer if that location changes. `GITLEAKS_BIN=/absolute/path/to/gitleaks node scripts/install-hooks.mjs` selects a specific installation. Installation is explicit and never runs for npm package consumers or the private monorepo mirror.
-
-Every push scans the full history reachable from the branches/tags being sent, plus commit and tag messages. New branches, force pushes, merge changes, and secrets deleted by a later commit are covered. Pushes fail if a secret is detected, Gitleaks is missing, history is shallow, or scanning fails. Findings are redacted. Deletion-only pushes send no new objects and skip scanning; tags pointing to trees or blobs are refused.
-
-`.gitleaks.toml` extends the standard detectors with NotiBuddy token, encoded pairing bundle, and private JWK checks. Exceptions match only the exact audited fixture values at their known paths; test directories are not excluded. If a secret is found, remove it from every outgoing commit before retrying. Inline `gitleaks:allow` comments and `.gitleaksignore` cannot suppress this hook's checks.
-
-Run the hook integration tests with `node --test test/pre-push.test.mjs`. They use disposable local repositories and generated fake credentials. Git hooks are local to each checkout and can be bypassed with Git's `--no-verify`; they are not a server-side enforcement policy.
-
-### Publishing (maintainers)
-
-Releases use [`.github/workflows/publish.yml`](./.github/workflows/publish.yml) in the public repository. Configure the npm package's GitHub Actions trusted publisher with:
-
-| npm setting | Value |
-| --- | --- |
-| Organization or user | `yourbit-network` |
-| Repository | `notibuddy` |
-| Workflow filename | `publish.yml` |
-| Environment name | Leave blank |
-| Allowed actions | Enable `npm publish` |
-
-The workflow uses a GitHub-hosted runner, Node.js 24, and npm 11.21.0. It scans release history, builds, tests, checks the exact archive's allowed files, scans its contents, and installs it in a clean project. It publishes that same archive with OIDC and provenance, then verifies the publicly downloadable archive's integrity. No npm token secret is required.
-
-For a release, update `package.json`, `package-lock.json`, and the changelog to the next unpublished stable version in a pull request. After merging and completing the private app integration check, the owner pushes a signed matching `v<version>` tag from `main`. Pushing the tag starts publishing to npm's `latest` channel; pushing `main` alone does not publish. Prerelease tags, tags outside `main`, and mismatched package or lockfile versions are rejected. Release tags must not be moved or deleted.
-
-This public repository is the source of truth for the package. Synchronize merged changes into the private monorepo's `notibuddy-mcp/` copy without copying Git history. See the [contributor and release guide](https://github.com/yourbit-network/notibuddy/blob/main/CONTRIBUTING.md), [security policy](https://github.com/yourbit-network/notibuddy/blob/main/SECURITY.md), and [changelog](https://github.com/yourbit-network/notibuddy/blob/main/CHANGELOG.md). npm requires a new trusted publisher to complete its first successful publish within two days; recreate the configuration if it expires. See [npm's trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
-
----
-
-## 📜 License
-MIT © NotiBuddy Authors
-
-## Recovery and activity controls
-
-`nb notify --resume <requestId> --to <original-destination>` resumes a pending request after a CLI or MCP restart. Reply private keys are kept in owner-only files under `~/.notibuddy/pending`, scoped to the pairing, until completion or retention expiry. Missing and expired requests stop polling. `NOTIBUDDY_HOME` relocates the entire store for testing or a custom installation; it does not select a profile. Use named destinations for multiple phones.
-
-Activity updates retain their original session and timer state. `nb activity <id> poll` returns user controls; start/update/end also collect unconsumed controls. Multiple pause/resume/extend/cancel events remain individually encrypted and device-signed.
-
-The relay and phone reject legacy plaintext dispatch. Token-only setup must be replaced by pairing with a bundle from an enrolled phone. Background delivery is controlled by iOS; the app fetches missed updates on foreground.
-
-
-### Phone approval and multiple phones
-
-After `notibuddy pair`, open **Connect** on the phone, compare the full Sender Key ID with Terminal, and approve the connection. Pending registrations expire after 15 minutes. A disconnected identity cannot be reused. For another phone, pair it with a different `--to` name. Each destination targets one verified phone and has an independent sender key; messages are never broadcast.
-
-On a new phone, create a fresh connection, use **Restore Purchases** with the purchasing Apple Account if applicable, and pair the computer again. Old keys and messages are not recovered; no recovery code is needed. **Settings → Phones using your purchase** manages paid slots. Computer pairing uses only `nbpair1.` bundles.
-
-Set `sensitive: true` in a `notify` or `activity` request when its content should appear only inside the app. Authentication-required requests are also private. Ordinary requests retain useful notification previews unless the user disables them.
-
-
-## Named destinations and sender labels (0.2)
-
-MCP always requires explicit routing configuration (`--to`, `--allow-to`, or `--client`), while CLI commands auto-select when only one destination is paired. Destination names are local aliases, not remote device names or paths. Use 1–48 lowercase letters, digits, hyphens or underscores, starting with a letter.
-
-```sh
-nb devices list
-nb pair --to work
-nb notify "Build finished" --to work --sender "Build monitor"
-nb devices rename work work-phone
-```
-
-`--sender` is optional free-form descriptive text, defaulting to the hostname. It travels inside the encrypted, signed payload. It never changes the approved connection key, registration label, reply address, or approval. The phone can show “Build monitor” with “via My Mac.” Applications sharing a connection share its permissions and revocation. A label does not authenticate a particular executable or AI provider. `pair --label` sets the separate, stable connection name approved on the phone.
-
-MCP must choose one of these modes at startup:
-
-```sh
-# One fixed destination; tools cannot choose another phone.
-nb mcp --to personal --sender "Coding assistant"
-
-# Explicitly expose these two destinations; each request must supply to.
-nb mcp --allow-to personal --allow-to work-phone --sender "Coding assistant"
-
-# Per-client binding mode (used by official plugins and MCP Registry installs).
-# Starts cleanly before pairing, auto-uses a sole paired phone, and refuses ambiguity until `nb bind --client <id> --to <alias>`.
-nb mcp --client claude-code
-```
-
-Use `notibuddy_list_destinations` to discover only the destinations exposed by that server. A saved pairing is not an online/approval check. In selectable mode, call `notibuddy_notify` with `{"to":"work-phone","title":"Build finished","message":"All checks passed."}` for one-way alerts, or add `"options":["Approve","Cancel"]` to wait for a reply. Include `to` when resuming and when starting, updating, ending, or polling activities. Responses include `to` and a stable `connectionId`. Missing, unknown, or unexposed destinations fail before network activity. There is no active global destination, automatic fallback, or broadcast. Running MCP servers retain their original connection bindings until restarted.
-
-### Removing a destination
-
-`nb unpair --to personal` removes that destination's local credentials; it does not revoke the phone's approval. Disconnect on the phone to revoke the key. Preserve credentials if you need to resume pending requests before their expiry. Named destination files are private credentials, not configuration to commit or share. Unix directories use mode 0700 and files 0600; Windows relies on the user's private-directory ACLs.
-
-### Replies and future inboxes
-
-Replies still use the original request ID, phone identity, and ephemeral reply key. Sender labels are never return addresses. Activity updates keep the source label from their start. There is no receiver daemon or phone-initiated text conversation. Files use the separately approved connection inbox described below. The extensible encrypted `source` object leaves room for separately negotiated channel addresses in a future protocol; remembering a label must never grant an inbound messaging capability. MCP routing restrictions are not an OS sandbox against other processes running as the same user.
-
-
-## Files from your phone
-
-Update both the phone app and this client before enabling files. New pairings include a separate receiving key. For an existing destination, run `nb pair --to personal` again with a fresh setup code and approve the connection in **Connect**. Keep the same destination and connection label to retain its signing identity. Changing a pairing proof cancels its outstanding relay requests and files; finish pending work before re-pairing. Restart MCP after enabling files.
-
-On the phone, open **Connect → a connection → Share File**, or choose one file/image in another app and use **Share → NotiBuddy**. Confirm the destination and send. The limit is 10,000,000 bytes per file. A connection inbox is shared by all programs using that connection key; a `--sender` label is never a private inbox or an access boundary.
-
-```sh
-nb files list --to personal
-nb files receive file_<id from list> --to personal
-```
-
-For a waiting file, **How to receive → Copy receive command** in the phone app gives you a command with `--pairing <device_id>:<sender_key_id>`. Run it where you originally paired that sender. This selects both saved identities, so the command keeps working after a local destination rename and never guesses an alias or contacts every destination. The selector contains public IDs, not credentials; the saved signing and receiving keys are still required. A missing match or multiple matching records stops locally. For ambiguous copies of a pairing, inspect `nb devices list` and explicitly choose the correct `--to` alias instead. `--pairing` is limited to CLI file commands and cannot be combined with `--to`; MCP keeps its pinned destination/allowlist rules.
-
-MCP exposes `notibuddy_files` (`action: "list" | "receive"`, with `id` required for `"receive"`). The same pinned destination/allowlist rules apply. An allowlisted server requires `to`. Receiving returns a local path under `~/.notibuddy/inbox/<connection-scope>/<file-id>/`, not file contents in the tool result. It never opens or executes a file. Treat received names and contents as untrusted data, including possible instructions inside documents.
-
-The phone encrypts the filename, type, and bytes for the approved computer key. The receiver verifies the phone signature, size, ciphertext digest, recipient and deadline before decrypting. It saves with private permissions and flushes the file before sending a signed receipt. “Delivered” means saved on the computer, not read by an agent. A lost receipt returns `saved_pending_receipt`: repeat `files receive` with the same ID to retry. Do not remove that local receipt until delivery is confirmed. Local copies remain until you delete them.
-
-Canceling an MCP file call or interrupting a CLI file command stops unfinished network work. Any file already saved stays in the private inbox. An acknowledgement already sent may have reached the relay; retry the same file ID to confirm its state safely without downloading a complete saved copy again.
-
-If saving or flushing fails (for example, because the disk is full), the receiver does not acknowledge delivery. Free space or resolve the reported storage error, then retry the same ID before its collection deadline. A complete local copy can retry its receipt without downloading again, and pending retries verify and flush the saved bytes and receipt again. On macOS/Linux the receiver also flushes the transfer and inbox directories. If delivery was already accepted but writing the local receipt failed, the saved file remains available and retrying is safe. On the next receive of that ID, the receiver removes its abandoned staging directories and temporary receipts while preserving the received file; there is no background local-file cleanup.
-
-The relay denies access after cancellation, revocation, delivery, or the 24-hour deadline and actively deletes ciphertext. Storage deletion failures are retried; lifecycle cleanup is only a backup. The receiver must run within that window. There is no automatic background polling in this release. Ten files / 100 MB may await delivery per account, with at most 100 transfers per rolling day. Unix directories use 0700 and files 0600; Windows relies on your private-directory ACLs and flushes files before acknowledging them.
+[MIT](https://github.com/yourbit-network/notibuddy/blob/main/LICENSE) © NotiBuddy Authors · Published by **Yourbit, LLC** · Support: **contact@notibuddy.app**
