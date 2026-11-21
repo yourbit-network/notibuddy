@@ -16,9 +16,6 @@
   <a href="https://www.npmjs.com/package/notibuddy"><img src="https://img.shields.io/npm/v/notibuddy?color=CB3837&logo=npm&logoColor=white" alt="npm version" /></a>
   <a href="https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md"><img src="https://img.shields.io/badge/Protocol-v1-10B981" alt="Protocol v1" /></a>
   <a href="https://github.com/yourbit-network/notibuddy/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-3B82F6" alt="MIT License" /></a>
-  <br />
-  <a href="https://glama.ai/mcp/servers/yourbit-network/notibuddy"><img src="https://glama.ai/mcp/servers/yourbit-network/notibuddy/badges/score.svg" alt="NotiBuddy MCP server score on Glama" /></a>
-  <a href="https://mcpservers.org/servers/yourbit-network/notibuddy"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" /></a>
 </p>
 
 <p align="center">
@@ -308,6 +305,15 @@ Read the normative specification in [PROTOCOL.md](https://github.com/yourbit-net
 - **Crash-safe receipts and disk-full recovery:** Before sending a signed receipt, the receiver verifies the phone signature, size, digest, recipient, and deadline, writes the decrypted file with private permissions, and flushes the file and parent directories (macOS/Linux). If saving or flushing fails (e.g., disk full), delivery is not acknowledged so you can free space and retry before expiry. A lost receipt returns `saved_pending_receipt`: repeat `nb files receive <id>` to retry acknowledgement without re-downloading. Canceling mid-transfer preserves already-saved files and cleans up abandoned staging directories on the next receive.
 
 </details>
+
+## Directories and registries
+
+<p>
+  <a href="https://registry.modelcontextprotocol.io/v0/servers?search=notibuddy"><img src="https://img.shields.io/badge/MCP_Registry-notibuddy-111827" alt="Official MCP Registry: io.github.yourbit-network/notibuddy" /></a>
+  <a href="https://glama.ai/mcp/servers/yourbit-network/notibuddy"><img src="https://glama.ai/mcp/servers/yourbit-network/notibuddy/badges/score.svg" alt="NotiBuddy MCP server score on Glama" /></a>
+  <a href="https://mcpservers.org/servers/yourbit-network/notibuddy"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" /></a>
+  <a href="https://github.com/hashgraph-online/awesome-codex-plugins#development--workflow"><img src="https://img.shields.io/badge/Listed_in-Awesome_Codex_Plugins-0EA5E9" alt="Listed in Awesome Codex Plugins" /></a>
+</p>
 
 ## Development and contributing
 
