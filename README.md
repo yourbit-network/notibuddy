@@ -306,6 +306,15 @@ Read the normative specification in [PROTOCOL.md](https://github.com/yourbit-net
 
 </details>
 
+## Directories and registries
+
+<p>
+  <a href="https://registry.modelcontextprotocol.io/v0/servers?search=notibuddy"><img src="https://img.shields.io/badge/MCP_Registry-notibuddy-111827" alt="Official MCP Registry: io.github.yourbit-network/notibuddy" /></a>
+  <a href="https://glama.ai/mcp/servers/yourbit-network/notibuddy"><img src="https://glama.ai/mcp/servers/yourbit-network/notibuddy/badges/score.svg" alt="NotiBuddy MCP server score on Glama" /></a>
+  <a href="https://mcpservers.org/servers/yourbit-network/notibuddy"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" /></a>
+  <a href="https://github.com/hashgraph-online/awesome-codex-plugins#development--workflow"><img src="https://img.shields.io/badge/Listed_in-Awesome_Codex_Plugins-0EA5E9" alt="Listed in Awesome Codex Plugins" /></a>
+</p>
+
 ## Development and contributing
 
 Node.js 20 or newer is required. Tests use isolated local fixtures and synthetic test vectors in [`test-vectors/v1.json`](https://github.com/yourbit-network/notibuddy/blob/main/test-vectors/v1.json) (no phone or relay credentials needed):
