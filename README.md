@@ -16,6 +16,9 @@
   <a href="https://www.npmjs.com/package/notibuddy"><img src="https://img.shields.io/npm/v/notibuddy?color=CB3837&logo=npm&logoColor=white" alt="npm version" /></a>
   <a href="https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md"><img src="https://img.shields.io/badge/Protocol-v1-10B981" alt="Protocol v1" /></a>
   <a href="https://github.com/yourbit-network/notibuddy/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-3B82F6" alt="MIT License" /></a>
+  <br />
+  <a href="https://glama.ai/mcp/servers/yourbit-network/notibuddy"><img src="https://glama.ai/mcp/servers/yourbit-network/notibuddy/badges/score.svg" alt="NotiBuddy MCP server score on Glama" /></a>
+  <a href="https://mcpservers.org/servers/yourbit-network/notibuddy"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" /></a>
 </p>
 
 <p align="center">
