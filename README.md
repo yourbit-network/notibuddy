@@ -31,9 +31,11 @@
 </p>
 
 <p align="center">
-  <img src="https://notibuddy.app/images/showcase/v1/en/00-custom-screen.webp" width="220" alt="Custom native screen on iPhone showing release KPIs, a checklist, and a device-authenticated Promote button" />
-  <img src="https://notibuddy.app/images/showcase/v1/en/02-protected-approval.webp" width="220" alt="Device-authenticated Approve and Reject prompt on iPhone for Deploy v2.4.1" />
-  <img src="https://notibuddy.app/images/showcase/v1/en/08-diff.webp" width="220" alt="Syntax-highlighted inline code diff on iPhone with Apply and Discard actions" />
+  <a href="https://notibuddy.app/#demos">
+    <img src="https://notibuddy.app/images/demos/v1/mobile/00-notibuddy-overview.gif" width="520" height="520" alt="Animated walkthrough of NotiBuddy running Custom Native Screens, Face ID deploy gates, inline code diffs, and structured forms on iPhone" />
+  </a>
+  <br />
+  <sub><em>4-in-1 walkthrough: Custom Native Screens, Face ID deploy gates, inline code diffs, and structured forms — <a href="https://notibuddy.app/#demos">watch all interactive demos on notibuddy.app →</a></em></sub>
 </p>
 
 This repository contains the open-source MIT computer client (`notibuddy`, `nb`, and `notibuddy-mcp` on [npm](https://www.npmjs.com/package/notibuddy)), official coding-agent plugins, and [Protocol v1](https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md) specification from **Yourbit, LLC**.
