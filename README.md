@@ -74,17 +74,17 @@ Install `nb`, `notibuddy`, and `notibuddy-mcp` via Homebrew (recommended if you 
 brew install yourbit-network/tap/notibuddy
 
 # Or global npm install:
-npm install -g notibuddy@0.4.1
+npm install -g notibuddy@0.4.2
 ```
 
-In the remaining examples, `nb` is shorthand for the installed `nb` binary (or `npx -y notibuddy@0.4.1`).
+In the remaining examples, `nb` is shorthand for the installed `nb` binary (or `npx -y notibuddy@0.4.2`).
 
 In the NotiBuddy iOS app, open **Connect -> Add a connection -> Share Setup**, copy the setup string, and pipe it into `pair` so the secret never enters shell history:
 
 ```bash
-pbpaste | npx -y notibuddy@0.4.1 pair --to personal
+pbpaste | npx -y notibuddy@0.4.2 pair --to personal
 # Verify relay connectivity and phone approval:
-npx -y notibuddy@0.4.1 doctor --to personal
+npx -y notibuddy@0.4.2 doctor --to personal
 ```
 
 > **Keep setup strings private:** Anyone holding an unused `nbpair1.…` setup code can race to connect first within its 10-minute automatic window. Never paste pairing strings into an AI chat, terminal history, or repository.
@@ -121,7 +121,7 @@ Using `--client <id>` starts cleanly before pairing, routes automatically when o
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.4.1", "mcp", "--client", "claude-desktop"]
+      "args": ["-y", "notibuddy@0.4.2", "mcp", "--client", "claude-desktop"]
     }
   }
 }
@@ -137,7 +137,7 @@ Pin an MCP server to one fixed destination (tools cannot choose another phone) o
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.4.1", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.4.2", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }

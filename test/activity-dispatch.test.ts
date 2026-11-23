@@ -12,7 +12,7 @@ const originalFetch=globalThis.fetch;
 try {
   const enc=await generateReplyKeyPair(),sig=await generateSenderSigningKeyPair(),sender=await generateSenderSigningKeyPair();
   const config={relay:'https://relay.test',token:'nb_snd_test',device:{id:await deriveDeviceId(enc.publicKeyB64u,sig.publicKeyB64u),encPub:enc.publicKeyB64u,sigPub:sig.publicKeyB64u},senderKeyId:sender.senderKeyId,senderLabel:'test'};
-  const store=new PendingStore(config,directory);const client=new NotiBuddyClient(config,sender.privateKey,store);
+  const store=new PendingStore(config,directory);const client=new NotiBuddyClient(config,sender.privateKey,store,undefined,undefined,undefined,undefined,{activityUpdateDebounceMs:0,dispatchPaceMs:0});
   let http=402,networkFailure=false,last:RequestEnvelope;
   globalThis.fetch=async(_input,init)=>{
     if(init?.method!=='POST') return new Response(null,{status:204});

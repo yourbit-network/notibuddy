@@ -14,10 +14,16 @@ export type WaitOutcome = 'available' | 'resync' | 'fallback';
 
 const EMPTY_BODY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 const ROUTE = '/v2/sender/ws';
-const RESYNC_INTERVAL_MS = 15_000;
+export const RESYNC_INTERVAL_MS = 90_000;
+export const MAX_RESYNC_INTERVAL_MS = 300_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 const FALLBACK_COOLDOWN_MS = 5_000;
 const MAX_SEEN_REQUESTS = 256;
+
+export function scaledResyncIntervalMs(loadScale = 1): number {
+  const clamped = Number.isFinite(loadScale) ? Math.min(10, Math.max(1, loadScale)) : 1;
+  return Math.min(MAX_RESYNC_INTERVAL_MS, Math.round(RESYNC_INTERVAL_MS * clamped));
+}
 
 interface SocketLike {
   readyState: number;
@@ -47,11 +53,15 @@ export class SenderStream {
   private activeWaits = 0;
   private waiters = new Map<string, Set<(reason: WaitOutcome) => void>>();
   private bufferedAnnouncements = new Map<string, number>();
+  private bufferedOverflow = false;
+  private hadEstablishedConnection = false;
+  private activityResyncNeeded = false;
 
   constructor(
     private config: NotiBuddyConfig,
     private signingKey: CryptoKey,
     private enabled = typeof (globalThis as any).WebSocket === 'function',
+    private getLoadScale?: () => number,
   ) {}
 
   get isConnected(): boolean {
@@ -63,13 +73,38 @@ export class SenderStream {
       this.bufferedAnnouncements.delete(requestId);
     } else if (this.bufferedAnnouncements.size >= MAX_SEEN_REQUESTS) {
       const oldest = this.bufferedAnnouncements.keys().next().value;
-      if (oldest !== undefined) this.bufferedAnnouncements.delete(oldest);
+      if (oldest !== undefined) {
+        this.bufferedAnnouncements.delete(oldest);
+        this.bufferedOverflow = true;
+      }
     }
     this.bufferedAnnouncements.set(requestId, Date.now());
   }
 
   consumeBuffered(requestId: string): boolean {
     return this.bufferedAnnouncements.delete(requestId);
+  }
+
+  hasBufferedAny(requestIds: readonly string[]): boolean {
+    if (this.bufferedOverflow) return true;
+    for (const id of requestIds) {
+      if (this.bufferedAnnouncements.has(id)) return true;
+    }
+    return false;
+  }
+
+  clearBufferedOverflow(): void {
+    this.bufferedOverflow = false;
+  }
+
+  consumeActivityResyncNeeded(): boolean {
+    if (!this.activityResyncNeeded) return false;
+    this.activityResyncNeeded = false;
+    return true;
+  }
+
+  async connect(deadline: number, signal?: AbortSignal): Promise<boolean> {
+    return this.ensureConnected(deadline, signal);
   }
 
   private wakeWaiters(requestId: string, reason: WaitOutcome): void {
@@ -177,6 +212,8 @@ export class SenderStream {
           }
           this.socket = ws;
           this.rotationAttempted = false;
+          if (this.hadEstablishedConnection) this.activityResyncNeeded = true;
+          this.hadEstablishedConnection = true;
           finish(true);
         });
         ws.addEventListener('message', (event: any) => {
@@ -220,7 +257,7 @@ export class SenderStream {
     requestId: string,
     deadline: number,
     options: CallOptions = {},
-    resyncMs = RESYNC_INTERVAL_MS,
+    resyncMs = scaledResyncIntervalMs(this.getLoadScale?.() ?? 1),
   ): Promise<WaitOutcome> {
     options.signal?.throwIfAborted();
     if (this.consumeBuffered(requestId)) return 'available';

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 — 2026-11-23
+
+- Coalesce Live Activity updates with load-scaled client pacing, debouncing, and `Retry-After` / `429` backpressure handling, eliminating redundant MCP polling and lookup overhead.
+- Add RFC 6455 WebSocket keepalive pings and 90-second sender-stream resync for reliable long-lived reply sessions.
+- Hint AI agents via MCP server instructions to write user-facing notification copy in the user's language.
+- Update README with the square spotlight demo preview.
+
 ## 0.4.1 — 2026-11-20
 
 - **README overhaul for GitHub & npm:** Add dark/light-safe branding, live iPhone showcase captures, an honest bidirectional ASCII trust-boundary diagram, Quick Start with `-y` on piped `npx`, an explicit 4-tool MCP manifest and routing-mode reference, contextual uncollapsed safety contracts, and collapsible operational details; migrate the npm OIDC trusted-publisher settings table to `CONTRIBUTING.md`.
