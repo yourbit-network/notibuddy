@@ -413,10 +413,8 @@ for (const [rel, { content }] of generated) {
   if (rel.includes('/notibuddy-directory/')) {
     assert.ok(!rel.endsWith('.mcp.json') && !rel.includes('/hooks/'), `Directory bundle must remain skills-only (no local MCP/hooks): ${rel}`);
   }
-  if (rel.includes('/notibuddy-hooks/')) {
-    if (rel.endsWith('hooks.json') || rel.endsWith('scripts/nb-hook')) {
-      assert.ok(!/\bnpx\b/.test(content), `npx is forbidden in hook execution files: ${rel}`);
-    }
+  if (rel.includes('/notibuddy-hooks/') && (rel.endsWith('hooks.json') || rel.endsWith('scripts/nb-hook'))) {
+    assert.ok(!/\bnpx\b/.test(content), `npx is forbidden in hook execution files: ${rel}`);
   }
   if (rel.endsWith('mcp_config.json') || rel.endsWith('.mcp.json') || rel.endsWith('/mcp.json')) {
     const parsed = JSON.parse(content);

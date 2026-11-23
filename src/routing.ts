@@ -82,6 +82,8 @@ export async function createDestinationRouter(
           label,
           { store, name },
           { keepAlive: keepStreamAlive },
+          undefined,
+          keepStreamAlive ? undefined : { activityUpdateDebounceMs: 0 },
         ),
       };
     }),

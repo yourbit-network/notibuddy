@@ -13,8 +13,64 @@ export function httpSigningAccount(token:string):string {
 export function httpSigningInput(token:string,method:string,route:string,timestamp:string,nonce:string,bodyHashHex:string):Uint8Array {
   return new TextEncoder().encode(`nb2|http|${httpSigningAccount(token)}|${method}|${route}|${timestamp}|${nonce}|${bodyHashHex}`);
 }
-export interface CallOptions {signal?:AbortSignal;deadline?:number}
+export interface CallOptions {signal?:AbortSignal;deadline?:number;onLoadScale?:(scale:number)=>void}
 interface RelayCallOptions extends CallOptions {maxResponseBytes?:number}
+
+export const LOAD_SCALE_MIN = 1;
+export const LOAD_SCALE_MAX = 10;
+export const LOAD_SCALE_DECAY_MS = 5 * 60_000;
+export const MAX_RETRY_AFTER_MS = 300_000;
+
+/** Parses `X-NotiBuddy-Load-Scale` header and clamps strictly to `[1, 10]`; returns `undefined` for malformed values. */
+export function parseLoadScaleHeader(raw:string|null|undefined):number|undefined {
+  if(typeof raw!=='string')return undefined;
+  const trimmed=raw.trim();
+  if(!/^-?(?:\d+(?:\.\d+)?|\.\d+)$/.test(trimmed))return undefined;
+  const parsed=Number(trimmed);
+  if(!Number.isFinite(parsed))return undefined;
+  return Math.min(LOAD_SCALE_MAX,Math.max(LOAD_SCALE_MIN,parsed));
+}
+
+/** Tracks cooperative relay backpressure (`X-NotiBuddy-Load-Scale`), decaying back to `1` after 5 minutes without a higher/sustained value. */
+export class LoadScaleTracker {
+  private scale=LOAD_SCALE_MIN;
+  private updatedAt=0;
+  constructor(private readonly decayMs=LOAD_SCALE_DECAY_MS) {}
+  current(now=Date.now()):number {
+    if(this.scale>LOAD_SCALE_MIN && now-this.updatedAt>=this.decayMs) {
+      this.scale=LOAD_SCALE_MIN;
+      this.updatedAt=0;
+    }
+    return this.scale;
+  }
+  observe(raw:string|number|null|undefined,now=Date.now()):number {
+    const parsed=typeof raw==='number'
+      ? (Number.isFinite(raw)?Math.min(LOAD_SCALE_MAX,Math.max(LOAD_SCALE_MIN,raw)):undefined)
+      : parseLoadScaleHeader(raw);
+    const active=this.current(now);
+    if(parsed===undefined)return active;
+    if(parsed>=active) {
+      this.scale=parsed;
+      this.updatedAt=parsed>LOAD_SCALE_MIN?now:0;
+    }
+    return this.scale;
+  }
+}
+
+/** Parses HTTP `Retry-After` (delta-seconds or HTTP-date) into bounded milliseconds. */
+export function parseRetryAfterMs(header?:string,now=Date.now()):number|undefined {
+  if(typeof header!=='string')return undefined;
+  const trimmed=header.trim();
+  if(!trimmed)return undefined;
+  if(/^\d+(?:\.\d+)?$/.test(trimmed)) {
+    const seconds=Number(trimmed);
+    if(!Number.isFinite(seconds))return undefined;
+    return Math.min(MAX_RETRY_AFTER_MS,Math.max(0,Math.round(seconds*1000)));
+  }
+  const timestamp=Date.parse(trimmed);
+  if(!Number.isFinite(timestamp))return undefined;
+  return Math.min(MAX_RETRY_AFTER_MS,Math.max(0,Math.round(timestamp-now)));
+}
 export class DeadlineError extends Error {constructor(){super('Request deadline reached; resume the saved request');}}
 export class RelayHTTPError extends Error {
   constructor(
@@ -89,6 +145,8 @@ export async function relayJSONOnce(config:NotiBuddyConfig,route:string,init:Req
     }
     signal.throwIfAborted();
     const response=await Promise.race([fetch(normalizeRelay(config.relay)+route,{...init,headers,signal,redirect:'error'}),aborted]);
+    const loadScale=parseLoadScaleHeader(response.headers.get('x-notibuddy-load-scale'));
+    if(loadScale!==undefined)options.onLoadScale?.(loadScale);
     if(response.status===204)return {status:204,body:null};
     reader=response.body?.getReader();
     if(Number(response.headers.get('content-length'))>maxBytes)throw Error('Relay response exceeds the size limit');

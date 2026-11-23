@@ -25,7 +25,7 @@ async function fixture(run:(f:any)=>Promise<void>) {
     const phone=await device(),sender=await generateSenderSigningKeyPair();
     const config:NotiBuddyConfig={relay:'https://relay.test',token:'nb_snd_'+randomUUID(),device:{id:phone.id,encPub:phone.enc.publicKeyB64u,sigPub:phone.sig.publicKeyB64u},senderKeyId:sender.senderKeyId,senderPub:sender.publicKeyB64u,senderLabel:'Fixture'};
     const store=new PendingStore(config,root),requests:RequestEnvelope[]=[];
-    const client=(override:Partial<NotiBuddyConfig>={})=>new NotiBuddyClient({...config,...override},sender.privateKey,store);
+    const client=(override:Partial<NotiBuddyConfig>={})=>new NotiBuddyClient({...config,...override},sender.privateKey,store,undefined,undefined,undefined,undefined,{activityUpdateDebounceMs:0,dispatchPaceMs:0});
     const payload=(r:RequestEnvelope)=>hpkeOpen(phone.enc.privateKey,r.enc,'notibuddy/v1/request',buildRequestHeader(r.requestId,r.deviceId,r.senderKeyId,r.primitive,r.createdAt,r.expiresAt),r.ct).then(JSON.parse);
     const reply=async(r:RequestEnvelope,seq=100)=>({...await sealReply({requestId:r.requestId,deviceId:phone.id,deviceSigningPrivateKey:phone.sig.privateKey,replyPublicKey:(await payload(r)).replyPub,answer:{action:'pause'}}),seq});
     await run({root,phone,sender,config,store,requests,client,payload,reply});
@@ -175,8 +175,15 @@ test('slow history is bounded and rotated while the newest controls are checked 
   assert.equal(f.store.read('activity:fair').pollOffset,1);
   phase=1;start=Date.now();checked.length=0;
   const next=await f.client().activity({activityId:'fair',action:'poll'},{deadline:Date.now()+120});
-  assert.deepEqual(next.controls.map((a:any)=>a.action),['pause']);assert.equal(Date.now()-start,120);
-  assert.deepEqual(checked,[f.requests[2].requestId,f.requests[1].requestId,f.requests[1].requestId,f.requests[0].requestId]);
+  assert.deepEqual(next.controls.map((a:any)=>a.action),['pause']);
+  // Capped at <= 2 request IDs per poll ([latest, rotatedPrev]): checks req2 + req1 without stalling on req0.
+  assert.deepEqual(checked,[f.requests[2].requestId,f.requests[1].requestId,f.requests[1].requestId]);
+  assert.equal(f.store.read('activity:fair').pollOffset,0);
+  assert.equal(aborted,1);
+  // Next rotation wraps back to req0 within the bounded deadline.
+  checked.length=0;
+  await f.client().activity({activityId:'fair',action:'poll'},{deadline:Date.now()+120});
+  assert.deepEqual(checked,[f.requests[2].requestId,f.requests[0].requestId]);
   assert.equal(aborted,2);
 }));
 

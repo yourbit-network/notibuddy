@@ -30,7 +30,7 @@ try {
     const reply=answers.get(id)?.find(r=>r.seq>Number(url.searchParams.get('afterSeq')??0));
     return reply?Response.json(reply):new Response(null,{status:204});
   };
-  const client=()=>new NotiBuddyClient(config,sender.privateKey,new PendingStore(config,directory));
+  const client=()=>new NotiBuddyClient(config,sender.privateKey,new PendingStore(config,directory),undefined,undefined,undefined,undefined,{activityUpdateDebounceMs:0,dispatchPaceMs:0});
   const open=async(envelope:RequestEnvelope)=>JSON.parse(await hpkeOpen(phoneEnc.privateKey,envelope.enc,'notibuddy/v1/request',buildRequestHeader(envelope.requestId,envelope.deviceId,envelope.senderKeyId,envelope.primitive,envelope.createdAt,envelope.expiresAt),envelope.ct));
   const reply=async(envelope:RequestEnvelope,action:string,seq=1)=>{
     const payload=await open(envelope);

@@ -31,9 +31,11 @@
 </p>
 
 <p align="center">
-  <img src="https://notibuddy.app/images/showcase/v1/en/00-custom-screen.webp" width="220" alt="Custom native screen on iPhone showing release KPIs, a checklist, and a device-authenticated Promote button" />
-  <img src="https://notibuddy.app/images/showcase/v1/en/02-protected-approval.webp" width="220" alt="Device-authenticated Approve and Reject prompt on iPhone for Deploy v2.4.1" />
-  <img src="https://notibuddy.app/images/showcase/v1/en/08-diff.webp" width="220" alt="Syntax-highlighted inline code diff on iPhone with Apply and Discard actions" />
+  <a href="https://notibuddy.app/#demos">
+    <img src="https://notibuddy.app/images/demos/v1/mobile/00-notibuddy-overview.gif" width="520" height="520" alt="Animated walkthrough of NotiBuddy running Custom Native Screens, Face ID deploy gates, inline code diffs, and structured forms on iPhone" />
+  </a>
+  <br />
+  <sub><em>4-in-1 walkthrough: Custom Native Screens, Face ID deploy gates, inline code diffs, and structured forms — <a href="https://notibuddy.app/#demos">watch all interactive demos on notibuddy.app →</a></em></sub>
 </p>
 
 This repository contains the open-source MIT computer client (`notibuddy`, `nb`, and `notibuddy-mcp` on [npm](https://www.npmjs.com/package/notibuddy)), official coding-agent plugins, and [Protocol v1](https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md) specification from **Yourbit, LLC**.
@@ -72,17 +74,17 @@ Install `nb`, `notibuddy`, and `notibuddy-mcp` via Homebrew (recommended if you 
 brew install yourbit-network/tap/notibuddy
 
 # Or global npm install:
-npm install -g notibuddy@0.4.1
+npm install -g notibuddy@0.4.2
 ```
 
-In the remaining examples, `nb` is shorthand for the installed `nb` binary (or `npx -y notibuddy@0.4.1`).
+In the remaining examples, `nb` is shorthand for the installed `nb` binary (or `npx -y notibuddy@0.4.2`).
 
 In the NotiBuddy iOS app, open **Connect -> Add a connection -> Share Setup**, copy the setup string, and pipe it into `pair` so the secret never enters shell history:
 
 ```bash
-pbpaste | npx -y notibuddy@0.4.1 pair --to personal
+pbpaste | npx -y notibuddy@0.4.2 pair --to personal
 # Verify relay connectivity and phone approval:
-npx -y notibuddy@0.4.1 doctor --to personal
+npx -y notibuddy@0.4.2 doctor --to personal
 ```
 
 > **Keep setup strings private:** Anyone holding an unused `nbpair1.…` setup code can race to connect first within its 10-minute automatic window. Never paste pairing strings into an AI chat, terminal history, or repository.
@@ -119,7 +121,7 @@ Using `--client <id>` starts cleanly before pairing, routes automatically when o
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.4.1", "mcp", "--client", "claude-desktop"]
+      "args": ["-y", "notibuddy@0.4.2", "mcp", "--client", "claude-desktop"]
     }
   }
 }
@@ -135,7 +137,7 @@ Pin an MCP server to one fixed destination (tools cannot choose another phone) o
   "mcpServers": {
     "notibuddy": {
       "command": "npx",
-      "args": ["-y", "notibuddy@0.4.1", "mcp", "--to", "personal", "--sender", "Coding assistant"]
+      "args": ["-y", "notibuddy@0.4.2", "mcp", "--to", "personal", "--sender", "Coding assistant"]
     }
   }
 }

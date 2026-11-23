@@ -9,6 +9,7 @@ import { NotiBuddyClient } from '../src/client.js';
 import { deriveDeviceId, generateReplyKeyPair, generateSenderSigningKeyPair, hpkeOpen } from '../src/crypto.js';
 import { PendingStore } from '../src/pending-store.js';
 import { buildRequestHeader, sealReply } from '../src/protocol.js';
+import { RESYNC_INTERVAL_MS, SenderStream } from '../src/sender-stream.js';
 import type { NotiBuddyConfig, ReplyEnvelope, RequestEnvelope } from '../src/types.js';
 
 function acceptWebSocketUpgrade(req: any, socket: any) {
@@ -143,7 +144,7 @@ test(
 
     const mcpClient = new NotiBuddyClient(config, sender.privateKey, new PendingStore(config, dir), undefined, undefined, {
       keepAlive: true,
-    });
+    }, undefined, { activityUpdateDebounceMs: 0, dispatchPaceMs: 0 });
 
     const r1 = await mcpClient.ask({ title: 'First', options: ['Approve', 'Deny'], waitSeconds: 10 });
     assert.equal(r1.status, 'resolved');
@@ -255,3 +256,63 @@ test('NotiBuddyClient falls back to adaptive polling when WebSocket upgrade is r
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test(
+  'SenderStream defaults connected safety resync to 90s while preserving custom resyncMs overrides and immediate disconnect resync',
+  { skip: HAS_GLOBAL_WS ? false : 'global WebSocket requires Node 21+' },
+  async () => {
+    assert.equal(RESYNC_INTERVAL_MS, 90_000);
+
+    const phoneEnc = await generateReplyKeyPair();
+    const phoneSig = await generateSenderSigningKeyPair();
+    const sender = await generateSenderSigningKeyPair();
+    const sockets: any[] = [];
+    const server = createServer((_req, res) => {
+      res.writeHead(404);
+      res.end();
+    });
+    server.on('upgrade', (req, socket) => {
+      if (req.url === '/v2/sender/ws') {
+        acceptWebSocketUpgrade(req, socket);
+        sockets.push(socket);
+        socket.write(encodeWsTextFrame(JSON.stringify({ type: 'ready', senderKeyId: sender.senderKeyId })));
+      } else {
+        socket.destroy();
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as any).port;
+    try {
+      const config: NotiBuddyConfig = {
+        relay: `http://127.0.0.1:${port}`,
+        token: 'nb_snd_test',
+        device: {
+          id: await deriveDeviceId(phoneEnc.publicKeyB64u, phoneSig.publicKeyB64u),
+          encPub: phoneEnc.publicKeyB64u,
+          sigPub: phoneSig.publicKeyB64u,
+        },
+        senderKeyId: sender.senderKeyId,
+        senderLabel: 'ResyncTest',
+      };
+      const stream = new SenderStream(config, sender.privateKey, true);
+      try {
+        const resyncOutcome = await stream.waitForReply('req_resync', Date.now() + 5_000, {}, 40);
+        assert.equal(resyncOutcome, 'resync');
+        assert.equal(stream.isConnected, true);
+
+        // Closing the server socket wakes the waiter immediately with 'fallback' so ask() resyncs on reconnect.
+        const disconnectWait = stream.waitForReply('req_disconnect', Date.now() + 5_000);
+        setTimeout(() => {
+          for (const s of sockets) s.destroy();
+        }, 30).unref();
+        const disconnectOutcome = await disconnectWait;
+        assert.equal(disconnectOutcome, 'fallback');
+      } finally {
+        stream.close();
+      }
+    } finally {
+      for (const s of sockets) s.destroy();
+      server.close();
+    }
+  },
+);
