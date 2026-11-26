@@ -15,7 +15,7 @@ process.env.NOTIBUDDY_NO_UPDATE_CHECK = '1'; // tests never contact the npm regi
 // Zod property (camelCase) -> advertised property (snake_case).
 const RENAMES: Record<string, string> = {
   inputPlaceholder: 'input_placeholder', requiresAuth: 'requires_auth', timeoutSeconds: 'timeout_seconds',
-  waitSeconds: 'wait_seconds', resumeId: 'resume_id', declineOption: 'decline_option',
+  waitSeconds: 'wait_seconds', resumeId: 'resume_id', declineOption: 'decline_option', dryRun: 'dry_run',
   timerMinutes: 'timer_minutes', totalSteps: 'total_steps', activityId: 'id',
 };
 // Properties present on only one side are skipped: `diff` (zod: unknown) and `to`
@@ -65,6 +65,15 @@ const pinnedTools = (await client.listTools()).tools;
 assert.deepEqual(pinnedTools.map(t => t.name), [NOTIFY_TOOL_SCHEMA.name, ACTIVITY_TOOL_SCHEMA.name, FILES_TOOL_SCHEMA.name, 'notibuddy_list_destinations']);
 assert.equal('to' in (pinnedTools[0].inputSchema.properties ?? {}), false);
 assert.ok(JSON.stringify(pinnedTools).length < 5000, `MCP tool surface too large: ${JSON.stringify(pinnedTools).length} chars`);
+
+const listedResources = (await client.listResources()).resources;
+assert.ok(listedResources.some(r => r.uri === 'notibuddy://guide'));
+assert.ok(listedResources.some(r => r.uri === 'notibuddy://screens/catalog'));
+assert.ok(listedResources.some(r => r.uri === 'notibuddy://screens/deployment_gate'));
+const listedTemplates = (await client.listResourceTemplates()).resourceTemplates;
+assert.ok(listedTemplates.some(t => t.uriTemplate === 'notibuddy://screens/{templateId}'));
+const catalogDoc = await client.readResource({ uri: 'notibuddy://screens/catalog' });
+assert.ok((catalogDoc.contents[0] as { text?: string })?.text?.includes('deployment_gate'));
 await client.close();
 fs.rmSync(home, { recursive: true, force: true });
 console.log('mcp schema bounds: ok');

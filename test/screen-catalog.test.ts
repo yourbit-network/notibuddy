@@ -12,6 +12,19 @@ import {
   getScreenCatalogByTemplateId,
   getScreenTaPublicKey,
 } from '../src/screen-catalog.js';
+import {
+  SCREEN_CATALOG_COMPACT_CHEATSHEET,
+  SCREEN_SEMANTIC_SLOTS,
+  collectScreenAuthoringFixes,
+  describeAllScreenTemplates,
+  describeScreenTemplate,
+  renderScreenBuilderMarkdown,
+  renderScreenCatalogMarkdown,
+  renderScreenTemplateMarkdown,
+  renderScreenTextPreview,
+  resolveCatalogSlotsToWire,
+} from '../src/screen-describe.js';
+import { validateScreenRequestBindings } from '../src/screen-record.js';
 import { canonJson, type ScreenCanonValue } from '../src/screen-canon.js';
 import { computeTemplateId, validateScreenSkeleton } from '../src/screen-wire.js';
 
@@ -145,6 +158,82 @@ async function main(): Promise<void> {
   assert.equal(getScreenTaPublicKey('__proto__'), undefined);
   assert.equal(getScreenTaPublicKey('constructor'), undefined);
   assert.equal(getScreenTaPublicKey('toString'), undefined);
+
+  // Public screen descriptions & generated examples validate cleanly with zero verifier/TA internals.
+  const allDescriptions = describeAllScreenTemplates();
+  assert.equal(allDescriptions.length, 8);
+  const forbiddenUiMarkers = ['ta-catalog', 'ta-attest', 'nb-screen-ta-v1', 'recordB64u', '"kid":', '"sig":'];
+  for (const desc of allDescriptions) {
+    const entry = getScreenCatalogBySlug(desc.templateId)!;
+    const single = describeScreenTemplate(entry.templateId)!;
+    assert.deepEqual(single, desc);
+    assert.ok(desc.slots.length > 0);
+    assert.ok(SCREEN_SEMANTIC_SLOTS[desc.templateId]);
+    const resolvedExample = resolveCatalogSlotsToWire(desc.templateId, desc.example.slots);
+    assert.deepEqual(resolvedExample.errors, []);
+    const counts = validateScreenRequestBindings(
+      entry.skeleton,
+      {
+        labels: resolvedExample.labels,
+        data: resolvedExample.data,
+      },
+      desc.templateId
+    );
+    assert.ok(counts);
+    const preview = renderScreenTextPreview(
+      entry.skeleton,
+      resolvedExample.labels,
+      resolvedExample.data,
+      `Preview: ${desc.templateId}`
+    );
+    assert.ok(preview.includes('iPhone Screen Preview'));
+    const md = renderScreenTemplateMarkdown(desc.templateId)!;
+    assert.ok(md.includes(desc.templateId));
+    assert.ok(SCREEN_CATALOG_COMPACT_CHEATSHEET.includes(desc.templateId));
+    const serialized = JSON.stringify(desc) + '\n' + md;
+    for (const marker of forbiddenUiMarkers) {
+      assert.ok(!serialized.includes(marker), `${desc.templateId} UI description must not expose ${marker}`);
+    }
+  }
+  const fullCatalogMd = renderScreenCatalogMarkdown();
+  const builderMd = renderScreenBuilderMarkdown();
+  assert.ok(builderMd.includes('Bespoke Native Screen Builder'));
+  assert.ok(builderMd.includes('1 to 3 buttons'));
+  assert.ok(!builderMd.includes('1 to 16'));
+  assert.ok(builderMd.includes('draft_id'));
+  assert.ok(builderMd.includes('YYYY-MM-DDTHH:MM:SSZ'));
+  assert.ok(builderMd.includes('| Limit | Cap |'));
+
+  // Preview includes actual diff excerpt lines for diffViewer templates
+  const dbEntry = getScreenCatalogBySlug('db_migration_approval')!;
+  const dbDesc = describeScreenTemplate('db_migration_approval')!;
+  const dbResolved = resolveCatalogSlotsToWire('db_migration_approval', dbDesc.example.slots);
+  const dbPreview = renderScreenTextPreview(dbEntry.skeleton, dbResolved.labels, dbResolved.data, 'DB Migration');
+  assert.ok(dbPreview.includes('+ ') || dbPreview.includes('CREATE'), 'diffViewer preview should include diff excerpt lines');
+
+  // Authoring pre-flight validator catches 4 actions
+  const tooManyActionsFixes = collectScreenAuthoringFixes(
+    {
+      ...dbEntry.skeleton,
+      actions: [
+        dbEntry.skeleton.actions[0]!,
+        dbEntry.skeleton.actions[1]!,
+        { id: 'a2', label: { slot: 's9', maxGraphemes: 32, maxBytes: 128 }, role: 'secondary', requireBio: false },
+        { id: 'a3', label: { slot: 's10', maxGraphemes: 32, maxBytes: 128 }, role: 'decline', requireBio: false },
+      ],
+    },
+    dbResolved.labels,
+    dbResolved.data
+  );
+  assert.ok(tooManyActionsFixes.some((f) => f.code === 'INVALID_ACTION_COUNT'));
+  for (const slug of EXPECTED_SLUGS) {
+    assert.ok(fullCatalogMd.includes(slug));
+  }
+  for (const marker of forbiddenUiMarkers) {
+    assert.ok(!fullCatalogMd.includes(marker), `Catalog markdown must not expose ${marker}`);
+    assert.ok(!builderMd.includes(marker), `Builder markdown must not expose ${marker}`);
+    assert.ok(!SCREEN_CATALOG_COMPACT_CHEATSHEET.includes(marker), `Cheat sheet must not expose ${marker}`);
+  }
 
   console.log('screen-catalog.test.ts: all 8 certified catalog templates and ta-attest-v2 verified');
 }

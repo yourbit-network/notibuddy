@@ -23,6 +23,23 @@ export function hasControlOrFormatScalar(value: string): boolean {
   return CONTROL_OR_FORMAT_RE.test(value);
 }
 
+/**
+ * Returns a human-readable description of the first disallowed control or format scalar
+ * (e.g. `newline (\n, U+000A)`), or `undefined` if none is present.
+ */
+export function describeDisallowedControlOrFormatScalar(value: string): string | undefined {
+  for (const ch of value) {
+    if (CONTROL_OR_FORMAT_RE.test(ch)) {
+      const cp = ch.codePointAt(0)!;
+      if (cp === 0x0a) return 'newline (\\n, U+000A)';
+      if (cp === 0x0d) return 'carriage return (\\r, U+000D)';
+      if (cp === 0x09) return 'tab (\\t, U+0009)';
+      return `control/format character U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+    }
+  }
+  return undefined;
+}
+
 export function isSafeInt53(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value);
 }

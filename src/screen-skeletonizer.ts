@@ -2,9 +2,10 @@
 // Separates inline text/data literals into encrypted `labels` and `data` locally before
 // transmitting zero-literal skeletons to `POST /v2/templates`.
 
-import { sha256, toHex } from './crypto.js';
+import { bytesToHex, countGraphemes, sha256Bytes, validateScreenSkeleton } from './screen-skeleton.js';
 import {
   canonJson,
+  describeDisallowedControlOrFormatScalar,
   hasControlOrFormatScalar,
   isPlainObject,
   isSafeInt53,
@@ -12,7 +13,6 @@ import {
   utf8ByteLength,
   type ScreenCanonValue,
 } from './screen-canon.js';
-import { countGraphemes } from './screen-record.js';
 import {
   SCREEN_PUBLIC_CAPS,
   isActionOrdinal,
@@ -39,7 +39,6 @@ import {
   type ScreenTextSlot,
   type ScreenTextStyle,
 } from './screen-types.js';
-import { validateScreenSkeleton } from './screen-wire.js';
 
 import {
   BLOCK_KIND_ALERT,
@@ -128,6 +127,37 @@ export interface SkeletonizedScreen {
   ordinalMap: ScreenOrdinalMap;
 }
 
+export class ScreenSkeletonizeError extends Error {
+  readonly code = 'INVALID_TEMPLATE';
+  readonly fixes: ScreenFeedbackItem[];
+  readonly partial?: {
+    skeleton: ScreenSkeleton;
+    labels: Record<string, string>;
+    data: Record<string, ScreenDataValue>;
+    ordinalMap: ScreenOrdinalMap;
+  };
+
+  constructor(
+    fixes: ScreenFeedbackItem[],
+    partial?: {
+      skeleton: ScreenSkeleton;
+      labels: Record<string, string>;
+      data: Record<string, ScreenDataValue>;
+      ordinalMap: ScreenOrdinalMap;
+    }
+  ) {
+    const lines = fixes.map((f) => `- ${f.at ? `${f.at}: ` : ''}${f.message}`);
+    super(
+      fixes.length === 1
+        ? `${fixes[0]!.at ? `${fixes[0]!.at}: ` : ''}${fixes[0]!.message}`
+        : `Screen template validation failed (${fixes.length} issues):\n${lines.join('\n')}`
+    );
+    this.name = 'ScreenSkeletonizeError';
+    this.fixes = fixes;
+    if (partial) this.partial = partial;
+  }
+}
+
 const SPACINGS = new Set<string>(['compact', 'regular', 'relaxed']);
 const TEXT_STYLES = new Set<string>(['body', 'caption', 'mono']);
 const BADGE_TONES = new Set<string>(['neutral', 'info', 'success', 'warning', 'danger']);
@@ -138,6 +168,7 @@ const SEMANTIC_ID_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
 
 const GRAPHEME_TIERS = [32, 64, 128, 256, 512, 1024, 2048, 4096] as const;
 const ITEM_TIERS = [4, 8, 16, 32, 64, 128, 256] as const;
+const KPI_ITEM_TIERS = [4, 6] as const;
 const BYTE_TIERS = [128, 256, 512, 1024, 2048, 4096, 8192, 16384] as const;
 const DIFF_BYTE_TIERS = [4096, 8192, 16384, 32768, 65536, 96000] as const;
 const DIFF_LINE_TIERS = [64, 128, 256, 512, 1024, 4096, 20000] as const;
@@ -162,9 +193,13 @@ function defaultTextBounds(text: string, minTier: number): { maxGraphemes: numbe
 
 function defaultDataBounds(
   items: readonly ScreenDataValue[],
-  requireNonEmpty: boolean
+  requireNonEmpty: boolean,
+  itemTiers: readonly number[] = ITEM_TIERS
 ): { minItems: number; maxItems: number; maxBytes: number } {
-  const maxItems = nextTier(Math.max(1, items.length), ITEM_TIERS);
+  const maxItems =
+    itemTiers === KPI_ITEM_TIERS && items.length <= 6
+      ? nextTier(Math.max(1, items.length), KPI_ITEM_TIERS)
+      : nextTier(Math.max(1, items.length), ITEM_TIERS);
   const bytes = utf8ByteLength(canonJson(items as unknown as ScreenCanonValue));
   const maxBytes = Math.min(SCREEN_PUBLIC_CAPS.maxSlotBytes, nextTier(Math.max(512, bytes), BYTE_TIERS));
   return {
@@ -300,12 +335,15 @@ function validateInlineDataValue(value: unknown, depth: number, context: string)
 function checkAllowedKeys(
   obj: Record<string, unknown>,
   allowed: readonly string[],
-  context: string
+  context: string,
+  onError?: (code: string, message: string, at?: string) => void
 ): void {
   const allowedSet = new Set(allowed);
   for (const key of Object.keys(obj)) {
     if (!allowedSet.has(key)) {
-      throw new Error(`Unexpected key "${key}" in ${context}`);
+      const msg = `Unexpected key "${key}" in ${context}`;
+      if (onError) onError('UNEXPECTED_KEY', msg, context);
+      else throw new Error(msg);
     }
   }
 }
@@ -321,19 +359,41 @@ export async function skeletonizeScreenTemplate(
   explicitData?: Record<string, ScreenDataValue>
 ): Promise<SkeletonizedScreen> {
   if (!isPlainObject(input)) {
-    throw new Error('Screen template must be a JSON object');
+    throw new ScreenSkeletonizeError([{ code: 'INVALID_TEMPLATE', message: 'Screen template must be a JSON object' }]);
   }
-  checkAllowedKeys(input, ['v', 'root', 'actions'], 'screen template');
+  const fixes: ScreenFeedbackItem[] = [];
+  const pushFix = (code: string, message: string, at?: string): void => {
+    fixes.push(at ? { code, message, at } : { code, message });
+  };
+  checkAllowedKeys(input, ['v', 'root', 'actions'], 'screen template', pushFix);
   if (input.v !== undefined && input.v !== 1) {
-    throw new Error('Screen template version v must be 1');
+    pushFix('INVALID_TEMPLATE', 'Screen template version v must be 1', 'v');
   }
   if (!Array.isArray(input.actions) || input.actions.length < 1 || input.actions.length > SCREEN_PUBLIC_CAPS.maxSkeletonActions) {
-    throw new Error('Screen template must define between 1 and 16 actions');
+    throw new ScreenSkeletonizeError([
+      ...fixes,
+      {
+        code: 'INVALID_ACTION_COUNT',
+        message: 'Provide between 1 and 3 top-level actions.',
+        at: 'actions',
+      },
+    ]);
   }
 
   // Pass 1: collect flat pre-order metadata and compute all ordinals via the pure pre-order assigners.
   const meta: PreOrderNodeMeta[] = [];
-  collectPreOrderMeta(input.root, meta, 1);
+  try {
+    collectPreOrderMeta(input.root, meta, 1);
+  } catch (error) {
+    throw new ScreenSkeletonizeError([
+      ...fixes,
+      {
+        code: 'INVALID_TEMPLATE',
+        message: error instanceof Error ? error.message : 'Invalid screen block tree',
+        at: 'root',
+      },
+    ]);
+  }
   const nodeKinds = meta.map((m) => m.kindCode);
   const nodeOptFlags = meta.map((m) => m.optFlags);
 
@@ -345,19 +405,33 @@ export async function skeletonizeScreenTemplate(
   const labels: Record<string, string> = {};
   const data: Record<string, ScreenDataValue> = {};
   if (explicitLabels) {
-    if (!isPlainObject(explicitLabels)) throw new Error('screen.labels must be an object');
-    for (const [k, v] of Object.entries(explicitLabels)) {
-      if (!isSlotOrdinal(k) || typeof v !== 'string') {
-        throw new Error(`Invalid explicit label entry "${k}"`);
+    if (!isPlainObject(explicitLabels)) {
+      pushFix('INVALID_LABELS', 'screen.labels must be an object', 'labels');
+    } else {
+      for (const [k, v] of Object.entries(explicitLabels)) {
+        if (!isSlotOrdinal(k) || typeof v !== 'string') {
+          pushFix('INVALID_LABELS', `Invalid explicit label entry "${k}"`, `labels.${k}`);
+        } else {
+          labels[k] = v;
+        }
       }
-      labels[k] = v;
     }
   }
   if (explicitData) {
-    if (!isPlainObject(explicitData)) throw new Error('screen.data must be an object');
-    for (const [k, v] of Object.entries(explicitData)) {
-      if (!isSlotOrdinal(k)) throw new Error(`Invalid explicit data key "${k}"`);
-      data[k] = validateInlineDataValue(v, 1, `data.${k}`);
+    if (!isPlainObject(explicitData)) {
+      pushFix('INVALID_DATA', 'screen.data must be an object', 'data');
+    } else {
+      for (const [k, v] of Object.entries(explicitData)) {
+        if (!isSlotOrdinal(k)) {
+          pushFix('INVALID_DATA', `Invalid explicit data key "${k}"`, `data.${k}`);
+        } else {
+          try {
+            data[k] = validateInlineDataValue(v, 1, `data.${k}`);
+          } catch (error) {
+            pushFix('INVALID_DATA', error instanceof Error ? error.message : `Invalid data.${k}`, `data.${k}`);
+          }
+        }
+      }
     }
   }
 
@@ -374,6 +448,7 @@ export async function skeletonizeScreenTemplate(
   };
 
   const fieldTypesByOrdinal = new Map<ScreenFieldId, string>();
+  const pickerOptionsByOrdinal = new Map<ScreenFieldId, string[]>();
   const checklistOrdinalsSet = new Set<ScreenChecklistId>();
 
   const buildTextSlot = (
@@ -385,45 +460,67 @@ export async function skeletonizeScreenTemplate(
   ): ScreenTextSlot => {
     const slot: ScreenSlotId = `s${slotIndex}`;
     if (typeof raw === 'string') {
-      if (!isValidUnicodeString(raw) || hasControlOrFormatScalar(raw)) {
-        throw new Error(`${context} contains invalid or control characters`);
+      if (!isValidUnicodeString(raw)) {
+        pushFix('INVALID_TEXT', `${context} must be valid Unicode`, originPath);
+      } else {
+        const badChar = describeDisallowedControlOrFormatScalar(raw);
+        if (badChar) {
+          pushFix(
+            'DISALLOWED_CHARACTER',
+            `${context} contains disallowed ${badChar} (text blocks do not allow newlines or control characters; split lines into multiple text blocks, use keyValueList rows, or use diffViewer for multi-line output)`,
+            originPath
+          );
+        }
       }
       ordinalMap.usedInlineLiterals = true;
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: true };
       if (Object.prototype.hasOwnProperty.call(labels, slot)) {
-        throw new Error(`Duplicate label binding for slot "${slot}"`);
+        pushFix('DUPLICATE_SLOT', `Duplicate label binding for slot "${slot}"`, originPath);
+      } else {
+        labels[slot] = raw;
       }
-      labels[slot] = raw;
       const bounds = defaultTextBounds(raw, minTier);
       return { slot, maxGraphemes: bounds.maxGraphemes, maxBytes: bounds.maxBytes };
     }
     if (isTextSlotSpec(raw)) {
-      checkAllowedKeys(raw, ['slot', 'maxGraphemes', 'maxBytes', 'value'], context);
+      checkAllowedKeys(raw, ['slot', 'maxGraphemes', 'maxBytes', 'value'], context, pushFix);
       if (raw.slot !== undefined && raw.slot !== slot) {
-        throw new Error(`${context}.slot expected "${slot}", got "${String(raw.slot)}"`);
+        pushFix('SLOT_ORDER_MISMATCH', `${context}.slot expected "${slot}", got "${String(raw.slot)}"`, originPath);
       }
       let inlineText: string | undefined;
       if (raw.value !== undefined) {
-        if (typeof raw.value !== 'string' || !isValidUnicodeString(raw.value) || hasControlOrFormatScalar(raw.value)) {
-          throw new Error(`${context}.value must be a valid display string`);
+        if (typeof raw.value !== 'string' || !isValidUnicodeString(raw.value)) {
+          pushFix('INVALID_TEXT', `${context}.value must be a valid Unicode display string`, originPath);
+        } else {
+          const badChar = describeDisallowedControlOrFormatScalar(raw.value);
+          if (badChar) {
+            pushFix(
+              'DISALLOWED_CHARACTER',
+              `${context}.value contains disallowed ${badChar} (text blocks do not allow newlines or control characters; split lines into multiple text blocks, use keyValueList rows, or use diffViewer for multi-line output)`,
+              originPath
+            );
+          }
+          inlineText = raw.value;
+          ordinalMap.usedInlineLiterals = true;
+          if (Object.prototype.hasOwnProperty.call(labels, slot)) {
+            pushFix('DUPLICATE_SLOT', `Duplicate label binding for slot "${slot}"`, originPath);
+          } else {
+            labels[slot] = inlineText;
+          }
         }
-        inlineText = raw.value;
-        ordinalMap.usedInlineLiterals = true;
-        if (Object.prototype.hasOwnProperty.call(labels, slot)) {
-          throw new Error(`Duplicate label binding for slot "${slot}"`);
-        }
-        labels[slot] = inlineText;
       }
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: inlineText !== undefined };
       const fallback = inlineText !== undefined ? defaultTextBounds(inlineText, minTier) : undefined;
       const maxGraphemes = raw.maxGraphemes ?? fallback?.maxGraphemes;
       const maxBytes = raw.maxBytes ?? fallback?.maxBytes;
       if (!isSafeInt53(maxGraphemes) || !isSafeInt53(maxBytes)) {
-        throw new Error(`${context} requires safe integer maxGraphemes and maxBytes`);
+        pushFix('INVALID_SLOT_BOUND', `${context} requires safe integer maxGraphemes and maxBytes`, originPath);
+        return { slot, maxGraphemes: minTier, maxBytes: minTier * 4 };
       }
       return { slot, maxGraphemes, maxBytes };
     }
-    throw new Error(`${context} must be a display string or text slot descriptor`);
+    pushFix('INVALID_TEXT_SLOT', `${context} must be a display string or text slot descriptor`, originPath);
+    return { slot, maxGraphemes: minTier, maxBytes: minTier * 4 };
   };
 
   const buildDataSlot = (
@@ -431,55 +528,79 @@ export async function skeletonizeScreenTemplate(
     slotIndex: number,
     requireNonEmpty: boolean,
     originPath: string,
-    context: string
+    context: string,
+    onInlineItems?: (items: ScreenDataValue[]) => void,
+    itemTiers: readonly number[] = ITEM_TIERS
   ): ScreenDataSlot => {
     const slot: ScreenSlotId = `s${slotIndex}`;
     if (Array.isArray(raw)) {
-      const validated = validateInlineDataValue(raw, 1, context) as ScreenDataValue[];
+      let validated: ScreenDataValue[] = [];
+      try {
+        validated = validateInlineDataValue(raw, 1, context) as ScreenDataValue[];
+      } catch (error) {
+        pushFix('INVALID_DATA', error instanceof Error ? error.message : `Invalid data in ${context}`, originPath);
+      }
       ordinalMap.usedInlineLiterals = true;
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: true };
       if (Object.prototype.hasOwnProperty.call(data, slot)) {
-        throw new Error(`Duplicate data binding for slot "${slot}"`);
+        pushFix('DUPLICATE_SLOT', `Duplicate data binding for slot "${slot}"`, originPath);
+      } else {
+        data[slot] = validated;
       }
-      data[slot] = validated;
-      const bounds = defaultDataBounds(validated, requireNonEmpty);
+      onInlineItems?.(validated);
+      const bounds = defaultDataBounds(validated, requireNonEmpty, itemTiers);
       return requireNonEmpty
         ? { slot, minItems: bounds.minItems, maxItems: bounds.maxItems, maxBytes: bounds.maxBytes }
         : { slot, maxItems: bounds.maxItems, maxBytes: bounds.maxBytes };
     }
     if (isDataSlotSpec(raw)) {
-      checkAllowedKeys(raw, ['slot', 'minItems', 'maxItems', 'maxBytes', 'value'], context);
+      checkAllowedKeys(raw, ['slot', 'minItems', 'maxItems', 'maxBytes', 'value'], context, pushFix);
       if (raw.slot !== undefined && raw.slot !== slot) {
-        throw new Error(`${context}.slot expected "${slot}", got "${String(raw.slot)}"`);
+        pushFix('SLOT_ORDER_MISMATCH', `${context}.slot expected "${slot}", got "${String(raw.slot)}"`, originPath);
       }
       let inlineArray: ScreenDataValue[] | undefined;
       if (raw.value !== undefined) {
         if (!Array.isArray(raw.value)) {
-          throw new Error(`${context}.value must be an array`);
+          pushFix('INVALID_DATA', `${context}.value must be an array`, originPath);
+        } else {
+          try {
+            inlineArray = validateInlineDataValue(raw.value, 1, `${context}.value`) as ScreenDataValue[];
+          } catch (error) {
+            pushFix('INVALID_DATA', error instanceof Error ? error.message : `Invalid ${context}.value`, originPath);
+          }
+          if (inlineArray) {
+            ordinalMap.usedInlineLiterals = true;
+            if (Object.prototype.hasOwnProperty.call(data, slot)) {
+              pushFix('DUPLICATE_SLOT', `Duplicate data binding for slot "${slot}"`, originPath);
+            } else {
+              data[slot] = inlineArray;
+            }
+            onInlineItems?.(inlineArray);
+          }
         }
-        inlineArray = validateInlineDataValue(raw.value, 1, `${context}.value`) as ScreenDataValue[];
-        ordinalMap.usedInlineLiterals = true;
-        if (Object.prototype.hasOwnProperty.call(data, slot)) {
-          throw new Error(`Duplicate data binding for slot "${slot}"`);
-        }
-        data[slot] = inlineArray;
       }
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: inlineArray !== undefined };
-      const fallback = inlineArray !== undefined ? defaultDataBounds(inlineArray, requireNonEmpty) : undefined;
+      const fallback =
+        inlineArray !== undefined ? defaultDataBounds(inlineArray, requireNonEmpty, itemTiers) : undefined;
       const maxItems = raw.maxItems ?? fallback?.maxItems;
       const maxBytes = raw.maxBytes ?? fallback?.maxBytes;
       if (!isSafeInt53(maxItems) || !isSafeInt53(maxBytes)) {
-        throw new Error(`${context} requires safe integer maxItems and maxBytes`);
+        pushFix('INVALID_SLOT_BOUND', `${context} requires safe integer maxItems and maxBytes`, originPath);
+        return { slot, ...(requireNonEmpty ? { minItems: 1 } : {}), maxItems: 8, maxBytes: 1024 };
       }
       const out: ScreenDataSlot = { slot, maxItems, maxBytes };
       const minItems = raw.minItems ?? (requireNonEmpty ? fallback?.minItems : undefined);
       if (minItems !== undefined) {
-        if (!isSafeInt53(minItems)) throw new Error(`${context}.minItems must be a safe integer`);
-        out.minItems = minItems;
+        if (!isSafeInt53(minItems)) {
+          pushFix('INVALID_SLOT_BOUND', `${context}.minItems must be a safe integer`, originPath);
+        } else {
+          out.minItems = minItems;
+        }
       }
       return out;
     }
-    throw new Error(`${context} must be an array or data slot descriptor`);
+    pushFix('INVALID_DATA_SLOT', `${context} must be an array or data slot descriptor`, originPath);
+    return { slot, ...(requireNonEmpty ? { minItems: 1 } : {}), maxItems: 8, maxBytes: 1024 };
   };
 
   const buildDiffSlot = (
@@ -490,40 +611,53 @@ export async function skeletonizeScreenTemplate(
   ): ScreenDiffSlot => {
     const slot: ScreenSlotId = `s${slotIndex}`;
     if (typeof raw === 'string' || (isPlainObject(raw) && Object.prototype.hasOwnProperty.call(raw, 'original'))) {
-      const validated = validateInlineDataValue(raw, 1, context);
+      let validated: ScreenDataValue = '';
+      try {
+        validated = validateInlineDataValue(raw, 1, context);
+      } catch (error) {
+        pushFix('INVALID_DATA', error instanceof Error ? error.message : `Invalid diff in ${context}`, originPath);
+      }
       ordinalMap.usedInlineLiterals = true;
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: true };
       if (Object.prototype.hasOwnProperty.call(data, slot)) {
-        throw new Error(`Duplicate diff binding for slot "${slot}"`);
+        pushFix('DUPLICATE_SLOT', `Duplicate diff binding for slot "${slot}"`, originPath);
+      } else {
+        data[slot] = validated;
       }
-      data[slot] = validated;
       const bounds = defaultDiffBounds(validated);
       return { slot, maxBytes: bounds.maxBytes, maxLines: bounds.maxLines };
     }
     if (isDiffSlotSpec(raw)) {
-      checkAllowedKeys(raw, ['slot', 'maxBytes', 'maxLines', 'value'], context);
+      checkAllowedKeys(raw, ['slot', 'maxBytes', 'maxLines', 'value'], context, pushFix);
       if (raw.slot !== undefined && raw.slot !== slot) {
-        throw new Error(`${context}.slot expected "${slot}", got "${String(raw.slot)}"`);
+        pushFix('SLOT_ORDER_MISMATCH', `${context}.slot expected "${slot}", got "${String(raw.slot)}"`, originPath);
       }
       let inlineVal: ScreenDataValue | undefined;
       if (raw.value !== undefined) {
-        inlineVal = validateInlineDataValue(raw.value, 1, `${context}.value`);
-        ordinalMap.usedInlineLiterals = true;
-        if (Object.prototype.hasOwnProperty.call(data, slot)) {
-          throw new Error(`Duplicate diff binding for slot "${slot}"`);
+        try {
+          inlineVal = validateInlineDataValue(raw.value, 1, `${context}.value`);
+          ordinalMap.usedInlineLiterals = true;
+          if (Object.prototype.hasOwnProperty.call(data, slot)) {
+            pushFix('DUPLICATE_SLOT', `Duplicate diff binding for slot "${slot}"`, originPath);
+          } else {
+            data[slot] = inlineVal;
+          }
+        } catch (error) {
+          pushFix('INVALID_DATA', error instanceof Error ? error.message : `Invalid diff in ${context}.value`, originPath);
         }
-        data[slot] = inlineVal;
       }
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: inlineVal !== undefined };
       const fallback = inlineVal !== undefined ? defaultDiffBounds(inlineVal) : undefined;
       const maxBytes = raw.maxBytes ?? fallback?.maxBytes;
       const maxLines = raw.maxLines ?? fallback?.maxLines;
       if (!isSafeInt53(maxBytes) || !isSafeInt53(maxLines)) {
-        throw new Error(`${context} requires safe integer maxBytes and maxLines`);
+        pushFix('INVALID_SLOT_BOUND', `${context} requires safe integer maxBytes and maxLines`, originPath);
+        return { slot, maxBytes: 4096, maxLines: 64 };
       }
       return { slot, maxBytes, maxLines };
     }
-    throw new Error(`${context} must be a diff payload or diff slot descriptor`);
+    pushFix('INVALID_DIFF_SLOT', `${context} must be a diff payload or diff slot descriptor`, originPath);
+    return { slot, maxBytes: 4096, maxLines: 64 };
   };
 
   const registerSemanticId = (
@@ -531,7 +665,8 @@ export async function skeletonizeScreenTemplate(
     assigned: string,
     toAuthored: Record<string, string>,
     fromAuthored: Record<string, any>,
-    kindLabel: string
+    kindLabel: string,
+    context: string
   ): string => {
     if (rawId === undefined) {
       toAuthored[assigned] = assigned;
@@ -539,10 +674,14 @@ export async function skeletonizeScreenTemplate(
       return assigned;
     }
     if (typeof rawId !== 'string' || !SEMANTIC_ID_RE.test(rawId)) {
-      throw new Error(`Invalid ${kindLabel} id "${String(rawId)}"`);
+      pushFix('INVALID_IDENTIFIER', `Invalid ${kindLabel} id "${String(rawId)}"`, context);
+      toAuthored[assigned] = assigned;
+      fromAuthored[assigned] = assigned;
+      return assigned;
     }
     if (Object.prototype.hasOwnProperty.call(fromAuthored, rawId)) {
-      throw new Error(`Duplicate ${kindLabel} id "${rawId}"`);
+      pushFix('DUPLICATE_IDENTIFIER', `Duplicate ${kindLabel} id "${rawId}"`, context);
+      return rawId;
     }
     toAuthored[assigned] = rawId;
     fromAuthored[rawId] = assigned;
@@ -563,21 +702,22 @@ export async function skeletonizeScreenTemplate(
 
     switch (obj.kind) {
       case 'vstack': {
-        checkAllowedKeys(obj, ['kind', 'spacing', 'children'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'spacing', 'children'], pathLabel, pushFix);
         const children = (obj.children as unknown[]).map((child, i) =>
           transformBlock(child, `${pathLabel}.children[${i}]`)
         );
         const out: ScreenBlock = { kind: 'vstack', children };
         if (obj.spacing !== undefined) {
           if (typeof obj.spacing !== 'string' || !SPACINGS.has(obj.spacing)) {
-            throw new Error(`${pathLabel}.spacing must be compact | regular | relaxed`);
+            pushFix('INVALID_BLOCK_PROPERTY', `${pathLabel}.spacing must be compact | regular | relaxed`, pathLabel);
+          } else {
+            out.spacing = obj.spacing as ScreenSpacing;
           }
-          out.spacing = obj.spacing as ScreenSpacing;
         }
         return out;
       }
       case 'card': {
-        checkAllowedKeys(obj, ['kind', 'header', 'children'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'header', 'children'], pathLabel, pushFix);
         const header =
           obj.header !== undefined
             ? buildTextSlot(obj.header, slotCursor++, 64, `${pathLabel}.header`, `${pathLabel}.header`)
@@ -588,70 +728,87 @@ export async function skeletonizeScreenTemplate(
         return header !== undefined ? { kind: 'card', header, children } : { kind: 'card', children };
       }
       case 'divider': {
-        checkAllowedKeys(obj, ['kind'], pathLabel);
+        checkAllowedKeys(obj, ['kind'], pathLabel, pushFix);
         return { kind: 'divider' };
       }
       case 'heading': {
-        checkAllowedKeys(obj, ['kind', 'level', 'text'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'level', 'text'], pathLabel, pushFix);
         const text = buildTextSlot(obj.text, slotCursor++, 64, `${pathLabel}.text`, `${pathLabel}.text`);
         if (obj.level !== undefined) {
           if (obj.level !== 1 && obj.level !== 2 && obj.level !== 3) {
-            throw new Error(`${pathLabel}.level must be 1, 2, or 3`);
+            pushFix('INVALID_BLOCK_PROPERTY', `${pathLabel}.level must be 1, 2, or 3`, pathLabel);
+          } else {
+            return { kind: 'heading', level: obj.level as ScreenHeadingLevel, text };
           }
-          return { kind: 'heading', level: obj.level as ScreenHeadingLevel, text };
         }
         return { kind: 'heading', text };
       }
       case 'text': {
-        checkAllowedKeys(obj, ['kind', 'style', 'text'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'style', 'text'], pathLabel, pushFix);
         const text = buildTextSlot(obj.text, slotCursor++, 128, `${pathLabel}.text`, `${pathLabel}.text`);
         if (obj.style !== undefined) {
           if (typeof obj.style !== 'string' || !TEXT_STYLES.has(obj.style)) {
-            throw new Error(`${pathLabel}.style must be body | caption | mono`);
+            pushFix('INVALID_BLOCK_PROPERTY', `${pathLabel}.style must be body | caption | mono`, pathLabel);
+          } else {
+            return { kind: 'text', style: obj.style as ScreenTextStyle, text };
           }
-          return { kind: 'text', style: obj.style as ScreenTextStyle, text };
         }
         return { kind: 'text', text };
       }
       case 'badge': {
-        checkAllowedKeys(obj, ['kind', 'tone', 'label'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'tone', 'label'], pathLabel, pushFix);
+        let tone: ScreenBadgeTone = 'neutral';
         if (typeof obj.tone !== 'string' || !BADGE_TONES.has(obj.tone)) {
-          throw new Error(`${pathLabel}.tone is invalid`);
+          pushFix('INVALID_TONE_OR_SEVERITY', `${pathLabel}.tone must be neutral | info | success | warning | danger`, pathLabel);
+        } else {
+          tone = obj.tone as ScreenBadgeTone;
         }
         const label = buildTextSlot(obj.label, slotCursor++, 32, `${pathLabel}.label`, `${pathLabel}.label`);
-        return { kind: 'badge', tone: obj.tone as ScreenBadgeTone, label };
+        return { kind: 'badge', tone, label };
       }
       case 'alert': {
-        checkAllowedKeys(obj, ['kind', 'severity', 'title', 'body'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'severity', 'title', 'body'], pathLabel, pushFix);
+        let severity: ScreenAlertSeverity = 'info';
         if (typeof obj.severity !== 'string' || !ALERT_SEVERITIES.has(obj.severity)) {
-          throw new Error(`${pathLabel}.severity is invalid`);
+          pushFix('INVALID_TONE_OR_SEVERITY', `${pathLabel}.severity must be info | success | warning | danger`, pathLabel);
+        } else {
+          severity = obj.severity as ScreenAlertSeverity;
         }
         const title = buildTextSlot(obj.title, slotCursor++, 128, `${pathLabel}.title`, `${pathLabel}.title`);
         if (obj.body !== undefined) {
           const body = buildTextSlot(obj.body, slotCursor++, 256, `${pathLabel}.body`, `${pathLabel}.body`);
-          return { kind: 'alert', severity: obj.severity as ScreenAlertSeverity, title, body };
+          return { kind: 'alert', severity, title, body };
         }
-        return { kind: 'alert', severity: obj.severity as ScreenAlertSeverity, title };
+        return { kind: 'alert', severity, title };
       }
       case 'kpiStrip': {
-        checkAllowedKeys(obj, ['kind', 'items'], pathLabel);
-        const items = buildDataSlot(obj.items, slotCursor++, false, `${pathLabel}.items`, `${pathLabel}.items`);
+        checkAllowedKeys(obj, ['kind', 'items'], pathLabel, pushFix);
+        const items = buildDataSlot(
+          obj.items,
+          slotCursor++,
+          false,
+          `${pathLabel}.items`,
+          `${pathLabel}.items`,
+          undefined,
+          KPI_ITEM_TIERS
+        );
         return { kind: 'kpiStrip', items };
       }
       case 'keyValueList': {
-        checkAllowedKeys(obj, ['kind', 'rows'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'rows'], pathLabel, pushFix);
         const rows = buildDataSlot(obj.rows, slotCursor++, false, `${pathLabel}.rows`, `${pathLabel}.rows`);
         return { kind: 'keyValueList', rows };
       }
       case 'checklist': {
-        checkAllowedKeys(obj, ['kind', 'id', 'title', 'items'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'id', 'title', 'items'], pathLabel, pushFix);
         const id: ScreenChecklistId = `c${nodeChecklistOrdinals[idx]!}`;
         const authoredId = registerSemanticId(
           obj.id,
           id,
           ordinalMap.checklistToAuthored,
           ordinalMap.authoredToChecklist,
-          'checklist'
+          'checklist',
+          pathLabel
         );
         checklistOrdinalsSet.add(id);
         const title =
@@ -664,7 +821,7 @@ export async function skeletonizeScreenTemplate(
           : { kind: 'checklist', id, items };
       }
       case 'diffViewer': {
-        checkAllowedKeys(obj, ['kind', 'diff'], pathLabel);
+        checkAllowedKeys(obj, ['kind', 'diff'], pathLabel, pushFix);
         const diff = buildDiffSlot(obj.diff, slotCursor++, `${pathLabel}.diff`, `${pathLabel}.diff`);
         return { kind: 'diffViewer', diff };
       }
@@ -675,21 +832,26 @@ export async function skeletonizeScreenTemplate(
           id,
           ordinalMap.fieldToAuthored,
           ordinalMap.authoredToField,
-          'formField'
+          'formField',
+          pathLabel
         );
         const fieldType = obj.fieldType;
         if (typeof fieldType !== 'string') {
-          throw new Error(`${pathLabel}.fieldType is required`);
+          pushFix('INVALID_FORM_FIELD', `${pathLabel}.fieldType is required`, pathLabel);
+          fieldTypesByOrdinal.set(id, 'text');
+          const label = buildTextSlot(obj.label ?? 'Field', slotCursor++, 64, `${authoredId}.label`, `${pathLabel}.label`);
+          return { kind: 'formField', id, fieldType: 'text', label };
         }
         fieldTypesByOrdinal.set(id, fieldType);
         if (obj.required !== undefined && typeof obj.required !== 'boolean') {
-          throw new Error(`${pathLabel}.required must be boolean`);
+          pushFix('INVALID_FORM_FIELD', `${pathLabel}.required must be boolean`, authoredId);
         }
         if (TEXT_FIELD_TYPES.has(fieldType)) {
           checkAllowedKeys(
             obj,
             ['kind', 'id', 'fieldType', 'label', 'placeholder', 'required', 'maxGraphemes', 'maxBytes'],
-            pathLabel
+            pathLabel,
+            pushFix
           );
           const label = buildTextSlot(obj.label, slotCursor++, 64, `${authoredId}.label`, `${pathLabel}.label`);
           const out: ScreenFormFieldBlock = {
@@ -707,25 +869,34 @@ export async function skeletonizeScreenTemplate(
               `${pathLabel}.placeholder`
             );
           }
-          if (obj.required !== undefined) out.required = obj.required;
+          if (typeof obj.required === 'boolean') out.required = obj.required;
           if (obj.maxGraphemes !== undefined) {
-            if (!isSafeInt53(obj.maxGraphemes)) throw new Error(`${pathLabel}.maxGraphemes must be integer`);
-            out.maxGraphemes = obj.maxGraphemes;
+            if (!isSafeInt53(obj.maxGraphemes)) {
+              pushFix('INVALID_FORM_FIELD', `${pathLabel}.maxGraphemes must be integer`, authoredId);
+            } else {
+              out.maxGraphemes = obj.maxGraphemes;
+            }
           }
           if (obj.maxBytes !== undefined) {
-            if (!isSafeInt53(obj.maxBytes)) throw new Error(`${pathLabel}.maxBytes must be integer`);
-            out.maxBytes = obj.maxBytes;
+            if (!isSafeInt53(obj.maxBytes)) {
+              pushFix('INVALID_FORM_FIELD', `${pathLabel}.maxBytes must be integer`, authoredId);
+            } else {
+              out.maxBytes = obj.maxBytes;
+            }
           }
           return out;
         }
         if (fieldType === 'toggle') {
-          checkAllowedKeys(obj, ['kind', 'id', 'fieldType', 'label', 'required', 'defaultBool'], pathLabel);
+          checkAllowedKeys(obj, ['kind', 'id', 'fieldType', 'label', 'required', 'defaultBool'], pathLabel, pushFix);
           const label = buildTextSlot(obj.label, slotCursor++, 64, `${authoredId}.label`, `${pathLabel}.label`);
           const out: ScreenFormFieldBlock = { kind: 'formField', id, fieldType: 'toggle', label };
-          if (obj.required !== undefined) out.required = obj.required;
+          if (typeof obj.required === 'boolean') out.required = obj.required;
           if (obj.defaultBool !== undefined) {
-            if (typeof obj.defaultBool !== 'boolean') throw new Error(`${pathLabel}.defaultBool must be boolean`);
-            out.defaultBool = obj.defaultBool;
+            if (typeof obj.defaultBool !== 'boolean') {
+              pushFix('INVALID_FORM_FIELD', `${pathLabel}.defaultBool must be boolean`, authoredId);
+            } else {
+              out.defaultBool = obj.defaultBool;
+            }
           }
           return out;
         }
@@ -733,24 +904,29 @@ export async function skeletonizeScreenTemplate(
           checkAllowedKeys(
             obj,
             ['kind', 'id', 'fieldType', 'label', 'required', 'min', 'max', 'defaultInt'],
-            pathLabel
+            pathLabel,
+            pushFix
           );
           const label = buildTextSlot(obj.label, slotCursor++, 64, `${authoredId}.label`, `${pathLabel}.label`);
-          if (!isSafeInt53(obj.min) || !isSafeInt53(obj.max)) {
-            throw new Error(`${pathLabel} stepper requires safe integer min and max`);
+          const validMinMax = isSafeInt53(obj.min) && isSafeInt53(obj.max);
+          if (!validMinMax) {
+            pushFix('INVALID_FORM_FIELD', `${pathLabel} stepper requires safe integer min and max`, authoredId);
           }
           const out: ScreenFormFieldBlock = {
             kind: 'formField',
             id,
             fieldType: 'stepper',
             label,
-            min: Object.is(obj.min, -0) ? 0 : obj.min,
-            max: Object.is(obj.max, -0) ? 0 : obj.max,
+            min: validMinMax ? (Object.is(obj.min, -0) ? 0 : (obj.min as number)) : 0,
+            max: validMinMax ? (Object.is(obj.max, -0) ? 0 : (obj.max as number)) : 10,
           };
-          if (obj.required !== undefined) out.required = obj.required;
+          if (typeof obj.required === 'boolean') out.required = obj.required;
           if (obj.defaultInt !== undefined) {
-            if (!isSafeInt53(obj.defaultInt)) throw new Error(`${pathLabel}.defaultInt must be safe integer`);
-            out.defaultInt = Object.is(obj.defaultInt, -0) ? 0 : obj.defaultInt;
+            if (!isSafeInt53(obj.defaultInt)) {
+              pushFix('INVALID_FORM_FIELD', `${pathLabel}.defaultInt must be safe integer`, authoredId);
+            } else {
+              out.defaultInt = Object.is(obj.defaultInt, -0) ? 0 : obj.defaultInt;
+            }
           }
           return out;
         }
@@ -758,7 +934,8 @@ export async function skeletonizeScreenTemplate(
           checkAllowedKeys(
             obj,
             ['kind', 'id', 'fieldType', 'label', 'placeholder', 'required', 'options', 'defaultOptionIndex'],
-            pathLabel
+            pathLabel,
+            pushFix
           );
           const label = buildTextSlot(obj.label, slotCursor++, 64, `${authoredId}.label`, `${pathLabel}.label`);
           const placeholder =
@@ -770,118 +947,200 @@ export async function skeletonizeScreenTemplate(
             slotCursor++,
             true,
             `${authoredId}.options`,
-            `${pathLabel}.options`
+            `${pathLabel}.options`,
+            (items) => {
+              const strs = items.filter((v): v is string => typeof v === 'string');
+              if (strs.length === items.length) {
+                pickerOptionsByOrdinal.set(id, strs);
+              }
+            }
           );
           const out: ScreenFormFieldBlock = { kind: 'formField', id, fieldType: 'picker', label, options };
           if (placeholder !== undefined) out.placeholder = placeholder;
-          if (obj.required !== undefined) out.required = obj.required;
+          if (typeof obj.required === 'boolean') out.required = obj.required;
           if (obj.defaultOptionIndex !== undefined) {
             if (!isSafeInt53(obj.defaultOptionIndex)) {
-              throw new Error(`${pathLabel}.defaultOptionIndex must be safe integer`);
+              pushFix('INVALID_FORM_FIELD', `${pathLabel}.defaultOptionIndex must be safe integer`, authoredId);
+            } else {
+              out.defaultOptionIndex = Object.is(obj.defaultOptionIndex, -0) ? 0 : obj.defaultOptionIndex;
             }
-            out.defaultOptionIndex = Object.is(obj.defaultOptionIndex, -0) ? 0 : obj.defaultOptionIndex;
           }
           return out;
         }
-        throw new Error(`Unsupported formField fieldType "${fieldType}"`);
+        pushFix('INVALID_FORM_FIELD', `Unsupported formField fieldType "${fieldType}"`, authoredId);
+        const fallbackLabel = buildTextSlot(obj.label ?? 'Field', slotCursor++, 64, `${authoredId}.label`, `${pathLabel}.label`);
+        return { kind: 'formField', id, fieldType: 'text', label: fallbackLabel };
       }
       default:
-        throw new Error(`Unknown screen block kind "${String(obj.kind)}"`);
+        pushFix('UNKNOWN_BLOCK_KIND', `Unknown screen block kind "${String(obj.kind)}"`, pathLabel);
+        return { kind: 'divider' };
     }
   };
 
   const root = transformBlock(input.root, 'root');
 
   const actions: ScreenAction[] = input.actions.map((rawAction, idx) => {
+    const actionCtx = `actions[${idx}]`;
     if (!isPlainObject(rawAction)) {
-      throw new Error(`actions[${idx}] must be an object`);
+      pushFix('INVALID_ACTION', `${actionCtx} must be an object`, actionCtx);
+      const id: ScreenActionId = `a${idx}`;
+      return { id, label: { slot: `s${actionSlotOrdinals[idx]!}`, maxGraphemes: 32, maxBytes: 128 }, role: 'secondary', requireBio: false };
     }
-    checkAllowedKeys(rawAction, ['id', 'label', 'role', 'requireBio', 'enabledWhen'], `actions[${idx}]`);
+    checkAllowedKeys(rawAction, ['id', 'label', 'role', 'requireBio', 'enabledWhen'], actionCtx, pushFix);
     if (rawAction.id === 'dismiss') {
-      throw new Error('Action id "dismiss" is reserved for host-owned unavailable dismissal');
+      pushFix('RESERVED_IDENTIFIER', 'Action id "dismiss" is reserved for host-owned unavailable dismissal', actionCtx);
     }
     const id: ScreenActionId = `a${idx}`;
     const authoredId = registerSemanticId(
-      rawAction.id,
+      rawAction.id === 'dismiss' ? undefined : rawAction.id,
       id,
       ordinalMap.actionToAuthored,
       ordinalMap.authoredToAction,
-      'action'
+      'action',
+      actionCtx
     );
     const label = buildTextSlot(
       rawAction.label,
       actionSlotOrdinals[idx]!,
       32,
       `actions.${authoredId}.label`,
-      `actions[${idx}].label`
+      `${actionCtx}.label`
     );
+    let role: ScreenActionRole = 'secondary';
     if (typeof rawAction.role !== 'string' || !ACTION_ROLES.has(rawAction.role)) {
-      throw new Error(`actions[${idx}].role is invalid`);
+      pushFix('INVALID_ACTION_ROLE', `${actionCtx}.role must be primary | secondary | destructive | decline`, authoredId);
+    } else {
+      role = rawAction.role as ScreenActionRole;
     }
+    let requireBio = false;
     if (typeof rawAction.requireBio !== 'boolean') {
-      throw new Error(`actions[${idx}].requireBio must be boolean`);
+      pushFix('INVALID_ACTION', `${actionCtx}.requireBio must be boolean`, authoredId);
+    } else {
+      requireBio = rawAction.requireBio;
     }
     const action: ScreenAction = {
       id,
       label,
-      role: rawAction.role as ScreenActionRole,
-      requireBio: rawAction.requireBio,
+      role,
+      requireBio,
     };
     if (rawAction.enabledWhen !== undefined) {
       if (!Array.isArray(rawAction.enabledWhen)) {
-        throw new Error(`actions[${idx}].enabledWhen must be an array`);
+        pushFix('INVALID_ACTION_CONDITION', `${actionCtx}.enabledWhen must be an array`, authoredId);
+      } else {
+        const preds: ScreenPredicate[] = [];
+        rawAction.enabledWhen.forEach((rawPred, pIdx) => {
+          if (!isPlainObject(rawPred) || typeof rawPred.op !== 'string') {
+            pushFix('INVALID_ACTION_CONDITION', `${actionCtx}.enabledWhen[${pIdx}] must be an object with op`, authoredId);
+            return;
+          }
+          if (rawPred.op === 'allChecked') {
+            checkAllowedKeys(rawPred, ['op', 'checklist'], `${actionCtx}.enabledWhen[${pIdx}]`, pushFix);
+            const target = typeof rawPred.checklist === 'string' ? rawPred.checklist : '';
+            const mapped =
+              ordinalMap.authoredToChecklist[target] ??
+              (isChecklistOrdinal(target) && checklistOrdinalsSet.has(target) ? target : undefined);
+            if (!mapped) {
+              pushFix('INVALID_ACTION_CONDITION', `Predicate references unknown checklist "${target}"`, authoredId);
+              return;
+            }
+            preds.push({ op: 'allChecked', checklist: mapped });
+            return;
+          }
+          if (rawPred.op === 'isNotEmpty') {
+            checkAllowedKeys(rawPred, ['op', 'field'], `${actionCtx}.enabledWhen[${pIdx}]`, pushFix);
+            const target = typeof rawPred.field === 'string' ? rawPred.field : '';
+            const mapped =
+              ordinalMap.authoredToField[target] ??
+              (isFieldOrdinal(target) && fieldTypesByOrdinal.has(target) ? target : undefined);
+            if (!mapped) {
+              pushFix('INVALID_ACTION_CONDITION', `Predicate references unknown field "${target}"`, authoredId);
+              return;
+            }
+            preds.push({ op: 'isNotEmpty', field: mapped });
+            return;
+          }
+          if (rawPred.op === 'equals') {
+            checkAllowedKeys(rawPred, ['op', 'field', 'value'], `${actionCtx}.enabledWhen[${pIdx}]`, pushFix);
+            const target = typeof rawPred.field === 'string' ? rawPred.field : '';
+            const mapped =
+              ordinalMap.authoredToField[target] ??
+              (isFieldOrdinal(target) && fieldTypesByOrdinal.has(target) ? target : undefined);
+            if (!mapped) {
+              pushFix('INVALID_ACTION_CONDITION', `Predicate references unknown field "${target}"`, authoredId);
+              return;
+            }
+            if (typeof rawPred.value === 'boolean') {
+              preds.push({ op: 'equals', field: mapped, value: rawPred.value });
+              return;
+            }
+            if (isSafeInt53(rawPred.value)) {
+              preds.push({ op: 'equals', field: mapped, value: Object.is(rawPred.value, -0) ? 0 : rawPred.value });
+              return;
+            }
+            if (typeof rawPred.value === 'string' && fieldTypesByOrdinal.get(mapped) === 'picker') {
+              const opts = pickerOptionsByOrdinal.get(mapped);
+              if (opts) {
+                const optIdx = opts.indexOf(rawPred.value);
+                if (optIdx >= 0) {
+                  preds.push({ op: 'equals', field: mapped, value: optIdx });
+                  return;
+                }
+                pushFix(
+                  'INVALID_ACTION_CONDITION',
+                  `${actionCtx}.enabledWhen[${pIdx}].value "${rawPred.value}" does not match any option in picker "${target}" (options: ${opts.map((o) => JSON.stringify(o)).join(', ')})`,
+                  authoredId
+                );
+                return;
+              }
+              pushFix(
+                'INVALID_ACTION_CONDITION',
+                `${actionCtx}.enabledWhen[${pIdx}].value cannot match by string label unless picker "${target}" has inline options; pass 0-based integer index`,
+                authoredId
+              );
+              return;
+            }
+            pushFix(
+              'INVALID_ACTION_CONDITION',
+              `${actionCtx}.enabledWhen[${pIdx}].value must be boolean (for toggle), integer index, or picker option label string`,
+              authoredId
+            );
+            return;
+          }
+          pushFix('INVALID_ACTION_CONDITION', `Unknown predicate op "${rawPred.op}"`, authoredId);
+        });
+        action.enabledWhen = preds;
       }
-      action.enabledWhen = rawAction.enabledWhen.map((rawPred, pIdx): ScreenPredicate => {
-        if (!isPlainObject(rawPred) || typeof rawPred.op !== 'string') {
-          throw new Error(`actions[${idx}].enabledWhen[${pIdx}] must be an object with op`);
-        }
-        if (rawPred.op === 'allChecked') {
-          checkAllowedKeys(rawPred, ['op', 'checklist'], `actions[${idx}].enabledWhen[${pIdx}]`);
-          const target = typeof rawPred.checklist === 'string' ? rawPred.checklist : '';
-          const mapped =
-            ordinalMap.authoredToChecklist[target] ??
-            (isChecklistOrdinal(target) && checklistOrdinalsSet.has(target) ? target : undefined);
-          if (!mapped) {
-            throw new Error(`Predicate references unknown checklist "${target}"`);
-          }
-          return { op: 'allChecked', checklist: mapped };
-        }
-        if (rawPred.op === 'isNotEmpty') {
-          checkAllowedKeys(rawPred, ['op', 'field'], `actions[${idx}].enabledWhen[${pIdx}]`);
-          const target = typeof rawPred.field === 'string' ? rawPred.field : '';
-          const mapped =
-            ordinalMap.authoredToField[target] ??
-            (isFieldOrdinal(target) && fieldTypesByOrdinal.has(target) ? target : undefined);
-          if (!mapped) {
-            throw new Error(`Predicate references unknown field "${target}"`);
-          }
-          return { op: 'isNotEmpty', field: mapped };
-        }
-        if (rawPred.op === 'equals') {
-          checkAllowedKeys(rawPred, ['op', 'field', 'value'], `actions[${idx}].enabledWhen[${pIdx}]`);
-          const target = typeof rawPred.field === 'string' ? rawPred.field : '';
-          const mapped =
-            ordinalMap.authoredToField[target] ??
-            (isFieldOrdinal(target) && fieldTypesByOrdinal.has(target) ? target : undefined);
-          if (!mapped) {
-            throw new Error(`Predicate references unknown field "${target}"`);
-          }
-          if (typeof rawPred.value === 'boolean') {
-            return { op: 'equals', field: mapped, value: rawPred.value };
-          }
-          if (isSafeInt53(rawPred.value)) {
-            return { op: 'equals', field: mapped, value: Object.is(rawPred.value, -0) ? 0 : rawPred.value };
-          }
-          throw new Error(`actions[${idx}].enabledWhen[${pIdx}].value must be boolean or safe integer`);
-        }
-        throw new Error(`Unknown predicate op "${rawPred.op}"`);
-      });
     }
     return action;
   });
 
-  const skeleton = validateScreenSkeleton({ v: 1, root, actions });
-  const inputSkeletonHash = toHex(await sha256(new TextEncoder().encode(canonJson(skeleton as unknown as ScreenCanonValue))));
+  if (fixes.length > 0) {
+    throw new ScreenSkeletonizeError(fixes, {
+      skeleton: { v: 1, root, actions },
+      labels,
+      data,
+      ordinalMap,
+    });
+  }
+
+  let skeleton: ScreenSkeleton;
+  try {
+    skeleton = validateScreenSkeleton({ v: 1, root, actions });
+  } catch (error) {
+    throw new ScreenSkeletonizeError(
+      [
+        {
+          code: 'INVALID_TEMPLATE',
+          message: error instanceof Error ? error.message : 'Invalid screen skeleton',
+        },
+      ],
+      { skeleton: { v: 1, root, actions }, labels, data, ordinalMap }
+    );
+  }
+  const inputSkeletonHash = bytesToHex(
+    await sha256Bytes(new TextEncoder().encode(canonJson(skeleton as unknown as ScreenCanonValue)))
+  );
 
   return {
     skeleton,

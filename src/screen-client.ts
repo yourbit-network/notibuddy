@@ -1,22 +1,41 @@
 // Screen template resolution, attestation, refresh-on-send, registration, and settlement verification.
 
-import { sha256, toHex } from './crypto.js';
+import { fromB64u, sha256, toB64u, toHex } from './crypto.js';
 import { DeadlineError, RelayHTTPError, relayJSON, type CallOptions } from './client-http.js';
 import { normalizeRelay } from './relay-url.js';
-import { canonJson, isPlainObject, type ScreenCanonValue } from './screen-canon.js';
 import {
+  canonJson,
+  isPlainObject,
+  isValidUnicodeString,
+  utf8ByteLength,
+  type ScreenCanonValue,
+} from './screen-canon.js';
+import {
+  SCREEN_CATALOG_SLUGS,
   getScreenCatalogBySlug,
   getScreenCatalogByTemplateId,
   type ScreenSignedTemplateRecord,
   type ScreenTaPublicKey,
 } from './screen-catalog.js';
+import {
+  describeScreenTemplate,
+  collectScreenAuthoringFixes,
+  formatGeneralScreenRecoveryGuide,
+  formatScreenRecoveryGuide,
+  renderScreenTextPreview,
+  resolveCatalogSlotsToWire,
+  type PublicScreenTemplateDescription,
+  type ScreenDecodeContext,
+} from './screen-describe.js';
 import { evaluateScreenPredicates, validateScreenForm } from './screen-form.js';
 import {
+  collectScreenBindingErrors,
   serializeTemplateRecord,
   verifySignedTemplateRecord,
 } from './screen-record.js';
 import {
   SKELETONIZER_VERSION,
+  ScreenSkeletonizeError,
   assertBindingSchemaCompatible,
   rehydrateScreenFeedback,
   rehydrateSuggestedTemplate,
@@ -31,6 +50,7 @@ import {
   type CachedScreenTemplateEntry,
 } from './screen-store.js';
 import {
+  SCREEN_PUBLIC_CAPS,
   isValidTemplateId,
   type ScreenDataValue,
   type ScreenSkeleton,
@@ -45,6 +65,7 @@ export const MAX_PUBLIC_TEMPLATE_BYTES = 98_304;
 export interface ScreenAskInput {
   templateId?: string;
   template?: Record<string, unknown>;
+  slots?: Record<string, unknown>;
   labels?: Record<string, string>;
   data?: Record<string, ScreenDataValue>;
   thread?: ScreenThread;
@@ -66,25 +87,42 @@ export interface PendingScreenContext {
   requiresAuth?: boolean;
 }
 
+function localRecoveryHintForRaw(value: Record<string, unknown>): string {
+  const rawId = typeof value.templateId === 'string' ? value.templateId.trim() : '';
+  const entry = rawId ? (getScreenCatalogBySlug(rawId) ?? getScreenCatalogByTemplateId(rawId)) : undefined;
+  const guide = entry ? formatScreenRecoveryGuide(entry.slug) : formatGeneralScreenRecoveryGuide();
+  return `\n\n${guide}`;
+}
+
 export function parseScreenAskInput(value: unknown): ScreenAskInput {
   if (!isPlainObject(value)) {
-    throw new Error('Invalid screen: must be a JSON object');
+    throw new Error(
+      `Invalid screen: must be a JSON object with { templateId | template, slots | labels/data }.\n\n${formatGeneralScreenRecoveryGuide()}`
+    );
   }
-  const allowed = new Set(['templateId', 'template', 'labels', 'data', 'thread', 'mode']);
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) {
-      throw new Error(`Invalid screen: unexpected property "${key}"`);
-    }
+  const hint = value.template === undefined ? localRecoveryHintForRaw(value) : '';
+  const allowed = new Set(['templateId', 'template', 'slots', 'labels', 'data', 'thread', 'mode']);
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unexpected.length > 0) {
+    const label =
+      unexpected.length === 1
+        ? `unexpected property "${unexpected[0]}"`
+        : `unexpected properties ${unexpected.map((k) => `"${k}"`).join(', ')}`;
+    throw new Error(
+      `Invalid screen: ${label}. Allowed screen properties are templateId, template, slots, labels, data, thread, and mode (pass flat values in screen.slots, or blocks in screen.template).${hint}`
+    );
   }
   const hasTemplateId = value.templateId !== undefined;
   const hasTemplate = value.template !== undefined;
   if (hasTemplateId === hasTemplate) {
-    throw new Error('Invalid screen: provide exactly one of templateId or template');
+    throw new Error(`Invalid screen: provide exactly one of templateId or template${hint}`);
   }
   const out: ScreenAskInput = {};
   if (hasTemplateId) {
     if (typeof value.templateId !== 'string' || value.templateId.trim().length === 0) {
-      throw new Error('Invalid screen.templateId: must be a non-empty template ID or catalog slug');
+      throw new Error(
+        `Invalid screen.templateId: must be a non-empty template ID or catalog slug\n\n${formatGeneralScreenRecoveryGuide()}`
+      );
     }
     if (value.mode !== undefined) {
       throw new Error('Invalid screen.mode: mode is only supported with inline template');
@@ -97,20 +135,34 @@ export function parseScreenAskInput(value: unknown): ScreenAskInput {
     }
     out.template = value.template;
   }
+  if (value.slots !== undefined) {
+    if (hasTemplate) {
+      throw new Error('Invalid screen.slots: only supported with built-in catalog templateId (inline screen.template embeds values directly inside blocks)');
+    }
+    if (value.labels !== undefined || value.data !== undefined) {
+      throw new Error(`Invalid screen: pass either screen.slots or legacy screen.labels/screen.data, not both.${hint}`);
+    }
+    if (!isPlainObject(value.slots)) {
+      throw new Error(`Invalid screen.slots: must be an object mapping slot names to values.${hint}`);
+    }
+    out.slots = value.slots as Record<string, unknown>;
+  }
   if (value.labels !== undefined) {
     if (!isPlainObject(value.labels)) {
-      throw new Error('Invalid screen.labels: must be a string map');
+      throw new Error(`Invalid screen.labels: must be a map of slot IDs (s0, s1, ...) to strings${hint}`);
     }
     for (const [k, v] of Object.entries(value.labels)) {
       if (typeof v !== 'string') {
-        throw new Error(`Invalid screen.labels.${k}: must be a string`);
+        throw new Error(
+          `Invalid screen.labels.${k}: must be a string (screen.labels holds display text strings; put arrays, objects, or diffs in screen.data instead)${hint}`
+        );
       }
     }
     out.labels = value.labels as Record<string, string>;
   }
   if (value.data !== undefined) {
     if (!isPlainObject(value.data)) {
-      throw new Error('Invalid screen.data: must be an object');
+      throw new Error(`Invalid screen.data: must be an object mapping slot IDs (s0, s1, ...) to arrays or diff objects${hint}`);
     }
     out.data = value.data as Record<string, ScreenDataValue>;
   }
@@ -427,12 +479,14 @@ export type ScreenResolutionOutcome =
   | {
       ok: true;
       templateId: ScreenTemplateId;
+      templateSlug?: string;
       skeleton: ScreenSkeleton;
       labels: Record<string, string>;
       data: Record<string, ScreenDataValue>;
       repaired?: true;
       suggestedTemplate?: Record<string, unknown>;
       changes?: ScreenFeedbackItem[];
+      ordinalMap?: ScreenOrdinalMap;
     }
   | {
       ok: false;
@@ -461,20 +515,37 @@ export async function resolveScreenForDispatch(
   const now = (runtime.now ?? Date.now)();
 
   if (input.templateId !== undefined) {
-    const labels = input.labels ?? {};
-    const data = input.data ?? {};
+    let labels = input.labels ?? {};
+    let data = input.data ?? {};
 
     // 1. Catalog table (slug or templateId): never GET or PUT.
     const catalogHit =
       getScreenCatalogBySlug(input.templateId) ?? getScreenCatalogByTemplateId(input.templateId);
     if (catalogHit) {
+      if (input.slots !== undefined) {
+        const mapped = resolveCatalogSlotsToWire(catalogHit.slug, input.slots);
+        if (mapped.errors.length > 0) {
+          throw new Error(
+            `${mapped.errors.join('; ')} ${formatScreenRecoveryGuide(catalogHit.slug)}`.trim(),
+          );
+        }
+        labels = mapped.labels;
+        data = mapped.data;
+      }
       return {
         ok: true,
         templateId: catalogHit.templateId,
+        templateSlug: catalogHit.slug,
         skeleton: catalogHit.skeleton,
         labels,
         data,
       };
+    }
+
+    if (input.slots !== undefined) {
+      throw new Error(
+        `screen.slots is only supported for named built-in templates (not bare templateId "${input.templateId}"). Pass labels/data for raw template hashes, or use screen.template / a catalog slug (${SCREEN_CATALOG_SLUGS.join(', ')}).`,
+      );
     }
 
     if (!isValidTemplateId(input.templateId)) {
@@ -537,7 +608,29 @@ export async function resolveScreenForDispatch(
 
   // Inline ad-hoc template flow.
   const mode = input.mode ?? 'auto';
-  const skeletonized = await skeletonizeScreenTemplate(input.template, input.labels, input.data);
+  let skeletonized: Awaited<ReturnType<typeof skeletonizeScreenTemplate>>;
+  try {
+    skeletonized = await skeletonizeScreenTemplate(input.template, input.labels, input.data);
+  } catch (error) {
+    if (error instanceof ScreenSkeletonizeError) {
+      const authoringFixes = error.partial
+        ? collectScreenAuthoringFixes(
+            error.partial.skeleton,
+            error.partial.labels,
+            error.partial.data,
+            error.partial.ordinalMap
+          )
+        : [];
+      const fixes = [...error.fixes, ...authoringFixes];
+      return {
+        ok: false,
+        errorCode: 'INVALID_TEMPLATE',
+        message: fixes.map((f) => `${f.at ? `${f.at}: ` : ''}${f.message}`).join('\n'),
+        fixes,
+      };
+    }
+    throw error;
+  }
   const candidateId: ScreenTemplateId = `tpl_${skeletonized.inputSkeletonHash}`;
 
   // 1. Catalog hit on exact skeleton hash: 0 POST, 0 GET, 0 PUT.
@@ -546,9 +639,11 @@ export async function resolveScreenForDispatch(
     return {
       ok: true,
       templateId: catalogMatch.templateId,
+      templateSlug: catalogMatch.slug,
       skeleton: catalogMatch.skeleton,
       labels: skeletonized.labels,
       data: skeletonized.data,
+      ordinalMap: skeletonized.ordinalMap,
     };
   }
 
@@ -597,6 +692,7 @@ export async function resolveScreenForDispatch(
             repaired: true,
             suggestedTemplate,
             changes,
+            ordinalMap: skeletonized.ordinalMap,
           };
         }
         return {
@@ -605,6 +701,7 @@ export async function resolveScreenForDispatch(
           skeleton: cached.record.skeleton,
           labels: skeletonized.labels,
           data: skeletonized.data,
+          ordinalMap: skeletonized.ordinalMap,
         };
       }
     }
@@ -700,6 +797,7 @@ export async function resolveScreenForDispatch(
       repaired: true,
       suggestedTemplate,
       changes,
+      ordinalMap: skeletonized.ordinalMap,
     };
   }
 
@@ -709,6 +807,7 @@ export async function resolveScreenForDispatch(
     skeleton: record.skeleton,
     labels: skeletonized.labels,
     data: skeletonized.data,
+    ordinalMap: skeletonized.ordinalMap,
   };
 }
 
@@ -977,6 +1076,273 @@ export async function verifyScreenSettlement(
       message: `Screen answer failed settlement verification: ${error instanceof Error ? error.message : 'malformed answer'}`,
     };
   }
+}
+
+const DECODE_CTX_DOMAIN = 'nb-local-screen-decode-v1';
+const utf8Encoder = new TextEncoder();
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+async function deriveLocalScreenDecodeKey(
+  requestId: string,
+  privateKeyJwk: JsonWebKey
+): Promise<CryptoKey | undefined> {
+  if (typeof privateKeyJwk.d !== 'string' || privateKeyJwk.d.length === 0) {
+    return undefined;
+  }
+  const digest = await sha256(
+    utf8Encoder.encode(`${DECODE_CTX_DOMAIN}|${requestId}|${privateKeyJwk.d}`)
+  );
+  return crypto.subtle.importKey(
+    'raw',
+    digest as unknown as BufferSource,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Encrypts human-readable screen labels/options for pending storage using a key derived from the
+ * ephemeral reply private key so zero screen plaintext rests on disk (D46).
+ */
+export async function sealPendingScreenDecodeContext(
+  requestId: string,
+  privateKeyJwk: JsonWebKey,
+  ctx: ScreenDecodeContext
+): Promise<{ iv: string; ct: string } | undefined> {
+  const aesKey = await deriveLocalScreenDecodeKey(requestId, privateKeyJwk);
+  if (!aesKey) return undefined;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const aad = utf8Encoder.encode(`${DECODE_CTX_DOMAIN}|${requestId}`);
+  const ct = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as unknown as BufferSource, additionalData: aad as unknown as BufferSource },
+    aesKey,
+    utf8Encoder.encode(JSON.stringify(ctx)) as unknown as BufferSource
+  );
+  return { iv: toB64u(iv), ct: toB64u(new Uint8Array(ct)) };
+}
+
+/**
+ * Unwraps the encrypted human-readable screen decode context from `PendingReply` on resolution.
+ */
+export async function openPendingScreenDecodeContext(
+  requestId: string,
+  privateKeyJwk: JsonWebKey,
+  box: { iv: string; ct: string }
+): Promise<ScreenDecodeContext | undefined> {
+  try {
+    const aesKey = await deriveLocalScreenDecodeKey(requestId, privateKeyJwk);
+    if (!aesKey) return undefined;
+    const iv = fromB64u(box.iv);
+    if (iv.length !== 12) return undefined;
+    const aad = utf8Encoder.encode(`${DECODE_CTX_DOMAIN}|${requestId}`);
+    const pt = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as unknown as BufferSource, additionalData: aad as unknown as BufferSource },
+      aesKey,
+      fromB64u(box.ct) as unknown as BufferSource
+    );
+    const parsed = JSON.parse(utf8Decoder.decode(pt));
+    if (!isPlainObject(parsed)) return undefined;
+    return parsed as unknown as ScreenDecodeContext;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface LocalScreenDryRunResult {
+  valid: boolean;
+  templateId: string;
+  templateSlug?: string;
+  errors: string[];
+  fixes?: ScreenFeedbackItem[];
+  layout?: PublicScreenTemplateDescription;
+  preview?: string;
+}
+
+/**
+ * Validates a local screen ask input offline without registering on or sending to the relay.
+ */
+export async function dryRunLocalScreen(
+  config: NotiBuddyConfig,
+  store: ScreenTemplateStore,
+  input: ScreenAskInput,
+  title?: string
+): Promise<LocalScreenDryRunResult> {
+  const errors: string[] = [];
+  const fixes: ScreenFeedbackItem[] = [];
+  if (typeof title === 'string' && utf8ByteLength(title) > SCREEN_PUBLIC_CAPS.maxTitleBytes) {
+    const msg = `title exceeds maximum byte length (${SCREEN_PUBLIC_CAPS.maxTitleBytes})`;
+    errors.push(msg);
+    fixes.push({ code: 'INVALID_TITLE', message: msg, at: 'title' });
+  }
+  let labels = input.labels ?? {};
+  let data = input.data ?? {};
+
+  if (input.templateId !== undefined) {
+    const catalogEntry =
+      getScreenCatalogBySlug(input.templateId) ?? getScreenCatalogByTemplateId(input.templateId);
+    const resolvedEntry =
+      catalogEntry ??
+      (isValidTemplateId(input.templateId)
+        ? (await store.readRecord(relayOriginOf(config.relay), input.templateId))?.record
+        : undefined);
+    const skeleton = catalogEntry?.skeleton ?? resolvedEntry?.skeleton;
+    const templateId = catalogEntry?.templateId ?? resolvedEntry?.templateId ?? input.templateId;
+    const templateSlug = catalogEntry?.slug;
+    const layout = catalogEntry ? describeScreenTemplate(catalogEntry.slug) : undefined;
+    if (!skeleton) {
+      const msg = `Template "${input.templateId}" is not a built-in catalog slug and was not found in the local template cache.`;
+      errors.push(msg);
+      fixes.push({ code: 'TEMPLATE_NOT_FOUND', message: msg, at: 'templateId' });
+      return {
+        valid: false,
+        templateId,
+        ...(templateSlug ? { templateSlug } : {}),
+        errors,
+        fixes,
+        ...(layout ? { layout } : {}),
+      };
+    }
+
+    if (input.slots !== undefined) {
+      if (!catalogEntry) {
+        const msg =
+          'screen.slots is only supported for the 8 built-in catalog templates; pass screen.labels and screen.data for bare templateId hashes.';
+        errors.push(msg);
+        fixes.push({ code: 'INVALID_SLOTS', message: msg, at: 'slots' });
+      } else {
+        const mapped = resolveCatalogSlotsToWire(catalogEntry.slug, input.slots);
+        for (const e of mapped.errors) {
+          errors.push(e);
+          fixes.push({ code: 'INVALID_SLOT', message: e, at: 'slots' });
+        }
+        labels = mapped.labels;
+        data = mapped.data;
+      }
+    }
+
+    const labelKeys = Object.keys(labels);
+    if (labelKeys.length > SCREEN_PUBLIC_CAPS.maxLabelsEntries) {
+      errors.push('labels exceeds maximum entry count');
+      fixes.push({ code: 'INVALID_LABELS', message: 'labels exceeds maximum entry count', at: 'labels' });
+    }
+    const dataKeys = Object.keys(data);
+    if (dataKeys.length > SCREEN_PUBLIC_CAPS.maxDataEntries) {
+      errors.push('data exceeds maximum entry count');
+      fixes.push({ code: 'INVALID_DATA', message: 'data exceeds maximum entry count', at: 'data' });
+    }
+    const binding = collectScreenBindingErrors(skeleton, { labels, data }, templateSlug);
+    for (const e of binding.errors) {
+      if (!errors.includes(e)) errors.push(e);
+      fixes.push({ code: 'INVALID_BINDING', message: e });
+    }
+    for (const af of collectScreenAuthoringFixes(skeleton, labels, data)) {
+      fixes.push(af);
+      const msg = af.at ? `${af.at}: ${af.message}` : af.message;
+      if (!errors.includes(msg)) errors.push(msg);
+    }
+    const preview = renderScreenTextPreview(skeleton, labels, data, title);
+    return {
+      valid: errors.length === 0 && fixes.length === 0,
+      templateId,
+      ...(templateSlug ? { templateSlug } : {}),
+      errors,
+      ...(fixes.length > 0 ? { fixes } : {}),
+      ...(layout ? { layout } : {}),
+      preview,
+    };
+  }
+
+  let skeletonized: Awaited<ReturnType<typeof skeletonizeScreenTemplate>>;
+  try {
+    skeletonized = await skeletonizeScreenTemplate(input.template!, input.labels, input.data);
+  } catch (error) {
+    if (error instanceof ScreenSkeletonizeError) {
+      fixes.push(...error.fixes);
+      for (const f of error.fixes) {
+        const msg = f.at ? `${f.at}: ${f.message}` : f.message;
+        if (!errors.includes(msg)) errors.push(msg);
+      }
+      let preview: string | undefined;
+      if (error.partial) {
+        const extra = collectScreenAuthoringFixes(
+          error.partial.skeleton,
+          error.partial.labels,
+          error.partial.data,
+          error.partial.ordinalMap
+        );
+        for (const af of extra) {
+          fixes.push(af);
+          const msg = af.at ? `${af.at}: ${af.message}` : af.message;
+          if (!errors.includes(msg)) errors.push(msg);
+        }
+        const binding = collectScreenBindingErrors(error.partial.skeleton, {
+          labels: error.partial.labels,
+          data: error.partial.data,
+        });
+        for (const e of binding.errors) {
+          if (!errors.includes(e)) errors.push(e);
+        }
+        preview = renderScreenTextPreview(
+          error.partial.skeleton,
+          error.partial.labels,
+          error.partial.data,
+          title,
+          error.partial.ordinalMap
+        );
+      }
+      return {
+        valid: false,
+        templateId: 'inline',
+        errors,
+        fixes,
+        ...(preview !== undefined ? { preview } : {}),
+      };
+    }
+    throw error;
+  }
+
+  const candidateId: ScreenTemplateId = `tpl_${skeletonized.inputSkeletonHash}`;
+  const catalogMatch = getScreenCatalogByTemplateId(candidateId);
+  const layout = catalogMatch ? describeScreenTemplate(catalogMatch.slug) : undefined;
+  const binding = collectScreenBindingErrors(
+    skeletonized.skeleton,
+    {
+      labels: skeletonized.labels,
+      data: skeletonized.data,
+    },
+    catalogMatch?.slug
+  );
+  for (const e of binding.errors) {
+    if (!errors.includes(e)) errors.push(e);
+    fixes.push({ code: 'INVALID_BINDING', message: e });
+  }
+  for (const af of collectScreenAuthoringFixes(
+    skeletonized.skeleton,
+    skeletonized.labels,
+    skeletonized.data,
+    skeletonized.ordinalMap
+  )) {
+    fixes.push(af);
+    const msg = af.at ? `${af.at}: ${af.message}` : af.message;
+    if (!errors.includes(msg)) errors.push(msg);
+  }
+  const preview = renderScreenTextPreview(
+    skeletonized.skeleton,
+    skeletonized.labels,
+    skeletonized.data,
+    title,
+    skeletonized.ordinalMap
+  );
+  return {
+    valid: errors.length === 0 && fixes.length === 0,
+    templateId: catalogMatch?.templateId ?? candidateId,
+    ...(catalogMatch ? { templateSlug: catalogMatch.slug } : {}),
+    errors,
+    ...(fixes.length > 0 ? { fixes } : {}),
+    ...(layout ? { layout } : {}),
+    preview,
+  };
 }
 
 export type { ScreenOrdinalMap };

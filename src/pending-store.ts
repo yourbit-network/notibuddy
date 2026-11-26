@@ -16,6 +16,7 @@ export interface PendingReply {
   recipients?: unknown;
   dispatch?: 'pending' | 'accepted';
   screen?: PendingScreenContext;
+  screenDecodeCt?: { iv: string; ct: string };
 }
 export interface ActivitySession {
   payload: ActivityPayload;

@@ -29,19 +29,33 @@ import { PendingStore, PendingStorageError, type PendingReply, type ActivitySess
 import { parseDiff } from './diff.js';
 import type { DiffInput } from './types.js';
 import {
+  dryRunLocalScreen,
+  openPendingScreenDecodeContext,
   parseScreenAskInput,
   registerScreenTemplateOnRelay,
   resolveScreenForDispatch,
+  sealPendingScreenDecodeContext,
   verifyScreenSettlement,
   type PendingScreenContext,
   type RegisterScreenTemplateResult,
   type ScreenAskInput,
   type ScreenRuntimeOptions,
 } from './screen-client.js';
+import { getScreenCatalogByTemplateId } from './screen-catalog.js';
+import { isPlainObject } from './screen-canon.js';
+import {
+  decodeScreenAnswer,
+  extractScreenDecodeContext,
+  formatGeneralScreenRecoveryGuide,
+  formatScreenRecoveryGuide,
+  type DecodedScreenAnswer,
+  type PublicScreenTemplateDescription,
+  type ScreenDecodeContext,
+} from './screen-describe.js';
 import { validateScreenRequestBindings } from './screen-record.js';
 import type { ScreenFeedbackItem } from './screen-skeletonizer.js';
 import { ScreenTemplateStore } from './screen-store.js';
-import type { ScreenRequestPlaintext } from './screen-types.js';
+import type { ScreenFormMap, ScreenRequestPlaintext } from './screen-types.js';
 import { computeScreenContextDigest, validateScreenRequestPlaintext } from './screen-wire.js';
 
 const field = z.object({
@@ -62,16 +76,39 @@ export const askFields = z.object({
   title:z.string().min(1).max(500).optional(), message:z.string().max(50000).optional(),
   options:z.array(z.string().trim().min(1).max(200)).max(20).optional(), declineOption:z.string().trim().min(1).max(200).optional(), inputPlaceholder:z.string().max(500).optional(),
   fields:z.array(field).min(1).max(50).optional(), requiresAuth:z.boolean().optional(),
+  dryRun:z.boolean().optional(),
   timeoutSeconds:z.number().int().min(1).max(MAX_REQUEST_TIMEOUT_SECONDS).default(DEFAULT_REQUEST_TIMEOUT_SECONDS),
   waitSeconds:z.number().finite().min(0).max(MAX_REPLY_WAIT_SECONDS).default(25), resumeId:z.string().optional(),
 });
 const askSchema = askFields.refine(p => p.resumeId || p.title, 'A title is required for a new request')
   .refine(p => p.declineOption === undefined || !!p.options?.includes(p.declineOption),'declineOption must be one of options')
   .refine(p => !p.fields || new Set(p.fields.map(f=>f.id)).size === p.fields.length,'Form field IDs must be unique')
+  .refine(p => !(p.dryRun && p.resumeId), 'Cannot combine dryRun with resumeId')
   .refine(p => p.diff === undefined || (!p.fields && !p.options && p.inputPlaceholder === undefined && !p.resumeId && p.screen === undefined),
     'A new diff request cannot include form fields, choices, text input, screen or a resume ID')
-  .refine(p => p.screen === undefined || (p.message === undefined && !p.fields && !p.options && p.declineOption === undefined && p.inputPlaceholder === undefined && p.diff === undefined && !p.resumeId),
-    'A new screen request cannot include message, choices, form fields, text input, diff or a resume ID')
+  .superRefine((p, ctx) => {
+    if (
+      p.screen !== undefined &&
+      (p.message !== undefined ||
+        p.fields !== undefined ||
+        p.options !== undefined ||
+        p.declineOption !== undefined ||
+        p.inputPlaceholder !== undefined ||
+        p.diff !== undefined ||
+        p.resumeId !== undefined)
+    ) {
+      const maybeId =
+        isPlainObject(p.screen) && typeof p.screen.templateId === 'string'
+          ? p.screen.templateId.trim()
+          : '';
+      const guide =
+        (maybeId ? formatScreenRecoveryGuide(maybeId) : '') || formatGeneralScreenRecoveryGuide();
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `A new screen request cannot include message, choices, form fields, text input, diff or a resume ID. Pass all content in screen.slots (for presets) or screen.template (custom layouts).\n\n${guide}`,
+      });
+    }
+  })
   .refine(p => !(p.options?.length === 0 && !p.fields && p.inputPlaceholder === undefined && p.screen === undefined && p.requiresAuth),
     'Passive notifications with empty options cannot require authentication');
 export const activitySchema = z.object({
@@ -99,12 +136,18 @@ export type AskParams = Omit<z.input<typeof askSchema>, 'diff' | 'screen'> & { d
 export type ActivityParams = z.input<typeof activitySchema>;
 export type NotifyParams = z.input<typeof notifySchema>;
 export type AskResult = {
-  status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found';
+  status:'resolved'|'delivered'|'pending'|'error'|'expired'|'not_found'|'dry_run';
   requestId:string;
   answer?:AnswerPayload;
+  decoded?:DecodedScreenAnswer;
+  valid?:boolean;
+  errors?:string[];
+  layout?:PublicScreenTemplateDescription;
+  preview?:string;
   errorCode?:string;
   message?:string;
   templateId?:string;
+  templateSlug?:string;
   repaired?:boolean;
   suggestedTemplate?:Record<string, unknown>;
   changes?:ScreenFeedbackItem[];
@@ -467,9 +510,11 @@ export class NotiBuddyClient {
     return {recipients:body,envelope:await sealGroupRequest({requestId:id,senderKeyId:this.config.senderKeyId,signingKey:this.signingKey,recipients,primitive,payload,timeoutSeconds:timeout,expiresAt,
       ...(payload.type==='activity'?{sessionId:payload.activityId,revision:payload.revision}: {})})};
   }
-  private async prepare(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload|ScreenRequestPlaintext,key:CryptoKey,timeout:number,options:CallOptions,version?:1|2,screen?:PendingScreenContext):Promise<PendingReply> {
+  private async prepare(id:string,primitive:PrimitiveType,payload:AskPayload|ActivityPayload|ScreenRequestPlaintext,key:CryptoKey,timeout:number,options:CallOptions,version?:1|2,screen?:PendingScreenContext,screenDecode?:ScreenDecodeContext):Promise<PendingReply> {
     const prepared=await this.seal(id,primitive,payload,timeout,options,version);
-    const saved:PendingReply={privateKeyJwk:await crypto.subtle.exportKey('jwk',key),expiresAt:prepared.envelope.expiresAt,...prepared,dispatch:'pending',...(screen?{screen}:{})};
+    const privateKeyJwk=await crypto.subtle.exportKey('jwk',key);
+    const screenDecodeCt=screenDecode?await sealPendingScreenDecodeContext(id,privateKeyJwk,screenDecode):undefined;
+    const saved:PendingReply={privateKeyJwk,expiresAt:prepared.envelope.expiresAt,...prepared,dispatch:'pending',...(screen?{screen}:{}),...(screenDecodeCt?{screenDecodeCt}:{})};
     this.savePending(id,saved);return saved;
   }
   /** `plaintext` lives in memory only; a record saved by an earlier process has none. */
@@ -518,9 +563,23 @@ export class NotiBuddyClient {
         try{rawAnswer=JSON.parse(plaintext);}
         catch{return {status:'error',requestId:envelope.requestId,errorCode:'SETTLEMENT_UNVERIFIED',message:'Screen answer is not valid JSON.'};}
         const verified=await verifyScreenSettlement(saved.screen,rawAnswer);
-        return verified.status==='resolved'
-          ? {status:'resolved',requestId:envelope.requestId,answer:verified.answer}
-          : {status:'error',requestId:envelope.requestId,errorCode:verified.errorCode,message:verified.message};
+        if(verified.status!=='resolved') {
+          return {status:'error',requestId:envelope.requestId,errorCode:verified.errorCode,message:verified.message};
+        }
+        const decodeCtx=saved.screenDecodeCt
+          ? await openPendingScreenDecodeContext(id,saved.privateKeyJwk,saved.screenDecodeCt)
+          : undefined;
+        const catalogSlug=saved.screen?getScreenCatalogByTemplateId(saved.screen.templateId)?.slug:undefined;
+        const decoded=saved.screen
+          ? decodeScreenAnswer(
+              saved.screen.skeleton,
+              (verified.answer.values?.form ?? {}) as ScreenFormMap,
+              verified.answer.action,
+              decodeCtx,
+              catalogSlug ?? saved.screen.templateId,
+            )
+          : undefined;
+        return {status:'resolved',requestId:envelope.requestId,answer:verified.answer,...(decoded?{decoded}:{})};
       }
       return {status:'resolved',requestId:envelope.requestId,answer:await openGroupResponse({input:envelope,request:saved.envelope,recipients,replyKey:key})};
     }
@@ -586,6 +645,13 @@ export class NotiBuddyClient {
   async ask(input:AskParams,options:CallOptions={}):Promise<AskResult> {
     const params=askSchema.parse(input),diff=params.diff === undefined ? undefined : parseDiff(params.diff);
     const screenInput=params.screen === undefined ? undefined : parseScreenAskInput(params.screen);
+    if(params.dryRun) {
+      if(screenInput) {
+        const dry=await dryRunLocalScreen(this.config,this.screenStore,screenInput,params.title);
+        return {status:'dry_run',requestId:'dry_run',...dry};
+      }
+      return {status:'dry_run',requestId:'dry_run',valid:true,message:'Dry-run validation passed; no notification was sent.'};
+    }
     if(screenInput && (this.config.requestProtocol ?? 1)!==2) {
       throw Error('Certified screen requests require a Protocol v2 destination');
     }
@@ -601,9 +667,16 @@ export class NotiBuddyClient {
     }
     return this.store.withOperation('reply:'+id,async()=>{
       let saved:PendingReply,sealed:AskPayload|ScreenRequestPlaintext|undefined;
-      let screenMeta:Pick<AskResult,'templateId'|'repaired'|'suggestedTemplate'|'changes'>|undefined;
+      let screenMeta:Pick<AskResult,'templateId'|'templateSlug'|'repaired'|'suggestedTemplate'|'changes'>|undefined;
       const withMeta=(result:AskResult):AskResult=>screenMeta ? {...result,...screenMeta} : result;
-      if(params.resumeId) {saved=this.readPending(id);if(saved.envelope?.primitive.startsWith('activity_'))throw Error('Use activity poll to resume activity controls');}
+      if(params.resumeId) {
+        saved=this.readPending(id);
+        if(saved.envelope?.primitive.startsWith('activity_'))throw Error('Use activity poll to resume activity controls');
+        if(saved.screen) {
+          const resumeSlug=getScreenCatalogByTemplateId(saved.screen.templateId)?.slug;
+          screenMeta={templateId:saved.screen.templateId,...(resumeSlug?{templateSlug:resumeSlug}:{})};
+        }
+      }
       else if(screenInput) {
         const resolved=await resolveScreenForDispatch(this.config,this.signingKey,this.screenStore,screenInput,call,this.screenRuntime);
         if(!resolved.ok) {
@@ -617,8 +690,10 @@ export class NotiBuddyClient {
             ...(resolved.fixes!==undefined?{fixes:resolved.fixes}:{}),
           };
         }
+        const catalogSlug=resolved.templateSlug ?? getScreenCatalogByTemplateId(resolved.templateId)?.slug;
         screenMeta={
           templateId:resolved.templateId,
+          ...(catalogSlug?{templateSlug:catalogSlug}:{}),
           ...(resolved.repaired?{repaired:true,suggestedTemplate:resolved.suggestedTemplate,changes:resolved.changes}:{}),
         };
         const pair=await generateReplyKeyPair();
@@ -635,9 +710,17 @@ export class NotiBuddyClient {
           data:resolved.data,
           ...(screenInput.thread!==undefined?{thread:screenInput.thread}:{}),
         };
-        const validatedPayload=validateScreenRequestPlaintext(candidatePayload);
-        const counts=validateScreenRequestBindings(resolved.skeleton,validatedPayload);
+        const counts=validateScreenRequestBindings(resolved.skeleton,{labels:candidatePayload.labels,data:candidatePayload.data},catalogSlug);
+        let validatedPayload:ScreenRequestPlaintext;
+        try {
+          validatedPayload=validateScreenRequestPlaintext(candidatePayload);
+        } catch (err) {
+          const msg=err instanceof Error ? err.message : 'Invalid screen request';
+          const guide=catalogSlug ? formatScreenRecoveryGuide(catalogSlug) : '';
+          throw Error(guide ? `${msg}\n\n${guide}` : msg);
+        }
         const contextDigest=await computeScreenContextDigest(id,new TextEncoder().encode(JSON.stringify(validatedPayload)));
+        const decodeCtx=extractScreenDecodeContext(resolved.skeleton,validatedPayload.labels,validatedPayload.data,catalogSlug,resolved.ordinalMap);
         const pendingScreen:PendingScreenContext={
           templateId:resolved.templateId,
           contextDigest,
@@ -647,7 +730,7 @@ export class NotiBuddyClient {
           ...(validatedPayload.sensitive!==undefined?{sensitive:validatedPayload.sensitive}:{}),
           ...(validatedPayload.requiresAuth!==undefined?{requiresAuth:validatedPayload.requiresAuth}:{}),
         };
-        saved=await this.prepare(id,'screen',validatedPayload,pair.privateKey,params.timeoutSeconds,call,2,pendingScreen);
+        saved=await this.prepare(id,'screen',validatedPayload,pair.privateKey,params.timeoutSeconds,call,2,pendingScreen,decodeCtx);
         sealed=validatedPayload;
       } else {
         const pair=await generateReplyKeyPair(),primitive:PrimitiveType=diff?'diff':params.fields?.length?'form':params.inputPlaceholder!==undefined?'text_input':'approval';
