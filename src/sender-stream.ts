@@ -18,6 +18,7 @@ export const RESYNC_INTERVAL_MS = 90_000;
 export const MAX_RESYNC_INTERVAL_MS = 300_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 const FALLBACK_COOLDOWN_MS = 5_000;
+const MAX_FALLBACK_COOLDOWN_MS = 60_000;
 const MAX_SEEN_REQUESTS = 256;
 
 export function scaledResyncIntervalMs(loadScale = 1): number {
@@ -49,6 +50,7 @@ export class SenderStream {
   private connecting?: Promise<boolean>;
   private closedPermanently = false;
   private cooldownUntil = 0;
+  private consecutiveFailures = 0;
   private rotationAttempted = false;
   private activeWaits = 0;
   private waiters = new Map<string, Set<(reason: WaitOutcome) => void>>();
@@ -212,6 +214,8 @@ export class SenderStream {
           }
           this.socket = ws;
           this.rotationAttempted = false;
+          this.consecutiveFailures = 0;
+          this.cooldownUntil = 0;
           if (this.hadEstablishedConnection) this.activityResyncNeeded = true;
           this.hadEstablishedConnection = true;
           finish(true);
@@ -244,7 +248,15 @@ export class SenderStream {
         if (rotated && (await tryDial())) return true;
       } catch {}
     }
-    this.cooldownUntil = Date.now() + FALLBACK_COOLDOWN_MS;
+    const rawScale = this.getLoadScale?.() ?? 1;
+    const loadScale = Number.isFinite(rawScale) ? Math.min(10, Math.max(1, rawScale)) : 1;
+    const baseCooldown = Math.min(
+      MAX_FALLBACK_COOLDOWN_MS,
+      FALLBACK_COOLDOWN_MS * 2 ** Math.min(this.consecutiveFailures, 4),
+    );
+    const cooldownMs = Math.min(MAX_FALLBACK_COOLDOWN_MS, Math.round(baseCooldown * loadScale));
+    this.consecutiveFailures += 1;
+    this.cooldownUntil = Date.now() + cooldownMs;
     return false;
   }
 

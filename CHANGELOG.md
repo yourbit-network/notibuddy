@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3 — 2026-11-26
+
+- **Ergonomic Custom Screens & Builder Resources:** Add flat semantic `screen.slots` for all 8 built-in certified layouts (preserving backward compatibility for `labels`/`data`) and publish `notibuddy://screens/{templateId}` and `notibuddy://screens/builder` MCP resources alongside updated `notibuddy_notify` guidance.
+- **Certifier-Parity `dry_run`, Phone Preview, & Single-Use `draft_id`:** Run full structural/authoring limit checks (including the 1–3 action cap) during `dry_run: true`, return a phone-width text `preview` with `diffViewer` excerpts, `templateSlug` metadata, and a RAM-only single-use `draft_id` handle so live sends do not repeat checked payloads and zero plaintext is stored at rest.
+- **Clearer Screen Validation & Replies:** Report multi-issue screen validation diagnostics with structured `fixes` arrays, name disallowed control/format characters explicitly, allow picker option label matching in `enabledWhen.equals`, and include `actionLabel` in settled screen replies.
+
 ## 0.4.2 — 2026-11-23
 
 - Coalesce Live Activity updates with load-scaled client pacing, debouncing, and `Retry-After` / `429` backpressure handling, eliminating redundant MCP polling and lookup overhead.

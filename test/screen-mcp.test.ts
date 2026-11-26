@@ -351,6 +351,32 @@ async function main(): Promise<void> {
       });
       assert.equal(resumed.status, 'resolved');
       assert.deepEqual(resumed.answer, renderedAnswer);
+      assert.deepEqual(resumed.decoded, {
+        templateId: 'action_checklist',
+        action: {
+          id: 'a0',
+          label: 'Proceed',
+          role: 'primary',
+          requireBio: true,
+        },
+        checklists: [
+          {
+            id: 'c0',
+            title: 'Required Steps',
+            checked: ['CI green', 'Changelog updated'],
+            unchecked: [],
+            allChecked: true,
+          },
+        ],
+        fields: [
+          {
+            id: 'f0',
+            type: 'toggle',
+            label: 'Confirm production freeze',
+            value: true,
+          },
+        ],
+      });
 
       // Even 40 days later, catalog tpl_ ID makes 0 template GET/PUT calls.
       fakeNow += 40 * 24 * 60 * 60 * 1000;
@@ -1681,6 +1707,153 @@ async function main(): Promise<void> {
             assert.equal(postReqs, 1, scenario.name);
           }
         }
+      }
+      // -----------------------------------------------------------------------
+      // Multi-error validation + dry_run preview (zero HTTP calls)
+      // -----------------------------------------------------------------------
+      {
+        let dryRunHttpCalls = 0;
+        globalThis.fetch = async () => {
+          dryRunHttpCalls += 1;
+          throw new Error('dry_run must make 0 HTTP calls');
+        };
+        const badDry = await makeClient(pairedA, true).ask({
+          title: 'Bad dry run',
+          dryRun: true,
+          screen: {
+            templateId: 'deployment_gate',
+            labels: {},
+            data: {},
+          },
+        });
+        assert.equal(badDry.status, 'dry_run');
+        assert.equal(badDry.valid, false);
+        assert.ok(Array.isArray(badDry.errors) && badDry.errors.length >= 6, 'Should report all missing slots at once');
+        assert.equal(badDry.layout?.templateId, 'deployment_gate');
+        assert.equal(dryRunHttpCalls, 0);
+
+        const goodDry = await makeClient(pairedA, true).ask({
+          title: 'Good dry run',
+          dryRun: true,
+          screen: badDry.layout!.example,
+        });
+        assert.equal(goodDry.status, 'dry_run');
+        assert.equal(goodDry.valid, true);
+        assert.deepEqual(goodDry.errors, []);
+        assert.equal(goodDry.templateSlug, 'deployment_gate');
+        assert.equal(goodDry.templateId, SCREEN_CATALOG_BY_SLUG.deployment_gate.templateId);
+        assert.ok(typeof goodDry.preview === 'string' && goodDry.preview.includes('Good dry run'));
+        assert.equal(dryRunHttpCalls, 0);
+
+        const inlineDry = await makeClient(pairedA, true).ask({
+          title: 'Inline dry run',
+          dryRun: true,
+          screen: {
+            template: {
+              v: 1,
+              root: { kind: 'card', children: [{ kind: 'text', text: 'Check deploy?' }] },
+              actions: [{ id: 'ok', label: 'Proceed', role: 'primary', requireBio: false }],
+            },
+          },
+        });
+        assert.equal(inlineDry.status, 'dry_run');
+        assert.equal(inlineDry.valid, true);
+        assert.ok(typeof inlineDry.preview === 'string' && inlineDry.preview.includes('Check deploy?'));
+        assert.ok(inlineDry.preview.includes('[Button: Proceed]'));
+        assert.equal(dryRunHttpCalls, 0);
+
+        // Flat semantic slots dry-run + error guidance
+        const slotsBadDry = await makeClient(pairedA, true).ask({
+          title: 'Bad slots dry run',
+          dryRun: true,
+          screen: { templateId: 'deployment_gate', slots: { nonexistentSlot: 'oops' } },
+        });
+        assert.equal(slotsBadDry.status, 'dry_run');
+        assert.equal(slotsBadDry.valid, false);
+        assert.ok(slotsBadDry.errors?.some((e) => e.includes('Unknown slot "nonexistentSlot"')));
+
+        // Inline dryRun reports exact newline codepoint AND 4-action limit together in structured fixes
+        const multiInlineBad = await makeClient(pairedA, true).ask({
+          title: 'Multi issue inline dry run',
+          dryRun: true,
+          screen: {
+            template: {
+              v: 1,
+              root: {
+                kind: 'card',
+                children: [{ kind: 'text', style: 'mono', text: 'line1\nline2' }],
+              },
+              actions: [
+                { id: 'a0', label: 'One', role: 'primary', requireBio: false },
+                { id: 'a1', label: 'Two', role: 'secondary', requireBio: false },
+                { id: 'a2', label: 'Three', role: 'secondary', requireBio: false },
+                { id: 'a3', label: 'Four', role: 'decline', requireBio: false },
+              ],
+            },
+          },
+        });
+        assert.equal(multiInlineBad.status, 'dry_run');
+        assert.equal(multiInlineBad.valid, false);
+        assert.ok(
+          multiInlineBad.fixes?.some(
+            (f) => f.code === 'DISALLOWED_CHARACTER' && f.message.includes('newline (\\n, U+000A)')
+          )
+        );
+        assert.ok(multiInlineBad.fixes?.some((f) => f.code === 'INVALID_ACTION_COUNT'));
+
+        // Inline dryRun accepts picker label string in enabledWhen.equals
+        const pickerLabelDry = await makeClient(pairedA, true).ask({
+          title: 'Picker label predicate dry run',
+          dryRun: true,
+          screen: {
+            template: {
+              v: 1,
+              root: {
+                kind: 'card',
+                children: [
+                  {
+                    kind: 'formField',
+                    id: 'step',
+                    fieldType: 'picker',
+                    label: 'Next step',
+                    options: ['Promote 25%', 'Hold', 'Rollback'],
+                  },
+                ],
+              },
+              actions: [
+                {
+                  id: 'go',
+                  label: 'Apply',
+                  role: 'primary',
+                  requireBio: false,
+                  enabledWhen: [{ op: 'equals', field: 'step', value: 'Promote 25%' }],
+                },
+              ],
+            },
+          },
+        });
+        assert.equal(pickerLabelDry.status, 'dry_run');
+        assert.equal(pickerLabelDry.valid, true);
+        assert.equal(dryRunHttpCalls, 0);
+
+        // Multi-error thrown on real send too
+        await assert.rejects(
+          () =>
+            makeClient(pairedA, true).ask({
+              title: 'Multi error check',
+              screen: { templateId: 'deployment_gate', labels: {}, data: { approvers: ['Alice'] } },
+            }),
+          (err: Error) =>
+            err.message.includes('Screen validation failed') &&
+            err.message.includes('Invalid data slot key "approvers"') &&
+            err.message.includes('valid screen.data slots here: "kpis" / s4, "details" / s6, "checklist" / s8') &&
+            err.message.includes('Missing required label for slot "s1"') &&
+            err.message.includes('Missing required data for slot "s4"') &&
+            err.message.includes('How to make "deployment_gate" valid:') &&
+            err.message.includes('Minimal valid screen object:') &&
+            err.message.includes('notibuddy://screens/deployment_gate')
+        );
+        assert.equal(dryRunHttpCalls, 0);
       }
     }
 

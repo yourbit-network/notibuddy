@@ -316,3 +316,58 @@ test(
     }
   },
 );
+
+test(
+  'SenderStream applies exponential cooldown backoff on repeated failed dials (scaled by loadScale)',
+  { skip: HAS_GLOBAL_WS ? false : 'global WebSocket requires Node 21+' },
+  async () => {
+    const phoneEnc = await generateReplyKeyPair();
+    const phoneSig = await generateSenderSigningKeyPair();
+    const sender = await generateSenderSigningKeyPair();
+    let dialCount = 0;
+    const server = createServer((_req, res) => {
+      res.writeHead(429);
+      res.end();
+    });
+    server.on('upgrade', (_req, socket) => {
+      dialCount += 1;
+      socket.write('HTTP/1.1 429 Too Many Requests\r\nRetry-After: 5\r\n\r\n');
+      socket.destroy();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as any).port;
+    try {
+      const config: NotiBuddyConfig = {
+        relay: `http://127.0.0.1:${port}`,
+        token: 'nb_snd_backoff_test',
+        device: {
+          id: await deriveDeviceId(phoneEnc.publicKeyB64u, phoneSig.publicKeyB64u),
+          encPub: phoneEnc.publicKeyB64u,
+          sigPub: phoneSig.publicKeyB64u,
+        },
+        senderKeyId: sender.senderKeyId,
+        senderLabel: 'BackoffTest',
+      };
+      const stream = new SenderStream(config, sender.privateKey, true, () => 2);
+      const t0 = Date.now();
+      assert.equal(await stream.waitForReply('req_1', Date.now() + 2_000), 'fallback');
+      assert.equal(dialCount, 1);
+      const firstCooldown = (stream as any).cooldownUntil - t0;
+      assert.ok(firstCooldown >= 9_000 && firstCooldown <= 12_000, `expected ~10s load-scaled cooldown, got ${firstCooldown}`);
+
+      // Immediate retry while in cooldown must NOT redial /v2/sender/ws.
+      assert.equal(await stream.waitForReply('req_1', Date.now() + 2_000), 'fallback');
+      assert.equal(dialCount, 1);
+
+      // Simulating cooldown expiry + second failure doubles cooldown (~20s).
+      (stream as any).cooldownUntil = 0;
+      const t1 = Date.now();
+      assert.equal(await stream.waitForReply('req_1', Date.now() + 2_000), 'fallback');
+      assert.equal(dialCount, 2);
+      const secondCooldown = (stream as any).cooldownUntil - t1;
+      assert.ok(secondCooldown >= 19_000 && secondCooldown <= 22_000, `expected ~20s doubled cooldown, got ${secondCooldown}`);
+    } finally {
+      server.close();
+    }
+  },
+);
