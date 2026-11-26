@@ -50,7 +50,7 @@ Supported on **both local** `notibuddy` MCP/`nb` CLI sessions and the **hosted c
 
 ### Conditional Button Gating (`enabledWhen`) & Actions
 
-Define **1–3 `actions`** per screen. Keep destructive or high-stakes actions locked until prerequisites pass on-device:
+Define **1–3 `actions`** per screen (`"dismiss"` is a reserved action `id` for host dismissal—use `"cancel"`, `"reject"`, `"hold"`, etc.). Keep destructive or high-stakes actions locked until prerequisites pass on-device:
 - `{ "op": "allChecked", "checklist": "<checklist-id>" }` — unlocks once every item in that checklist is tapped.
 - `{ "op": "isNotEmpty", "field": "<field-id>" }` — unlocks once a required note/input field is non-empty.
 - `{ "op": "equals", "field": "<field-id>", "value": true }` — matches a boolean `toggle`, integer `stepper`/`picker` index, or a `picker` option label string.

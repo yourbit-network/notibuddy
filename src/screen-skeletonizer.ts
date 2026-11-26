@@ -168,6 +168,7 @@ const SEMANTIC_ID_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
 
 const GRAPHEME_TIERS = [32, 64, 128, 256, 512, 1024, 2048, 4096] as const;
 const ITEM_TIERS = [4, 8, 16, 32, 64, 128, 256] as const;
+const KPI_ITEM_TIERS = [4, 6] as const;
 const BYTE_TIERS = [128, 256, 512, 1024, 2048, 4096, 8192, 16384] as const;
 const DIFF_BYTE_TIERS = [4096, 8192, 16384, 32768, 65536, 96000] as const;
 const DIFF_LINE_TIERS = [64, 128, 256, 512, 1024, 4096, 20000] as const;
@@ -192,9 +193,13 @@ function defaultTextBounds(text: string, minTier: number): { maxGraphemes: numbe
 
 function defaultDataBounds(
   items: readonly ScreenDataValue[],
-  requireNonEmpty: boolean
+  requireNonEmpty: boolean,
+  itemTiers: readonly number[] = ITEM_TIERS
 ): { minItems: number; maxItems: number; maxBytes: number } {
-  const maxItems = nextTier(Math.max(1, items.length), ITEM_TIERS);
+  const maxItems =
+    itemTiers === KPI_ITEM_TIERS && items.length <= 6
+      ? nextTier(Math.max(1, items.length), KPI_ITEM_TIERS)
+      : nextTier(Math.max(1, items.length), ITEM_TIERS);
   const bytes = utf8ByteLength(canonJson(items as unknown as ScreenCanonValue));
   const maxBytes = Math.min(SCREEN_PUBLIC_CAPS.maxSlotBytes, nextTier(Math.max(512, bytes), BYTE_TIERS));
   return {
@@ -524,7 +529,8 @@ export async function skeletonizeScreenTemplate(
     requireNonEmpty: boolean,
     originPath: string,
     context: string,
-    onInlineItems?: (items: ScreenDataValue[]) => void
+    onInlineItems?: (items: ScreenDataValue[]) => void,
+    itemTiers: readonly number[] = ITEM_TIERS
   ): ScreenDataSlot => {
     const slot: ScreenSlotId = `s${slotIndex}`;
     if (Array.isArray(raw)) {
@@ -542,7 +548,7 @@ export async function skeletonizeScreenTemplate(
         data[slot] = validated;
       }
       onInlineItems?.(validated);
-      const bounds = defaultDataBounds(validated, requireNonEmpty);
+      const bounds = defaultDataBounds(validated, requireNonEmpty, itemTiers);
       return requireNonEmpty
         ? { slot, minItems: bounds.minItems, maxItems: bounds.maxItems, maxBytes: bounds.maxBytes }
         : { slot, maxItems: bounds.maxItems, maxBytes: bounds.maxBytes };
@@ -574,7 +580,8 @@ export async function skeletonizeScreenTemplate(
         }
       }
       ordinalMap.slotOrigin[slot] = { path: originPath, inline: inlineArray !== undefined };
-      const fallback = inlineArray !== undefined ? defaultDataBounds(inlineArray, requireNonEmpty) : undefined;
+      const fallback =
+        inlineArray !== undefined ? defaultDataBounds(inlineArray, requireNonEmpty, itemTiers) : undefined;
       const maxItems = raw.maxItems ?? fallback?.maxItems;
       const maxBytes = raw.maxBytes ?? fallback?.maxBytes;
       if (!isSafeInt53(maxItems) || !isSafeInt53(maxBytes)) {
@@ -776,7 +783,15 @@ export async function skeletonizeScreenTemplate(
       }
       case 'kpiStrip': {
         checkAllowedKeys(obj, ['kind', 'items'], pathLabel, pushFix);
-        const items = buildDataSlot(obj.items, slotCursor++, false, `${pathLabel}.items`, `${pathLabel}.items`);
+        const items = buildDataSlot(
+          obj.items,
+          slotCursor++,
+          false,
+          `${pathLabel}.items`,
+          `${pathLabel}.items`,
+          undefined,
+          KPI_ITEM_TIERS
+        );
         return { kind: 'kpiStrip', items };
       }
       case 'keyValueList': {

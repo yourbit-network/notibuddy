@@ -486,6 +486,7 @@ export type ScreenResolutionOutcome =
       repaired?: true;
       suggestedTemplate?: Record<string, unknown>;
       changes?: ScreenFeedbackItem[];
+      ordinalMap?: ScreenOrdinalMap;
     }
   | {
       ok: false;
@@ -642,6 +643,7 @@ export async function resolveScreenForDispatch(
       skeleton: catalogMatch.skeleton,
       labels: skeletonized.labels,
       data: skeletonized.data,
+      ordinalMap: skeletonized.ordinalMap,
     };
   }
 
@@ -690,6 +692,7 @@ export async function resolveScreenForDispatch(
             repaired: true,
             suggestedTemplate,
             changes,
+            ordinalMap: skeletonized.ordinalMap,
           };
         }
         return {
@@ -698,6 +701,7 @@ export async function resolveScreenForDispatch(
           skeleton: cached.record.skeleton,
           labels: skeletonized.labels,
           data: skeletonized.data,
+          ordinalMap: skeletonized.ordinalMap,
         };
       }
     }
@@ -793,6 +797,7 @@ export async function resolveScreenForDispatch(
       repaired: true,
       suggestedTemplate,
       changes,
+      ordinalMap: skeletonized.ordinalMap,
     };
   }
 
@@ -802,6 +807,7 @@ export async function resolveScreenForDispatch(
     skeleton: record.skeleton,
     labels: skeletonized.labels,
     data: skeletonized.data,
+    ordinalMap: skeletonized.ordinalMap,
   };
 }
 
@@ -1281,7 +1287,8 @@ export async function dryRunLocalScreen(
           error.partial.skeleton,
           error.partial.labels,
           error.partial.data,
-          title
+          title,
+          error.partial.ordinalMap
         );
       }
       return {
@@ -1324,7 +1331,8 @@ export async function dryRunLocalScreen(
     skeletonized.skeleton,
     skeletonized.labels,
     skeletonized.data,
-    title
+    title,
+    skeletonized.ordinalMap
   );
   return {
     valid: errors.length === 0 && fixes.length === 0,

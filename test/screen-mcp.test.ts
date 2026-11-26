@@ -35,6 +35,11 @@ import {
   fetchPublicTemplateRecord,
   verifyScreenSettlement,
 } from '../src/screen-client.js';
+import {
+  decodeScreenAnswer,
+  extractScreenDecodeContext,
+  renderScreenBuilderMarkdown,
+} from '../src/screen-describe.js';
 import { validateScreenRequestBindings } from '../src/screen-record.js';
 import { SKELETONIZER_VERSION, skeletonizeScreenTemplate } from '../src/screen-skeletonizer.js';
 import { SCREEN_REFRESH_AFTER_MS, ScreenTemplateStore, relayOriginOf } from '../src/screen-store.js';
@@ -1836,6 +1841,66 @@ async function main(): Promise<void> {
         assert.equal(pickerLabelDry.valid, true);
         assert.equal(dryRunHttpCalls, 0);
 
+        // 5-item and 6-item kpiStrip succeed with maxItems=6, authored predicate IDs/labels in preview, and no ordinal in errors
+        const makeKpiItems = (n: number) =>
+          Array.from({ length: n }, (_, idx) => ({ label: `M${idx + 1}`, value: `${idx + 1}%` }));
+        const makeKpiScreen = (n: number) => ({
+          template: {
+            v: 1,
+            root: {
+              kind: 'card',
+              children: [
+                { kind: 'kpiStrip', items: makeKpiItems(n) },
+                { kind: 'checklist', id: 'reviewed', items: ['Check telemetry'] },
+                {
+                  kind: 'formField',
+                  id: 'strategy',
+                  fieldType: 'picker',
+                  label: 'Strategy',
+                  options: ['Canary', 'All at once'],
+                },
+                { kind: 'formField', id: 'note', fieldType: 'text', label: 'Note' },
+              ],
+            },
+            actions: [
+              {
+                id: 'deploy',
+                label: 'Deploy',
+                role: 'primary',
+                requireBio: false,
+                enabledWhen: [
+                  { op: 'allChecked', checklist: 'reviewed' },
+                  { op: 'equals', field: 'strategy', value: 'Canary' },
+                  { op: 'isNotEmpty', field: 'note' },
+                ],
+              },
+            ],
+          },
+        });
+        for (const count of [5, 6]) {
+          const okKpi = await makeClient(pairedA, true).ask({
+            title: `${count} KPIs dry run`,
+            dryRun: true,
+            screen: makeKpiScreen(count),
+          });
+          assert.equal(okKpi.status, 'dry_run');
+          assert.equal(okKpi.valid, true, JSON.stringify(okKpi.fixes));
+          const flatPreview = (okKpi.preview ?? '').replace(/\n│ /g, ' ');
+          assert.match(flatPreview, /needs reviewed=allChecked & strategy="Canary" & note!=empty/);
+          assert.doesNotMatch(flatPreview, /c0=allChecked|f0=0|f1!=empty/);
+        }
+        const sevenKpi = await makeClient(pairedA, true).ask({
+          title: '7 KPIs dry run',
+          dryRun: true,
+          screen: makeKpiScreen(7),
+        });
+        assert.equal(sevenKpi.status, 'dry_run');
+        assert.equal(sevenKpi.valid, false);
+        const kpiFix = sevenKpi.fixes?.find((f) => f.message.includes('kpiStrip supports 1..6 items (got 7)'));
+        assert.ok(kpiFix, JSON.stringify(sevenKpi.fixes));
+        assert.equal('ordinal' in kpiFix!, false);
+        assert.equal(dryRunHttpCalls, 0);
+
         // Multi-error thrown on real send too
         await assert.rejects(
           () =>
@@ -1854,6 +1919,68 @@ async function main(): Promise<void> {
             err.message.includes('notibuddy://screens/deployment_gate')
         );
         assert.equal(dryRunHttpCalls, 0);
+
+        // Builder docs document reserved action id "dismiss" and date touched semantics, and custom IDs + date touched round-trip in decoded
+        const builderDoc = renderScreenBuilderMarkdown();
+        assert.ok(builderDoc.includes('"dismiss"'));
+        assert.ok(builderDoc.includes('touched: false'));
+
+        const customSemanticInput = {
+          v: 1,
+          root: {
+            kind: 'card',
+            header: 'Cutover',
+            children: [
+              { kind: 'checklist', id: 'gate', title: 'Preflight', items: ['Canary green'] },
+              { kind: 'formField', id: 'lane7', fieldType: 'text', label: 'Lane 7 owner' },
+              { kind: 'formField', id: 'targetDate', fieldType: 'date', label: 'Target date' },
+              { kind: 'formField', id: 'pickedDate', fieldType: 'date', label: 'Picked date' },
+            ],
+          },
+          actions: [
+            {
+              id: 'apply',
+              label: 'Apply Cutover',
+              role: 'primary',
+              requireBio: true,
+              enabledWhen: [{ op: 'allChecked', checklist: 'gate' }],
+            },
+            { id: 'hold', label: 'Hold', role: 'decline', requireBio: false },
+          ],
+        };
+        const skSemantic = await skeletonizeScreenTemplate(customSemanticInput);
+        const semanticCtx = extractScreenDecodeContext(
+          skSemantic.skeleton,
+          skSemantic.labels,
+          skSemantic.data,
+          undefined,
+          skSemantic.ordinalMap
+        );
+        const decodedSemantic = decodeScreenAnswer(
+          skSemantic.skeleton,
+          {
+            c0: [true],
+            f0: 'Alice',
+            f1: '',
+            f2: '2026-11-26T16:53:57Z',
+          },
+          'a0',
+          semanticCtx
+        );
+        assert.equal(decodedSemantic.action.id, 'apply');
+        assert.equal(decodedSemantic.action.label, 'Apply Cutover');
+        assert.equal(decodedSemantic.checklists?.[0]?.id, 'gate');
+        assert.deepEqual(decodedSemantic.fields, [
+          { id: 'lane7', type: 'text', label: 'Lane 7 owner', value: 'Alice' },
+          { id: 'targetDate', type: 'date', label: 'Target date', value: null, touched: false },
+          {
+            id: 'pickedDate',
+            type: 'date',
+            label: 'Picked date',
+            value: '2026-11-26T16:53:57Z',
+            touched: true,
+          },
+        ]);
       }
     }
 

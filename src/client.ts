@@ -720,7 +720,7 @@ export class NotiBuddyClient {
           throw Error(guide ? `${msg}\n\n${guide}` : msg);
         }
         const contextDigest=await computeScreenContextDigest(id,new TextEncoder().encode(JSON.stringify(validatedPayload)));
-        const decodeCtx=extractScreenDecodeContext(resolved.skeleton,validatedPayload.labels,validatedPayload.data,catalogSlug);
+        const decodeCtx=extractScreenDecodeContext(resolved.skeleton,validatedPayload.labels,validatedPayload.data,catalogSlug,resolved.ordinalMap);
         const pendingScreen:PendingScreenContext={
           templateId:resolved.templateId,
           contextDigest,

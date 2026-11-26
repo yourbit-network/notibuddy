@@ -171,11 +171,16 @@ export function collectScreenAuthoringFixes(
       }
       case 'kpiStrip': {
         const arr = Array.isArray(data[block.items.slot]) ? (data[block.items.slot] as unknown[]) : undefined;
-        const count = arr ? arr.length : block.items.maxItems;
-        if (count < 1 || block.items.maxItems > 6 || (arr && arr.length > 6)) {
+        if (arr && (arr.length < 1 || arr.length > 6)) {
           addFix(
             'SLOT_BOUND_EXCEEDS_LIMIT',
-            `kpiStrip supports 1..6 items (got ${arr ? arr.length : block.items.maxItems}).`,
+            `kpiStrip supports 1..6 items (got ${arr.length}).`,
+            block.items.slot
+          );
+        } else if (block.items.maxItems < 1 || block.items.maxItems > 6) {
+          addFix(
+            'SLOT_BOUND_EXCEEDS_LIMIT',
+            `kpiStrip maxItems supports 1..6 (got maxItems=${block.items.maxItems}).`,
             block.items.slot
           );
         }
@@ -384,7 +389,11 @@ export function collectScreenAuthoringFixes(
   }
 
   if (ordinalMap) {
-    return rehydrateScreenFeedback(rawFixes, ordinalMap);
+    const rehydrated = rehydrateScreenFeedback(rawFixes, ordinalMap);
+    if (ordinalMap.usedSemanticIds || ordinalMap.usedInlineLiterals) {
+      return rehydrated.map(({ ordinal: _omit, ...rest }) => rest);
+    }
+    return rehydrated;
   }
   return rawFixes;
 }
@@ -479,6 +488,9 @@ export interface ScreenDecodeContext {
   actions: Record<string, string>;
   checklists: Record<string, { title?: string; items: string[] }>;
   fields: Record<string, { label: string; options?: string[] }>;
+  actionIds?: Record<string, string>;
+  checklistIds?: Record<string, string>;
+  fieldIds?: Record<string, string>;
 }
 
 export interface DecodedScreenAnswer {
@@ -500,7 +512,8 @@ export interface DecodedScreenAnswer {
     id: string;
     type: ScreenFieldType;
     label?: string;
-    value: string | boolean | number;
+    value: string | boolean | number | null;
+    touched?: boolean;
     selectedOption?: string | null;
   }>;
 }
@@ -1113,10 +1126,12 @@ export function renderScreenTextPreview(
   skeleton: ScreenSkeleton,
   labels: Record<string, string>,
   data: Record<string, ScreenDataValue>,
-  title?: string
+  title?: string,
+  ordinalMap?: ScreenOrdinalMap
 ): string {
   const WIDTH = 38;
   const lines: string[] = [`┌─ iPhone Screen Preview ${'─'.repeat(Math.max(1, WIDTH - 24))}┐`];
+  const pickerOptionsByField = new Map<string, string[]>();
   const pushBoxed = (text: string, indent = '') => {
     for (const part of wrapTextLines(text, WIDTH - 2 - indent.length)) {
       lines.push(`│ ${indent}${part}`);
@@ -1259,6 +1274,9 @@ export function renderScreenTextPreview(
           pushBoxed(`[Stepper ${block.min}..${block.max}] ${lbl} (${block.defaultInt ?? block.min})`, indent);
         } else if (block.fieldType === 'picker') {
           const opts = data[block.options.slot];
+          if (Array.isArray(opts)) {
+            pickerOptionsByField.set(block.id, opts.map(String));
+          }
           const optText = Array.isArray(opts) ? opts.map(String).join(' / ') : `<missing ${block.options.slot}>`;
           pushBoxed(`[Picker] ${lbl}: ${optText}`, indent);
         } else {
@@ -1270,6 +1288,25 @@ export function renderScreenTextPreview(
     }
   };
 
+  const formatPreviewPredicate = (pred: ScreenPredicate): string => {
+    switch (pred.op) {
+      case 'allChecked':
+        return `${ordinalMap?.checklistToAuthored[pred.checklist] ?? pred.checklist}=allChecked`;
+      case 'isNotEmpty':
+        return `${ordinalMap?.fieldToAuthored[pred.field] ?? pred.field}!=empty`;
+      case 'equals': {
+        const name = ordinalMap?.fieldToAuthored[pred.field] ?? pred.field;
+        if (typeof pred.value === 'number') {
+          const optLabel = pickerOptionsByField.get(pred.field)?.[pred.value];
+          if (optLabel !== undefined) {
+            return `${name}=${JSON.stringify(optLabel)}`;
+          }
+        }
+        return `${name}=${String(pred.value)}`;
+      }
+    }
+  };
+
   visit(skeleton.root, '');
   lines.push(`├${'─'.repeat(WIDTH)}┤`);
   for (const action of skeleton.actions) {
@@ -1277,7 +1314,7 @@ export function renderScreenTextPreview(
     const flags: string[] = [action.role];
     if (action.requireBio) flags.push('Face ID');
     if (action.enabledWhen && action.enabledWhen.length > 0) {
-      flags.push(`needs ${action.enabledWhen.map(formatCompactPredicate).join(' & ')}`);
+      flags.push(`needs ${action.enabledWhen.map(formatPreviewPredicate).join(' & ')}`);
     }
     pushBoxed(`[Button: ${lbl}] (${flags.join(', ')})`);
   }
@@ -1376,7 +1413,7 @@ Pass \`dry_run: true\` first to run full validation and get a phone-width text \
 
 - \`template.root\`: top-level container — \`{ "kind": "vstack", "spacing": "compact" | "regular" | "relaxed", "children": [...] }\` (or a single \`card\`).
 - \`template.actions\`: **1 to 3 buttons** — \`{ "id"?: "a0", "label": "Approve", "role": "primary" | "secondary" | "destructive" | "decline", "requireBio": boolean, "enabledWhen"?: [...] }\`. At most one \`decline\` action is allowed, and \`decline\` must set \`requireBio: false\`.
-- **Optional \`id\` assignment:** \`id\` is optional on \`actions\`, \`formField\`, and \`checklist\`. If omitted, IDs are auto-assigned in pre-order (\`a0..a2\`, \`f0..\`, \`c0..\`); semantic IDs (like \`rollback\` or \`reason\`) are also preserved in \`decoded\`.
+- **Optional \`id\` assignment & reserved IDs:** \`id\` is optional on \`actions\`, \`formField\`, and \`checklist\`. If omitted, IDs are auto-assigned in pre-order (\`a0..a2\`, \`f0..\`, \`c0..\`); authored semantic IDs (like \`gate\`, \`lane7\`, \`apply\`) are preserved in \`decoded\`. **Reserved ID:** \`"dismiss"\` is reserved for host-owned unavailable-screen dismissal and cannot be used as an action \`id\` (use \`"cancel"\`, \`"reject"\`, \`"hold"\`, or \`"decline"\` instead).
 - **No newlines or control characters in text blocks:** Single-line text scalars only (including \`style: "mono"\` and \`alert\`). For multi-line content, split lines across multiple \`text\` blocks, use \`keyValueList\` rows, or use \`diffViewer\`.
 
 | Limit | Cap | Notes |
@@ -1398,7 +1435,7 @@ Pass \`dry_run: true\` first to run full validation and get a phone-width text \
 - \`mode\` (optional on \`screen\`, default \`"auto"\`):
   - \`"auto"\`: automatically snaps minor capacity mismatches to standard tiers and unwraps nested cards / redundant vstack wrappers, returning \`repaired: true\` + \`suggestedTemplate\` + \`changes\`.
   - \`"strict"\`: rejects auto-repair with \`errorCode: "REPAIR_SUGGESTED"\`, returning \`suggestedTemplate\` + \`changes\` so you can inspect before sending.
-- \`date\` form field (\`fieldType: "date"\`): displays a native iOS date picker (defaults to today; no custom min/max range). Replies return ISO-8601 UTC strings (\`YYYY-MM-DDTHH:MM:SSZ\`, or \`YYYY-MM-DD\` if \`maxGraphemes < 20\`).
+- \`date\` form field (\`fieldType: "date"\`): starts unset until the user chooses a date (no custom min/max range); \`required: true\` keeps actions disabled until picked. Untouched date fields decode as \`value: null, touched: false\` (\`""\` in raw wire \`answer.form\`); picked dates return ISO-8601 UTC strings (\`YYYY-MM-DDTHH:MM:SSZ\`, or \`YYYY-MM-DD\` if \`maxGraphemes < 20\`) with \`touched: true\`.
 - \`draft_id\`: When \`dry_run: true\` returns \`valid: true\`, it includes \`draft_id\` (in RAM for 10 min). Call \`notibuddy_notify({ "draft_id": "drf_..." })\` (optionally overriding \`wait_seconds\`, \`requires_auth\`, \`sensitive\`, or \`title\`) to send the exact checked screen without re-sending the payload.
 
 ## Supported Blocks (12 Kinds)
@@ -1599,7 +1636,8 @@ export function extractScreenDecodeContext(
   skeleton: ScreenSkeleton,
   labels: Record<string, string>,
   data: Record<string, ScreenDataValue>,
-  slug?: string
+  slug?: string,
+  ordinalMap?: ScreenOrdinalMap
 ): ScreenDecodeContext {
   const actions: Record<string, string> = {};
   const checklists: Record<string, { title?: string; items: string[] }> = {};
@@ -1646,11 +1684,27 @@ export function extractScreenDecodeContext(
     }
   }
 
+  const actionIds =
+    ordinalMap?.usedSemanticIds && Object.keys(ordinalMap.actionToAuthored).length > 0
+      ? { ...ordinalMap.actionToAuthored }
+      : undefined;
+  const checklistIds =
+    ordinalMap?.usedSemanticIds && Object.keys(ordinalMap.checklistToAuthored).length > 0
+      ? { ...ordinalMap.checklistToAuthored }
+      : undefined;
+  const fieldIds =
+    ordinalMap?.usedSemanticIds && Object.keys(ordinalMap.fieldToAuthored).length > 0
+      ? { ...ordinalMap.fieldToAuthored }
+      : undefined;
+
   return {
     ...(slug ? { slug } : {}),
     actions,
     checklists,
     fields,
+    ...(actionIds ? { actionIds } : {}),
+    ...(checklistIds ? { checklistIds } : {}),
+    ...(fieldIds ? { fieldIds } : {}),
   };
 }
 
@@ -1663,10 +1717,11 @@ export function decodeScreenAnswer(
 ): DecodedScreenAnswer {
   const actionMeta = skeleton.actions.find((a) => a.id === actionId);
   const actionLabel = decodeCtx?.actions[actionId];
+  const decodedActionId = decodeCtx?.actionIds?.[actionId] ?? actionId;
   const decoded: DecodedScreenAnswer = {
     templateId: decodeCtx?.slug ?? fallbackTemplateId,
     action: {
-      id: actionId,
+      id: decodedActionId,
       ...(actionLabel !== undefined ? { label: actionLabel } : {}),
       role: actionMeta?.role ?? 'secondary',
       requireBio: actionMeta?.requireBio ?? false,
@@ -1706,7 +1761,7 @@ export function decodeScreenAnswer(
         else unchecked.push(text);
       }
       return {
-        id,
+        id: decodeCtx?.checklistIds?.[id] ?? id,
         ...(ctx?.title !== undefined ? { title: ctx.title } : {}),
         checked,
         unchecked,
@@ -1724,13 +1779,22 @@ export function decodeScreenAnswer(
         continue;
       }
       const ctx = decodeCtx?.fields[id];
+      const decodedFieldId = decodeCtx?.fieldIds?.[id] ?? id;
       const item: NonNullable<DecodedScreenAnswer['fields']>[number] = {
-        id,
+        id: decodedFieldId,
         type: fieldType,
         ...(ctx?.label !== undefined ? { label: ctx.label } : {}),
         value,
       };
-      if (fieldType === 'picker' && typeof value === 'number') {
+      if (fieldType === 'date' && typeof value === 'string') {
+        if (value.trim().length === 0) {
+          item.value = null;
+          item.touched = false;
+        } else {
+          item.value = value;
+          item.touched = true;
+        }
+      } else if (fieldType === 'picker' && typeof value === 'number') {
         if (value === -1) {
           item.selectedOption = null;
         } else if (ctx?.options && value >= 0 && value < ctx.options.length) {
