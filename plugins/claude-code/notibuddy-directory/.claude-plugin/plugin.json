@@ -1,7 +1,9 @@
 {
   "name": "notibuddy",
+  "displayName": "NotiBuddy",
   "version": "1.0.0",
-  "description": "End-to-end encrypted iPhone and Apple Watch custom screens, approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
+  "description": "Dynamic native iOS custom screen builder, Face ID approval gates, Live Activities, and iPhone-to-Claude file sharing across your paired iPhone, iPad, and Apple Watch.",
+  "icon": "./.claude-plugin/icon.png",
   "author": {
     "name": "NotiBuddy",
     "url": "https://notibuddy.app"
@@ -19,6 +21,6 @@
     "mcp",
     "iphone",
     "apple-watch",
-    "encrypted"
+    "live-activities"
   ]
 }

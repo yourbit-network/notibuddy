@@ -104,6 +104,11 @@ export function parseScreenAskInput(value: unknown): ScreenAskInput {
   const allowed = new Set(['templateId', 'template', 'slots', 'labels', 'data', 'thread', 'mode']);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
   if (unexpected.length > 0) {
+    if (unexpected.includes('draft_id')) {
+      throw new Error(
+        'Invalid screen: "draft_id" is a top-level argument, not inside screen. Pass { "draft_id": "drf_..." } alone without screen, or omit draft_id to send a new screen.'
+      );
+    }
     const label =
       unexpected.length === 1
         ? `unexpected property "${unexpected[0]}"`
@@ -1241,14 +1246,15 @@ export async function dryRunLocalScreen(
       const msg = af.at ? `${af.at}: ${af.message}` : af.message;
       if (!errors.includes(msg)) errors.push(msg);
     }
+    const valid = errors.length === 0 && fixes.length === 0;
     const preview = renderScreenTextPreview(skeleton, labels, data, title);
     return {
-      valid: errors.length === 0 && fixes.length === 0,
+      valid,
       templateId,
       ...(templateSlug ? { templateSlug } : {}),
       errors,
       ...(fixes.length > 0 ? { fixes } : {}),
-      ...(layout ? { layout } : {}),
+      ...(!valid && layout ? { layout } : {}),
       preview,
     };
   }
@@ -1327,6 +1333,7 @@ export async function dryRunLocalScreen(
     const msg = af.at ? `${af.at}: ${af.message}` : af.message;
     if (!errors.includes(msg)) errors.push(msg);
   }
+  const valid = errors.length === 0 && fixes.length === 0;
   const preview = renderScreenTextPreview(
     skeletonized.skeleton,
     skeletonized.labels,
@@ -1335,12 +1342,12 @@ export async function dryRunLocalScreen(
     skeletonized.ordinalMap
   );
   return {
-    valid: errors.length === 0 && fixes.length === 0,
+    valid,
     templateId: catalogMatch?.templateId ?? candidateId,
     ...(catalogMatch ? { templateSlug: catalogMatch.slug } : {}),
     errors,
     ...(fixes.length > 0 ? { fixes } : {}),
-    ...(layout ? { layout } : {}),
+    ...(!valid && layout ? { layout } : {}),
     preview,
   };
 }

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "notibuddy": {
+      "type": "http",
+      "url": "https://mcp.notibuddy.app/mcp"
+    }
+  }
+}

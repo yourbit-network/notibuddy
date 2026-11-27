@@ -1123,6 +1123,65 @@ async function main(): Promise<void> {
         assert.equal(res.isError, true, `Expected exclusivity error for ${JSON.stringify(badArgs)}`);
       }
       assert.equal(posted, beforeInvalid, 'Invalid exclusive combinations must make 0 HTTP calls');
+
+      // Local MCP draft_id forgiving handling & fail-closed guard
+      const dryKpiRes = await mcp.callTool({
+        name: 'notibuddy_notify',
+        arguments: {
+          title: 'Local Draft Screen',
+          dry_run: true,
+          screen: kpiStatusScreen,
+        },
+      });
+      assert.notEqual(dryKpiRes.isError, true);
+      const dryKpiOut = JSON.parse((dryKpiRes.content as any)[0].text);
+      assert.equal(dryKpiOut.status, 'dry_run');
+      assert.equal(dryKpiOut.valid, true);
+      assert.equal(dryKpiOut.layout, undefined);
+      assert.match(dryKpiOut.draft_id, /^drf_[0-9a-f]{16}$/);
+
+      // Nested draft_id + templateId alone hoists & sends cleanly
+      const hoistedRes = await mcp.callTool({
+        name: 'notibuddy_notify',
+        arguments: {
+          title: 'Local Draft Screen',
+          wait_seconds: 0,
+          screen: { templateId: 'kpi_status_card', draft_id: dryKpiOut.draft_id },
+        },
+      });
+      assert.notEqual(hoistedRes.isError, true);
+      assert.equal(JSON.parse((hoistedRes.content as any)[0].text).status, 'pending');
+
+      const dryKpiTwo = await mcp.callTool({
+        name: 'notibuddy_notify',
+        arguments: { title: 'Local Draft Two', dry_run: true, screen: kpiStatusScreen },
+      });
+      const dryKpiTwoOut = JSON.parse((dryKpiTwo.content as any)[0].text);
+      // Modified screen with draft_id fails closed and preserves draft
+      const modDraftRes = await mcp.callTool({
+        name: 'notibuddy_notify',
+        arguments: {
+          title: 'Local Draft Two',
+          wait_seconds: 0,
+          draft_id: dryKpiTwoOut.draft_id,
+          screen: { ...kpiStatusScreen, labels: { ...kpiStatusScreen.labels, s1: 'Modified' } },
+        },
+      });
+      assert.equal(modDraftRes.isError, true);
+      assert.ok((modDraftRes.content as any)[0].text.includes('modified screen'));
+
+      // Identical screen with top-level draft_id consumes & sends
+      const identicalLocalRes = await mcp.callTool({
+        name: 'notibuddy_notify',
+        arguments: {
+          title: 'Local Draft Two',
+          wait_seconds: 0,
+          draft_id: dryKpiTwoOut.draft_id,
+          screen: kpiStatusScreen,
+        },
+      });
+      assert.notEqual(identicalLocalRes.isError, true);
+      assert.equal(JSON.parse((identicalLocalRes.content as any)[0].text).status, 'pending');
     }
 
     // -------------------------------------------------------------------------
@@ -1744,6 +1803,7 @@ async function main(): Promise<void> {
         });
         assert.equal(goodDry.status, 'dry_run');
         assert.equal(goodDry.valid, true);
+        assert.equal(goodDry.layout, undefined);
         assert.deepEqual(goodDry.errors, []);
         assert.equal(goodDry.templateSlug, 'deployment_gate');
         assert.equal(goodDry.templateId, SCREEN_CATALOG_BY_SLUG.deployment_gate.templateId);
