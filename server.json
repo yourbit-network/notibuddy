@@ -3,7 +3,7 @@
   "name": "io.github.yourbit-network/notibuddy",
   "title": "NotiBuddy",
   "description": "Encrypted iPhone & Apple Watch custom screens, approvals, diffs, and progress for AI agents.",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "websiteUrl": "https://notibuddy.app/setup",
   "repository": {
     "url": "https://github.com/yourbit-network/notibuddy",
@@ -26,7 +26,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "notibuddy",
-      "version": "0.4.3",
+      "version": "0.4.4",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -46,6 +46,12 @@
           "format": "string"
         }
       ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.notibuddy.app/mcp"
     }
   ]
 }

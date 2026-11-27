@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4 — 2026-11-27
+
+- **Official MCP Registry Remote Endpoint:** Declare the hosted Streamable HTTP MCP endpoint (`https://mcp.notibuddy.app/mcp`) under `remotes` alongside the local npm `stdio` package in `server.json`.
+- **One-Shot Screen & Schema Ergonomics:** Place the compact built-in screen slot cheatsheet directly on top-level `screen.description`, omit redundant `layout` echoes on valid `dry_run` responses, remove top-level `anyOf` from `notibuddy_notify` input schema for broader MCP host compatibility, and support forgiving single-use `draft_id` sends.
+- **Claude Directory Plugin Bundle (`v1.0.1`):** Bundle the hosted remote MCP server, explicit `icon` and `displayName` fields, and hosted-only skills and data-handling documentation in `plugins/claude-code/notibuddy-directory`.
+
 ## 0.4.3 — 2026-11-26
 
 - **Ergonomic Custom Screens & Builder Resources:** Add flat semantic `screen.slots` for all 8 built-in certified layouts (preserving backward compatibility for `labels`/`data`), publish `notibuddy://screens/{templateId}` and `notibuddy://screens/builder` MCP resources, expose `draft_id` directly in the `notibuddy_notify` schema alongside `screen.template` / builder pointers, document `"dismiss"` as a reserved action ID, and trim repeated template cheatsheet prose from `MCP_INSTRUCTIONS`.
