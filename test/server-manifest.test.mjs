@@ -32,6 +32,10 @@ test('server.json stays within Official MCP Registry field bounds and matches pa
   assert.equal(npmPkg.identifier, pkg.name);
   assert.equal(npmPkg.version, pkg.version);
 
+  assert.ok(Array.isArray(server.remotes) && server.remotes.length > 0, 'server.json must declare a remote streamable-http endpoint');
+  assert.equal(server.remotes[0].type, 'streamable-http');
+  assert.equal(server.remotes[0].url, 'https://mcp.notibuddy.app/mcp');
+
   if (server.websiteUrl) {
     assert.equal(new URL(server.websiteUrl).protocol, 'https:');
   }
