@@ -16,6 +16,7 @@
   <a href="https://www.npmjs.com/package/notibuddy"><img src="https://img.shields.io/npm/v/notibuddy?color=CB3837&logo=npm&logoColor=white" alt="npm version" /></a>
   <a href="https://github.com/yourbit-network/notibuddy/blob/main/PROTOCOL.md"><img src="https://img.shields.io/badge/Protocol-v1-10B981" alt="Protocol v1" /></a>
   <a href="https://github.com/yourbit-network/notibuddy/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-3B82F6" alt="MIT License" /></a>
+  <a href="https://mcptry.com/servers/io.github.yourbit-network/notibuddy"><img src="https://mcptry.com/badge/io.github.yourbit-network/notibuddy" alt="mcptry" /></a>
 </p>
 
 <p align="center">
