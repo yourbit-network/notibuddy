@@ -1,6 +1,6 @@
 # NotiBuddy Tool Examples
 
-## 1. Custom Native UI Builder Screen (Inline `screen.template`, Local & Hosted MCP)
+## 1. Custom Native UI Builder Screen (Inline `screen.template`, Hosted MCP)
 Combines status cards, KPI strip, readiness checklist gating the Face ID promote button, and a rollback toggle:
 ```json
 {
@@ -69,7 +69,7 @@ Combines status cards, KPI strip, readiness checklist gating the Face ID promote
 }
 ```
 
-## 2. Certified Built-In Screen (`screen.templateId` + `slots`, Local & Hosted MCP)
+## 2. Certified Built-In Screen (`screen.templateId` + `slots`, Hosted MCP)
 ```json
 {
   "title": "Eval run #142 completed",

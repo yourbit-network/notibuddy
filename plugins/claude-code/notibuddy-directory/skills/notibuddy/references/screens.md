@@ -1,10 +1,10 @@
 # Custom Native Screens & SwiftUI UI Builder Reference
 
-NotiBuddy renders native iOS / iPadOS SwiftUI views directly from structured JSON passed in `notibuddy_notify` (`screen: ...`) or `nb notify --screen <file.json>`.
+NotiBuddy renders native iOS / iPadOS SwiftUI views directly from structured JSON passed in `notibuddy_notify` (`screen: ...`).
 
 ## Inline Custom UI Builder (`screen.template`)
 
-Supported on **both local** `notibuddy` MCP/`nb` CLI sessions and the **hosted cloud MCP** (`mcp.notibuddy.app`; `fieldType: "secret"` stays local-only). The relay validates and caches only the content-free structural skeleton while your labels, data, and replies remain end-to-end encrypted. Read the live `notibuddy://screens/builder` MCP resource for full schema rules and structural limits, and pass `dry_run: true` to run full certifier validation and get a phone-width text `preview` plus a single-use `draft_id`.
+Supported on the bundled hosted NotiBuddy MCP connector (`https://mcp.notibuddy.app/mcp`; `fieldType: "secret"` is intentionally disabled in hosted cloud chat). The server validates and caches only the content-free structural skeleton while your labels, data, and replies remain encrypted between the connector and the paired device. Read the live `notibuddy://screens/builder` MCP resource for full schema rules and structural limits, and optionally pass `dry_run: true` to validate and get a phone-width text `preview` plus a single-use `draft_id`.
 
 ### Top-Level Shape
 
@@ -46,7 +46,7 @@ Supported on **both local** `notibuddy` MCP/`nb` CLI sessions and the **hosted c
 | Data | `keyValueList` | `rows`: `[{ "key": "Commit", "value": "8f3c19a" }, ...]` |
 | Data | `diffViewer` | `diff`: `{ "filename": "...", "language": "sql", "original": "...", "modified": "..." }` |
 | Interactive | `checklist` | `id`: string, optional `title`, `items`: `string[]` (referenced by `allChecked`) |
-| Interactive | `formField` | `id`: string, `label`: string, `fieldType` (`text`, `email`, `url`, `date`, `toggle`, `stepper`, `picker`, `secret`), plus field-specific bounds (`min`/`max`/`defaultInt` for `stepper`, `options`/`defaultOptionIndex` for `picker`, `defaultBool` for `toggle`, `placeholder`/`required`) |
+| Interactive | `formField` | `id`: string, `label`: string, `fieldType` (`text`, `email`, `url`, `date`, `toggle`, `stepper`, `picker`), plus field-specific bounds (`min`/`max`/`defaultInt` for `stepper`, `options`/`defaultOptionIndex` for `picker`, `defaultBool` for `toggle`, `placeholder`/`required`) |
 
 ### Conditional Button Gating (`enabledWhen`) & Actions
 
@@ -55,18 +55,16 @@ Define **1–3 `actions`** per screen (`"dismiss"` is a reserved action `id` for
 - `{ "op": "isNotEmpty", "field": "<field-id>" }` — unlocks once a required note/input field is non-empty.
 - `{ "op": "equals", "field": "<field-id>", "value": true }` — matches a boolean `toggle`, integer `stepper`/`picker` index, or a `picker` option label string.
 
-### Reusable Templates, Drafts & CLI Attestation
+### Optional Dry-Run Preview & Draft Reuse
 
-- Pass `dry_run: true` to validate with the certifier, inspect a phone-width text `preview`, and get a single-use `draft_id` that can be sent directly without re-sending the full JSON payload.
-- Pre-register an inline layout once and get its content-addressed `tpl_...` ID:
-  `nb screen register ./my-screen.json --mode strict`
-- Subsequent runs can pass `{ "screen": { "templateId": "tpl_...", "labels": {...}, "data": {...} } }`.
+- Pass `dry_run: true` to validate a complex custom layout before sending, inspect a ~38-char phone-width text `preview`, and get a top-level single-use `draft_id` (`drf_...`).
+- Send the validated draft with top-level `{ "draft_id": "drf_..." }` alone (without `screen`).
 
 ---
 
-## 8 Built-In Certified Templates (`screen.templateId`)
+## 8 Built-In Templates (`screen.templateId`)
 
-Available on **both** local sessions and the hosted cloud MCP (`mcp.notibuddy.app`):
+Send built-in presets directly in one call once `slots` are filled (skip `dry_run` unless asked to preview):
 
 | Slug (`templateId`) | Face ID | Composed Blocks | Ideal Use Case |
 |---|---|---|---|
