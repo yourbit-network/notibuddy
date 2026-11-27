@@ -1,7 +1,9 @@
 {
   "name": "notibuddy",
+  "displayName": "NotiBuddy",
   "version": "1.0.0",
   "description": "End-to-end encrypted iPhone and Apple Watch custom screens, approvals, code diffs, structured forms, live progress, and file sharing for AI agents.",
+  "icon": "./.claude-plugin/icon.png",
   "author": {
     "name": "NotiBuddy",
     "url": "https://notibuddy.app"
